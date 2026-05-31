@@ -6,9 +6,14 @@ config_version = "1.0.0"
 include_raw_data = false
 log_payload_summary = true
 log_payload_debug = false
+anthropic_sdk_log_level = "INFO"
 
 [compatibility]
 tool_argument_parse_mode = "auto"
 reasoning_parse_mode = "auto"
 strict_extra_params = false
 invalid_image_policy = "placeholder"
+max_image_bytes_mb = 30
+max_image_pixels = 25000000
+max_image_dimension = 8192
+max_image_frames = 64

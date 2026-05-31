@@ -1,5 +1,4 @@
 from collections.abc import Mapping
-from typing import Any
 
 SECRET_KEY_PARTS = ("api_key", "apikey", "authorization", "token", "secret", "password")
 IMAGE_DATA_PREFIX = "data:image/"
@@ -92,7 +91,7 @@ def build_parse_error_message(provider_label: str, message: str) -> str:
     return f"{provider_label} 响应解析失败: {message}"
 
 
-def compact_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+def compact_mapping(value: Mapping[str, object]) -> dict[str, object]:
     """复制非 None 字段，便于生成 raw_data 摘要。"""
 
     return {str(key): item for key, item in value.items() if item is not None}

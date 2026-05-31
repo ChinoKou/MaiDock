@@ -3,9 +3,11 @@ import binascii
 import io
 import json
 import logging
-from collections.abc import Mapping
+import math
+import warnings
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 from PIL import Image as PILImage
 
@@ -20,6 +22,7 @@ from .schemas import (
     MessagePartText,
     MessageSnapshot,
     ModelInfoSnapshot,
+    JsonObject,
     ObjectFields,
     OpenAITextConfig,
     OpenAITextFormatConfig,
@@ -31,6 +34,21 @@ from .schemas import (
 SUPPORTED_IMAGE_FORMATS = {"jpeg", "png", "webp"}
 InvalidImagePolicy = Literal["placeholder", "skip", "error"]
 MAIDOCK_USER_AGENT = "MaiDock/1.0.0"
+DEFAULT_MAX_IMAGE_BYTES = 30 * 1024 * 1024
+DEFAULT_MAX_IMAGE_PIXELS = 25_000_000
+DEFAULT_MAX_IMAGE_DIMENSION = 8192
+DEFAULT_MAX_IMAGE_FRAMES = 64
+
+
+@dataclass(slots=True)
+class ImageProcessingLimits:
+    """图片处理资源上限。"""
+
+    max_base64_chars: int = math.ceil(DEFAULT_MAX_IMAGE_BYTES / 3) * 4
+    max_decoded_bytes: int = DEFAULT_MAX_IMAGE_BYTES
+    max_pixels: int = DEFAULT_MAX_IMAGE_PIXELS
+    max_dimension: int = DEFAULT_MAX_IMAGE_DIMENSION
+    max_frames: int = DEFAULT_MAX_IMAGE_FRAMES
 
 
 @dataclass(slots=True)
@@ -40,10 +58,12 @@ class ProviderRuntimeOptions:
     include_raw_data: bool = False
     log_payload_summary: bool = True
     log_payload_debug: bool = False
+    anthropic_sdk_log_level: str | None = "INFO"
     tool_argument_parse_mode: ToolArgumentParseMode = "auto"
     reasoning_parse_mode: ReasoningParseMode = "auto"
     strict_extra_params: bool = False
     invalid_image_policy: InvalidImagePolicy = "placeholder"
+    image_limits: ImageProcessingLimits = field(default_factory=ImageProcessingLimits)
 
 
 @dataclass(slots=True)
@@ -53,7 +73,7 @@ class OpenAICompatibleClientConfig:
     api_key: str
     base_url: str | None
     default_headers: dict[str, str] = field(default_factory=dict)
-    default_query: dict[str, Any] = field(default_factory=dict)
+    default_query: JsonObject = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -61,9 +81,9 @@ class RequestOverrides:
     """SDK 单次请求覆盖参数。"""
 
     extra_headers: dict[str, str] = field(default_factory=dict)
-    extra_query: dict[str, Any] = field(default_factory=dict)
-    extra_body: dict[str, Any] = field(default_factory=dict)
-    direct_params: dict[str, Any] = field(default_factory=dict)
+    extra_query: JsonObject = field(default_factory=dict)
+    extra_body: JsonObject = field(default_factory=dict)
+    direct_params: JsonObject = field(default_factory=dict)
 
 
 def read_model_identifier(model_info: ModelInfoSnapshot) -> str:
@@ -101,10 +121,10 @@ def read_max_retries(api_provider: ApiProviderSnapshot, default: int) -> int:
     return default
 
 
-def merge_extra_params(request: BaseProviderRequestSnapshot) -> dict[str, Any]:
+def merge_extra_params(request: BaseProviderRequestSnapshot) -> JsonObject:
     """合并模型级和请求级 extra_params，请求级覆盖模型级。"""
 
-    merged: dict[str, Any] = {}
+    merged: JsonObject = {}
     for source in (request.model_info.extra_params, request.extra_params):
         for key, value in source.fields.items():
             if value is not None:
@@ -112,14 +132,14 @@ def merge_extra_params(request: BaseProviderRequestSnapshot) -> dict[str, Any]:
     return merged
 
 
-def pop_json_object(payload: dict[str, Any], key: str) -> dict[str, Any]:
+def pop_json_object(payload: JsonObject, key: str) -> JsonObject:
     """从 payload 取出 object 字段。"""
 
     value = payload.pop(key, None)
     return ObjectFields.from_unknown(value).to_plain_dict()
 
 
-def require_string_dict(value: Mapping[str, Any], *, field_name: str) -> dict[str, str]:
+def require_string_dict(value: Mapping[str, object], *, field_name: str) -> dict[str, str]:
     """校验字符串字典。"""
 
     result: dict[str, str] = {}
@@ -253,7 +273,7 @@ def build_anthropic_client_config(api_provider: ApiProviderSnapshot) -> OpenAICo
 
 
 def split_request_overrides(
-    extra_params: Mapping[str, Any] | None,
+    extra_params: Mapping[str, object] | None,
     *,
     direct_body_keys: set[str] | None = None,
     reserved_body_keys: set[str] | None = None,
@@ -265,7 +285,7 @@ def split_request_overrides(
     extra_headers = require_string_dict(pop_json_object(raw_params, "headers"), field_name="extra_params.headers")
     extra_query = pop_json_object(raw_params, "query")
     extra_body = pop_json_object(raw_params, "body")
-    direct_params: dict[str, Any] = {}
+    direct_params: JsonObject = {}
     direct_keys = direct_body_keys or set()
     blocked_keys = reserved_body_keys or set()
 
@@ -310,38 +330,79 @@ def image_media_type(image_format: str | None) -> str:
     return f"image/{fmt}"
 
 
-def normalize_image_for_openai(part: MessagePartImage, logger: logging.Logger) -> tuple[str, str] | None:
+def _validate_base64_size(image_base64: str, limits: ImageProcessingLimits) -> bool:
+    return limits.max_base64_chars <= 0 or len(image_base64) <= limits.max_base64_chars
+
+
+def _validate_decoded_size(image_bytes: bytes, limits: ImageProcessingLimits) -> bool:
+    return limits.max_decoded_bytes <= 0 or len(image_bytes) <= limits.max_decoded_bytes
+
+
+def _validate_image_geometry(image: PILImage.Image, limits: ImageProcessingLimits) -> None:
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        raise ValueError("图片尺寸无效")
+    if limits.max_dimension > 0 and (width > limits.max_dimension or height > limits.max_dimension):
+        raise ValueError("图片单边尺寸超过限制")
+    if limits.max_pixels > 0 and width * height > limits.max_pixels:
+        raise ValueError("图片像素数量超过限制")
+    frame_count = int(getattr(image, "n_frames", 1) or 1)
+    if limits.max_frames > 0 and frame_count > limits.max_frames:
+        raise ValueError("图片帧数超过限制")
+
+
+def normalize_image_for_openai(
+    part: MessagePartImage,
+    logger: logging.Logger,
+    limits: ImageProcessingLimits | None = None,
+) -> tuple[str, str] | None:
     """将图片规整为 OpenAI Responses 接受的 data URL 片段。"""
 
+    active_limits = limits or ImageProcessingLimits()
     if not part.image_base64:
+        return None
+    if not _validate_base64_size(part.image_base64, active_limits):
+        logger.warning("图片 Base64 长度超过限制，已按配置处理该图片片段")
         return None
     try:
         image_bytes = base64.b64decode(part.image_base64, validate=True)
     except (binascii.Error, ValueError) as exc:
         logger.warning("图片 Base64 解码失败，已按配置处理该图片片段: %s", exc)
         return None
-
-    try:
-        with PILImage.open(io.BytesIO(image_bytes)) as image:
-            image_format = (image.format or part.image_format or "png").lower()
-            if image_format == "jpg":
-                image_format = "jpeg"
-            if image_format in SUPPORTED_IMAGE_FORMATS:
-                return image_format, part.image_base64
-            if image_format == "gif":
-                return _convert_gif_to_webp(image)
-            return _convert_static_image_to_png(image)
-    except Exception as exc:
-        logger.warning("图片内容无法识别为有效图片，已按配置处理该图片片段: %s", exc)
+    if not _validate_decoded_size(image_bytes, active_limits):
+        logger.warning("图片解码后大小超过限制，已按配置处理该图片片段")
         return None
 
+    original_max_pixels = PILImage.MAX_IMAGE_PIXELS
+    try:
+        PILImage.MAX_IMAGE_PIXELS = active_limits.max_pixels if active_limits.max_pixels > 0 else original_max_pixels
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", PILImage.DecompressionBombWarning)
+            with PILImage.open(io.BytesIO(image_bytes)) as image:
+                _validate_image_geometry(image, active_limits)
+                image_format = (image.format or part.image_format or "png").lower()
+                if image_format == "jpg":
+                    image_format = "jpeg"
+                if image_format in SUPPORTED_IMAGE_FORMATS:
+                    return image_format, part.image_base64
+                if image_format == "gif":
+                    return _convert_gif_to_webp(image, active_limits)
+                return _convert_static_image_to_png(image, active_limits)
+    except Exception as exc:
+        logger.warning("图片内容无法识别或超过处理限制，已按配置处理该图片片段: %s", exc)
+        return None
+    finally:
+        PILImage.MAX_IMAGE_PIXELS = original_max_pixels
 
-def _convert_gif_to_webp(image: PILImage.Image) -> tuple[str, str]:
-    frame_count = getattr(image, "n_frames", 1)
+
+def _convert_gif_to_webp(image: PILImage.Image, limits: ImageProcessingLimits) -> tuple[str, str]:
+    _validate_image_geometry(image, limits)
+    frame_count = int(getattr(image, "n_frames", 1) or 1)
     frames: list[PILImage.Image] = []
     durations: list[int] = []
     for frame_index in range(frame_count):
         image.seek(frame_index)
+        _validate_image_geometry(image, limits)
         frame = image.copy()
         if frame.mode not in {"RGB", "RGBA"}:
             frame = frame.convert("RGBA")
@@ -349,20 +410,30 @@ def _convert_gif_to_webp(image: PILImage.Image) -> tuple[str, str]:
         durations.append(int(image.info.get("duration", 100) or 100))
 
     output_buffer = io.BytesIO()
-    save_kwargs: dict[str, Any] = {
-        "format": "WEBP",
-        "save_all": True,
-        "append_images": frames[1:],
-        "duration": durations,
-        "loop": int(image.info.get("loop", 0) or 0),
-    }
     if frame_count > 1:
-        save_kwargs["lossless"] = True
-    frames[0].save(output_buffer, **save_kwargs)
+        frames[0].save(
+            output_buffer,
+            format="WEBP",
+            save_all=True,
+            append_images=frames[1:],
+            duration=durations,
+            loop=int(image.info.get("loop", 0) or 0),
+            lossless=True,
+        )
+    else:
+        frames[0].save(
+            output_buffer,
+            format="WEBP",
+            save_all=True,
+            append_images=frames[1:],
+            duration=durations,
+            loop=int(image.info.get("loop", 0) or 0),
+        )
     return "webp", base64.b64encode(output_buffer.getvalue()).decode("utf-8")
 
 
-def _convert_static_image_to_png(image: PILImage.Image) -> tuple[str, str]:
+def _convert_static_image_to_png(image: PILImage.Image, limits: ImageProcessingLimits) -> tuple[str, str]:
+    _validate_image_geometry(image, limits)
     normalized_image = image.copy()
     if normalized_image.mode not in {"RGB", "RGBA"}:
         normalized_image = normalized_image.convert("RGBA")
@@ -371,10 +442,15 @@ def _convert_static_image_to_png(image: PILImage.Image) -> tuple[str, str]:
     return "png", base64.b64encode(output_buffer.getvalue()).decode("utf-8")
 
 
-def image_data_url(part: MessagePartImage, logger: logging.Logger, invalid_policy: InvalidImagePolicy) -> str | None:
+def image_data_url(
+    part: MessagePartImage,
+    logger: logging.Logger,
+    invalid_policy: InvalidImagePolicy,
+    limits: ImageProcessingLimits | None = None,
+) -> str | None:
     """构造图片 data URL，非法图片按策略处理。"""
 
-    normalized_image = normalize_image_for_openai(part, logger)
+    normalized_image = normalize_image_for_openai(part, logger, limits)
     if normalized_image is None:
         if invalid_policy == "error":
             raise ValueError("图片数据无效，无法构建上游请求")
@@ -499,7 +575,7 @@ def log_request_summary(
     model: str,
     messages: int | None = None,
     tools: int | None = None,
-    extra: Mapping[str, Any] | None = None,
+    extra: Mapping[str, object] | None = None,
     options: ProviderRuntimeOptions,
 ) -> None:
     """按配置记录请求摘要。"""
@@ -516,7 +592,7 @@ def log_response_summary(
     *,
     provider_label: str,
     content: str | None,
-    tool_calls: list[Any],
+    tool_calls: Sequence[object],
     usage: ProviderUsage,
     options: ProviderRuntimeOptions,
 ) -> None:

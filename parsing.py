@@ -1,17 +1,17 @@
 import json
 import re
-from typing import Any, Literal
+from typing import Literal
 from uuid import uuid4
 
 from json_repair import repair_json
 from pydantic import TypeAdapter
 
-from .schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
+from .schemas import JsonObject, JsonValue, ObjectFields, ProviderFunctionCall, ProviderToolCall
 
 ToolArgumentParseMode = Literal["auto", "strict", "repair", "double_decode"]
 ReasoningParseMode = Literal["auto", "native", "think_tag", "none"]
 
-_DICT_ADAPTER = TypeAdapter(dict[str, Any])
+_DICT_ADAPTER = TypeAdapter(JsonObject)
 
 THINK_CONTENT_PATTERN = re.compile(
     r"<think>(?P<think>.*?)</think>(?P<content>.*)|<think>(?P<think_unclosed>.*)|(?P<content_only>.+)",
@@ -52,7 +52,7 @@ def normalize_reasoning_parse_mode(parse_mode: str | None) -> ReasoningParseMode
     return "auto"
 
 
-def normalize_arguments(value: ObjectFields | str | None, parse_mode: ToolArgumentParseMode = "auto") -> dict[str, Any]:
+def normalize_arguments(value: ObjectFields | str | None, parse_mode: ToolArgumentParseMode = "auto") -> JsonObject:
     """解析 Host 快照或上游响应中的工具参数。"""
 
     if isinstance(value, ObjectFields):
@@ -70,7 +70,7 @@ def _tool_argument_error(raw_arguments: str, reason: str) -> ValueError:
     return ValueError(f"无法解析工具调用参数: {reason}。参数预览: {_argument_preview(raw_arguments)}")
 
 
-def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> dict[str, Any]:
+def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> JsonObject:
     """解析工具调用参数字符串，空字符串按无参函数处理。"""
 
     if not raw_arguments.strip():
@@ -78,7 +78,7 @@ def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode =
 
     try:
         if parse_mode == "strict":
-            arguments: Any = json.loads(raw_arguments)
+            arguments: object = json.loads(raw_arguments)
         elif parse_mode == "repair":
             arguments = repair_json(raw_arguments, return_objects=True, logging=False)
         else:
@@ -151,7 +151,7 @@ def merge_native_or_text_reasoning(
     return None, content
 
 
-def _coerce_xml_parameter_value(raw_value: str) -> Any:
+def _coerce_xml_parameter_value(raw_value: str) -> JsonValue:
     normalized_value = raw_value.strip()
     if not normalized_value:
         return ""
@@ -170,11 +170,10 @@ def _coerce_xml_parameter_value(raw_value: str) -> Any:
     return normalized_value
 
 
-def _parse_xml_parameters(raw_arguments: str) -> dict[str, Any] | None:
-    parameters = {
-        match.group("name").strip(): _coerce_xml_parameter_value(match.group("value"))
-        for match in XML_PARAMETER_PATTERN.finditer(raw_arguments)
-    }
+def _parse_xml_parameters(raw_arguments: str) -> JsonObject | None:
+    parameters: JsonObject = {}
+    for match in XML_PARAMETER_PATTERN.finditer(raw_arguments):
+        parameters[match.group("name").strip()] = _coerce_xml_parameter_value(match.group("value"))
     return parameters or None
 
 

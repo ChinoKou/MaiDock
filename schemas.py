@@ -1,14 +1,16 @@
 from collections.abc import Mapping
-from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
+from typing import Literal, Protocol, TypeAlias, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-JsonValue: TypeAlias = str | int | float | bool | None | dict[str, Any] | list[Any]
+JsonValue: TypeAlias = str | int | float | bool | None | dict[str, object] | list[object]
+JsonObject: TypeAlias = dict[str, object]
+JsonArray: TypeAlias = list[object]
 OpenAITextVerbosity: TypeAlias = Literal["low", "medium", "high"]
 AnthropicImageMediaType: TypeAlias = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
 
-_DICT_ADAPTER = TypeAdapter(dict[str, Any])
-_LIST_ADAPTER = TypeAdapter(list[Any])
+_DICT_ADAPTER = TypeAdapter(JsonObject)
+_LIST_ADAPTER = TypeAdapter(JsonArray)
 
 
 @runtime_checkable
@@ -24,7 +26,7 @@ class HostDumpModel(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
-    def to_host_dict(self) -> dict[str, Any]:
+    def to_host_dict(self) -> JsonObject:
         return _DICT_ADAPTER.validate_python(self.model_dump(mode="json", exclude_none=True, by_alias=True))
 
 
@@ -35,9 +37,9 @@ class IgnoreExtraModel(BaseModel):
 
 
 class ObjectFields(IgnoreExtraModel):
-    """显式 object 包装，避免 Any 在 Pydantic 边界散落。"""
+    """显式 object 包装，避免宽泛类型在 Pydantic 边界散落。"""
 
-    fields: dict[str, Any] = Field(default_factory=dict)
+    fields: JsonObject = Field(default_factory=dict)
 
     @classmethod
     def from_unknown(cls, value: object) -> "ObjectFields":
@@ -53,12 +55,12 @@ class ObjectFields(IgnoreExtraModel):
             return cls()
         raise TypeError(f"期望 object/mapping，实际为 {type(value).__name__}")
 
-    def to_plain_dict(self) -> dict[str, Any]:
+    def to_plain_dict(self) -> JsonObject:
         return dict(self.fields)
 
     @field_validator("fields", mode="before")
     @classmethod
-    def validate_fields(cls, value: object) -> dict[str, Any]:
+    def validate_fields(cls, value: object) -> JsonObject:
         if isinstance(value, Mapping):
             return _DICT_ADAPTER.validate_python(dict(value))
         if value is None:
@@ -70,7 +72,7 @@ class ProviderFunctionCall(HostDumpModel):
     """返回给 Host 的函数调用。"""
 
     name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
+    arguments: JsonObject = Field(default_factory=dict)
 
 
 class ProviderToolCall(HostDumpModel):
@@ -78,7 +80,7 @@ class ProviderToolCall(HostDumpModel):
 
     id: str
     function: ProviderFunctionCall
-    extra_content: dict[str, Any] = Field(default_factory=dict)
+    extra_content: JsonObject = Field(default_factory=dict)
 
 
 class ProviderUsage(HostDumpModel):
@@ -99,7 +101,7 @@ class ProviderResponse(HostDumpModel):
     tool_calls: list[ProviderToolCall] = Field(default_factory=list)
     embedding: list[float] | None = None
     usage: ProviderUsage = Field(default_factory=ProviderUsage)
-    raw_data: dict[str, Any] | None = None
+    raw_data: JsonObject | None = None
 
 
 class ApiProviderSnapshot(IgnoreExtraModel):
@@ -363,7 +365,7 @@ class OpenAIInputTextBlock(HostDumpModel):
     type: Literal["input_text"] = "input_text"
     text: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "text": self.text}
 
 
@@ -373,7 +375,7 @@ class OpenAIOutputTextBlock(HostDumpModel):
     type: Literal["output_text"] = "output_text"
     text: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "text": self.text, "annotations": []}
 
 
@@ -384,7 +386,7 @@ class OpenAIInputImageBlock(HostDumpModel):
     image_url: str
     detail: Literal["low", "high", "auto"] = "auto"
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "image_url": self.image_url, "detail": self.detail}
 
 
@@ -398,7 +400,7 @@ class OpenAIInputMessage(HostDumpModel):
     role: Literal["system", "user"]
     content: list[OpenAIUserContentBlock]
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"role": self.role, "content": [part.to_sdk_param() for part in self.content]}
 
 
@@ -408,7 +410,7 @@ class OpenAIEasyInputMessage(HostDumpModel):
     role: Literal["assistant"] = "assistant"
     content: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"role": self.role, "content": self.content}
 
 
@@ -418,7 +420,7 @@ class OpenAIResponseOutputMessageItem(HostDumpModel):
     id: str
     content: list[OpenAIOutputMessageContentBlock]
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {
             "type": "message",
             "id": self.id,
@@ -438,8 +440,8 @@ class OpenAIFunctionCallInputItem(HostDumpModel):
     id: str | None = None
     status: Literal["in_progress", "completed", "incomplete"] | None = None
 
-    def to_sdk_param(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+    def to_sdk_param(self) -> JsonObject:
+        payload: JsonObject = {
             "type": self.type,
             "call_id": self.call_id,
             "name": self.name,
@@ -459,7 +461,7 @@ class OpenAIFunctionCallOutputItem(HostDumpModel):
     call_id: str
     output: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "call_id": self.call_id, "output": self.output}
 
 
@@ -481,7 +483,7 @@ class OpenAIResponsesTool(HostDumpModel):
     parameters: ObjectFields = Field(default_factory=_default_tool_parameters)
     strict: bool = False
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {
             "type": self.type,
             "name": self.name,
@@ -500,7 +502,7 @@ class OpenAITextFormatConfig(HostDumpModel):
     schema_payload: ObjectFields | None = Field(default=None, alias="schema")
     strict: bool | None = None
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         if self.type == "text":
             return {"type": "text"}
         if self.type == "json_object":
@@ -509,7 +511,7 @@ class OpenAITextFormatConfig(HostDumpModel):
             raise ValueError("OpenAI Responses text.format.name 必须是非空字符串")
         if self.schema_payload is None:
             raise ValueError("OpenAI Responses text.format.schema 不能为空")
-        payload: dict[str, Any] = {
+        payload: JsonObject = {
             "type": "json_schema",
             "name": self.name.strip(),
             "schema": self.schema_payload.to_plain_dict(),
@@ -527,8 +529,8 @@ class OpenAITextConfig(HostDumpModel):
     format: OpenAITextFormatConfig | None = None
     verbosity: OpenAITextVerbosity | None = None
 
-    def to_sdk_param(self) -> dict[str, Any]:
-        result: dict[str, Any] = {}
+    def to_sdk_param(self) -> JsonObject:
+        result: JsonObject = {}
         if self.format is not None:
             result["format"] = self.format.to_sdk_param()
         if self.verbosity is not None:
@@ -546,17 +548,17 @@ class OpenAIResponsesRequest(HostDumpModel):
     tools: list[OpenAIResponsesTool] = Field(default_factory=list)
     text: OpenAITextConfig | None = None
     extra_headers: dict[str, str] = Field(default_factory=dict)
-    extra_query: dict[str, Any] = Field(default_factory=dict)
-    extra_body: dict[str, Any] = Field(default_factory=dict)
-    direct_params: dict[str, Any] = Field(default_factory=dict)
+    extra_query: JsonObject = Field(default_factory=dict)
+    extra_body: JsonObject = Field(default_factory=dict)
+    direct_params: JsonObject = Field(default_factory=dict)
 
-    def input_params(self) -> list[dict[str, Any]]:
+    def input_params(self) -> list[JsonObject]:
         return [item.to_sdk_param() for item in self.input]
 
-    def tool_params(self) -> list[dict[str, Any]]:
+    def tool_params(self) -> list[JsonObject]:
         return [tool.to_sdk_param() for tool in self.tools]
 
-    def text_param(self) -> dict[str, Any] | None:
+    def text_param(self) -> JsonObject | None:
         return self.text.to_sdk_param() if self.text is not None else None
 
 
@@ -632,7 +634,7 @@ class AnthropicTextBlock(HostDumpModel):
     type: Literal["text"] = "text"
     text: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "text": self.text}
 
 
@@ -643,7 +645,7 @@ class AnthropicImageSource(HostDumpModel):
     media_type: AnthropicImageMediaType
     data: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "media_type": self.media_type, "data": self.data}
 
 
@@ -653,7 +655,7 @@ class AnthropicImageBlock(HostDumpModel):
     type: Literal["image"] = "image"
     source: AnthropicImageSource
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "source": self.source.to_sdk_param()}
 
 
@@ -663,9 +665,9 @@ class AnthropicToolUseBlock(HostDumpModel):
     type: Literal["tool_use"] = "tool_use"
     id: str
     name: str
-    input: dict[str, Any] = Field(default_factory=dict)
+    input: JsonObject = Field(default_factory=dict)
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "id": self.id, "name": self.name, "input": self.input}
 
 
@@ -676,7 +678,7 @@ class AnthropicToolResultBlock(HostDumpModel):
     tool_use_id: str
     content: str
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "tool_use_id": self.tool_use_id, "content": self.content}
 
 
@@ -691,7 +693,7 @@ class AnthropicMessage(HostDumpModel):
     role: Literal["user", "assistant"]
     content: list[AnthropicContentBlock]
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"role": self.role, "content": [block.to_sdk_param() for block in self.content]}
 
 
@@ -702,7 +704,7 @@ class AnthropicTool(HostDumpModel):
     description: str = ""
     input_schema: ObjectFields = Field(default_factory=_default_tool_parameters)
 
-    def to_sdk_param(self) -> dict[str, Any]:
+    def to_sdk_param(self) -> JsonObject:
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema.to_plain_dict()}
 
 
@@ -717,14 +719,14 @@ class AnthropicMessagesRequest(HostDumpModel):
     tools: list[AnthropicTool] = Field(default_factory=list)
     tool_choice: ObjectFields | None = None
     extra_headers: dict[str, str] = Field(default_factory=dict)
-    extra_query: dict[str, Any] = Field(default_factory=dict)
-    extra_body: dict[str, Any] = Field(default_factory=dict)
-    direct_params: dict[str, Any] = Field(default_factory=dict)
+    extra_query: JsonObject = Field(default_factory=dict)
+    extra_body: JsonObject = Field(default_factory=dict)
+    direct_params: JsonObject = Field(default_factory=dict)
 
-    def message_params(self) -> list[dict[str, Any]]:
+    def message_params(self) -> list[JsonObject]:
         return [message.to_sdk_param() for message in self.messages]
 
-    def tool_params(self) -> list[dict[str, Any]]:
+    def tool_params(self) -> list[JsonObject]:
         return [tool.to_sdk_param() for tool in self.tools]
 
 
@@ -745,11 +747,11 @@ class AnthropicResponseContentBlock(IgnoreExtraModel):
     thinking: str | None = None
     id: str | None = None
     name: str | None = None
-    input: dict[str, Any] = Field(default_factory=dict)
+    input: JsonObject = Field(default_factory=dict)
 
     @field_validator("input", mode="before")
     @classmethod
-    def validate_input(cls, value: object) -> dict[str, Any]:
+    def validate_input(cls, value: object) -> JsonObject:
         return ObjectFields.from_unknown(value).to_plain_dict()
 
 
@@ -772,7 +774,7 @@ class SdkDumpAdapter:
     """把 SDK/Pydantic 响应规整为普通 JSON-like 结构。"""
 
     @staticmethod
-    def to_plain(value: object) -> Any:
+    def to_plain(value: object) -> object:
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
         if isinstance(value, BaseModel):
@@ -789,14 +791,14 @@ class SdkDumpAdapter:
         return str(value)
 
     @staticmethod
-    def to_plain_dict(value: object) -> dict[str, Any]:
+    def to_plain_dict(value: object) -> JsonObject:
         plain = SdkDumpAdapter.to_plain(value)
         if isinstance(plain, Mapping):
             return _DICT_ADAPTER.validate_python(dict(plain))
         raise TypeError(f"不支持的 SDK 响应对象类型: {type(value).__name__}")
 
     @staticmethod
-    def to_plain_list(value: object) -> list[Any]:
+    def to_plain_list(value: object) -> JsonArray:
         plain = SdkDumpAdapter.to_plain(value)
         if isinstance(plain, list):
             return _LIST_ADAPTER.validate_python(plain)

@@ -26,23 +26,8 @@
   "dependencies": [
     {
       "type": "python_package",
-      "name": "openai",
-      "version_spec": ">=1.95.0"
-    },
-    {
-      "type": "python_package",
       "name": "anthropic",
       "version_spec": ">=0.105.2"
-    },
-    {
-      "type": "python_package",
-      "name": "json-repair",
-      "version_spec": ">=0.47.6"
-    },
-    {
-      "type": "python_package",
-      "name": "pillow",
-      "version_spec": ">=11.3.0"
     }
   ],
   "llm_providers": [

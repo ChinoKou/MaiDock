@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Literal, cast
+from collections.abc import Awaitable, Callable
+from typing import Literal, cast
 
 from anthropic import DEFAULT_MAX_RETRIES, APIConnectionError, APIStatusError, AsyncAnthropic, not_given
 from maibot_sdk import LLMProviderBase
@@ -33,6 +34,7 @@ from .schemas import (
     AnthropicImageSource,
     AnthropicMessage,
     AnthropicMessagesRequest,
+    JsonObject,
     AnthropicRawData,
     AnthropicResponseSnapshot,
     AnthropicTextBlock,
@@ -53,7 +55,14 @@ from .schemas import (
 )
 
 logger = logging.getLogger("maibot_plugin.maidock.anthropic_messages")
-logging.getLogger("anthropic._base_client").setLevel(logging.INFO)
+ANTHROPIC_SDK_LOGGER_NAME = "anthropic._base_client"
+LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
 
 ANTHROPIC_DIRECT_BODY_KEYS = {
     "metadata",
@@ -80,8 +89,9 @@ class AnthropicMessagesProvider(LLMProviderBase):
 
     def __init__(self, *, options: ProviderRuntimeOptions) -> None:
         self.options = options
+        self._configure_sdk_logging()
 
-    async def get_response(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def get_response(self, request: JsonObject) -> JsonObject:
         request_model = ResponseRequestSnapshot.model_validate(request)
         client = self._build_client(request_model.api_provider)
         upstream_request = self._build_request(request_model)
@@ -117,11 +127,17 @@ class AnthropicMessagesProvider(LLMProviderBase):
         )
         return result.to_host_dict()
 
-    async def get_embedding(self, request: dict[str, Any]) -> dict[str, Any]:
+    def _configure_sdk_logging(self) -> None:
+        log_level = (self.options.anthropic_sdk_log_level or "inherit").strip().upper()
+        if log_level in {"", "INHERIT"}:
+            return
+        logging.getLogger(ANTHROPIC_SDK_LOGGER_NAME).setLevel(LOG_LEVELS.get(log_level, logging.INFO))
+
+    async def get_embedding(self, request: JsonObject) -> JsonObject:
         del request
         raise NotImplementedError("Anthropic Messages API 不提供 embedding 端点，请改用支持 embedding 的 Provider")
 
-    async def get_audio_transcriptions(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def get_audio_transcriptions(self, request: JsonObject) -> JsonObject:
         del request
         raise NotImplementedError(
             "Anthropic Messages API 不提供 audio_transcription 端点，请改用支持音频转写的 Provider"
@@ -150,14 +166,25 @@ class AnthropicMessagesProvider(LLMProviderBase):
         max_tokens = request.max_tokens or request.model_info.max_tokens or 4096
         temperature = request.temperature if request.temperature is not None else request.model_info.temperature
         tools = self._convert_tools(request.tool_options)
+        tool_choice = self._build_default_tool_choice(tools, overrides.direct_params)
+        is_tool_required = False
+        if tool_choice and tool_choice.fields.get("type") == "any":
+            is_tool_required = True
+        elif "tool_choice" in overrides.direct_params:
+            tc = overrides.direct_params["tool_choice"]
+            if isinstance(tc, dict) and tc.get("type") == "any":
+                is_tool_required = True
+            elif isinstance(tc, str) and tc.lower() in ("any", "required"):
+                is_tool_required = True
+
         return AnthropicMessagesRequest(
             model=read_model_identifier(request.model_info),
             messages=self._convert_messages(request.message_list),
             max_tokens=int(max_tokens),
-            system=self._extract_system(request.message_list),
+            system=self._extract_system(request.message_list, is_tool_required),
             temperature=float(temperature) if isinstance(temperature, (int, float)) else None,
             tools=tools,
-            tool_choice=self._build_default_tool_choice(tools, overrides.direct_params),
+            tool_choice=tool_choice,
             extra_headers=overrides.extra_headers,
             extra_query=overrides.extra_query,
             extra_body=overrides.extra_body,
@@ -171,15 +198,16 @@ class AnthropicMessagesProvider(LLMProviderBase):
         upstream_request: AnthropicMessagesRequest,
     ) -> object:
         kwargs = self._build_message_create_kwargs(upstream_request)
+        create_message = cast(Callable[..., Awaitable[object]], client.messages.create)
         if request.model_info.force_stream_mode:
             kwargs["stream"] = True
-            stream = await client.messages.create(**kwargs)
+            stream = await create_message(**kwargs)
             return await self._collect_stream_response(stream)
         kwargs["stream"] = False
-        return await client.messages.create(**kwargs)
+        return await create_message(**kwargs)
 
-    def _build_message_create_kwargs(self, upstream_request: AnthropicMessagesRequest) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
+    def _build_message_create_kwargs(self, upstream_request: AnthropicMessagesRequest) -> JsonObject:
+        kwargs: JsonObject = {
             "model": upstream_request.model,
             "messages": upstream_request.message_params(),
             "max_tokens": upstream_request.max_tokens,
@@ -200,27 +228,27 @@ class AnthropicMessagesProvider(LLMProviderBase):
         return kwargs
 
     async def _collect_stream_response(self, stream: object) -> object:
-        content_blocks: list[dict[str, Any]] = []
+        content_blocks: list[JsonObject] = []
         input_json_parts: dict[int, list[str]] = {}
-        message_payload: dict[str, Any] = {"content": content_blocks, "usage": {}}
+        message_payload: JsonObject = {"content": content_blocks, "usage": {}}
         async for event in stream:  # type: ignore[attr-defined]
             plain_event = SdkDumpAdapter.to_plain(event)
             if not isinstance(plain_event, dict):
                 continue
             event_type = str(plain_event.get("type") or "")
             if event_type == "message_start" and isinstance(plain_event.get("message"), dict):
-                self._merge_message_start(message_payload, cast(dict[str, Any], plain_event["message"]))
+                self._merge_message_start(message_payload, cast(JsonObject, plain_event["message"]))
             elif event_type == "content_block_start" and isinstance(plain_event.get("content_block"), dict):
                 index = self._stream_block_index(plain_event, content_blocks)
                 self._put_stream_block(
                     content_blocks,
                     index,
-                    cast(dict[str, Any], plain_event["content_block"]),
+                    cast(JsonObject, plain_event["content_block"]),
                 )
             elif event_type == "content_block_delta" and isinstance(plain_event.get("delta"), dict):
                 index = self._stream_block_index(plain_event, content_blocks)
                 block = self._ensure_stream_block(content_blocks, index)
-                self._apply_stream_delta(block, cast(dict[str, Any], plain_event["delta"]), input_json_parts, index)
+                self._apply_stream_delta(block, cast(JsonObject, plain_event["delta"]), input_json_parts, index)
             elif event_type == "content_block_stop":
                 index = self._stream_block_index(plain_event, content_blocks)
                 if 0 <= index < len(content_blocks):
@@ -231,7 +259,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
         return message_payload
 
     @staticmethod
-    def _merge_message_start(message_payload: dict[str, Any], message: dict[str, Any]) -> None:
+    def _merge_message_start(message_payload: JsonObject, message: JsonObject) -> None:
         for key, value in message.items():
             if key == "content":
                 continue
@@ -241,7 +269,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
             message_payload[key] = value
 
     @staticmethod
-    def _merge_message_delta(message_payload: dict[str, Any], event: dict[str, Any]) -> None:
+    def _merge_message_delta(message_payload: JsonObject, event: JsonObject) -> None:
         delta = event.get("delta") if isinstance(event.get("delta"), dict) else {}
         if isinstance(delta, dict):
             for key in ("stop_reason", "stop_sequence"):
@@ -256,33 +284,33 @@ class AnthropicMessagesProvider(LLMProviderBase):
             AnthropicMessagesProvider._merge_stream_usage(message_payload, usage)
 
     @staticmethod
-    def _merge_stream_usage(message_payload: dict[str, Any], usage: dict[str, Any]) -> None:
+    def _merge_stream_usage(message_payload: JsonObject, usage: JsonObject) -> None:
         current_usage = message_payload.get("usage")
         merged_usage = dict(current_usage) if isinstance(current_usage, dict) else {}
         merged_usage.update(usage)
         message_payload["usage"] = merged_usage
 
     @staticmethod
-    def _stream_block_index(event: dict[str, Any], content_blocks: list[dict[str, Any]]) -> int:
+    def _stream_block_index(event: JsonObject, content_blocks: list[JsonObject]) -> int:
         index = event.get("index")
         if isinstance(index, int) and index >= 0:
             return index
         return max(len(content_blocks) - 1, 0)
 
     @staticmethod
-    def _ensure_stream_block(content_blocks: list[dict[str, Any]], index: int) -> dict[str, Any]:
+    def _ensure_stream_block(content_blocks: list[JsonObject], index: int) -> JsonObject:
         while len(content_blocks) <= index:
             content_blocks.append({"type": "text", "text": ""})
         return content_blocks[index]
 
-    def _put_stream_block(self, content_blocks: list[dict[str, Any]], index: int, block: dict[str, Any]) -> None:
+    def _put_stream_block(self, content_blocks: list[JsonObject], index: int, block: JsonObject) -> None:
         self._ensure_stream_block(content_blocks, index)
         content_blocks[index] = dict(block)
 
     @staticmethod
     def _apply_stream_delta(
-        block: dict[str, Any],
-        delta: dict[str, Any],
+        block: JsonObject,
+        delta: JsonObject,
         input_json_parts: dict[int, list[str]],
         index: int,
     ) -> None:
@@ -299,13 +327,13 @@ class AnthropicMessagesProvider(LLMProviderBase):
         if isinstance(partial_json, str):
             input_json_parts.setdefault(index, []).append(partial_json)
 
-    def _finalize_stream_block(self, block: dict[str, Any], input_parts: list[str]) -> None:
-        if block.get("type") != "tool_use" or not input_parts:
+    def _finalize_stream_block(self, block: JsonObject, input_parts: list[str]) -> None:
+        if block.get("type") not in ("tool_use", "tool_calls") or not input_parts:
             return
         raw_input = "".join(input_parts)
         block["input"] = normalize_arguments(raw_input, self.options.tool_argument_parse_mode)
 
-    def _extract_system(self, messages: list[MessageSnapshot]) -> str | None:
+    def _extract_system(self, messages: list[MessageSnapshot], is_tool_required: bool = False) -> str | None:
         system = "\n\n".join(
             message_text(message) for message in messages if message.role == "system" and message_text(message)
         )
@@ -348,7 +376,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
         for part in message.parts:
             if isinstance(part, MessagePartText) and part.text:
                 blocks.append(AnthropicTextBlock(text=part.text))
-            elif message.role == "user" and isinstance(part, MessagePartImage) and part.image_base64:
+            elif message.role == "user" and isinstance(part, MessagePartImage):
                 image_block = self._convert_image_block(part)
                 if image_block is not None:
                     blocks.append(image_block)
@@ -357,7 +385,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
         return blocks
 
     def _convert_image_block(self, part: MessagePartImage) -> AnthropicImageBlock | None:
-        normalized_image = normalize_image_for_openai(part, logger)
+        normalized_image = normalize_image_for_openai(part, logger, self.options.image_limits)
         if normalized_image is None:
             if self.options.invalid_image_policy == "error":
                 raise ValueError("图片数据无效，无法构建 Anthropic 图片消息片段")
@@ -422,7 +450,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
         return tools
 
     @staticmethod
-    def _build_default_tool_choice(tools: list[AnthropicTool], direct_params: dict[str, Any]) -> ObjectFields | None:
+    def _build_default_tool_choice(tools: list[AnthropicTool], direct_params: JsonObject) -> ObjectFields | None:
         if not tools or "tool_choice" in direct_params:
             return None
         return ObjectFields(fields={"type": "any", "disable_parallel_tool_use": True})
@@ -439,7 +467,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
                 thinking = block.thinking or block.text
                 if thinking:
                     reasoning_parts.append(thinking)
-            elif block.type == "tool_use":
+            elif block.type in ("tool_use", "tool_calls"):
                 tool_calls.append(
                     ProviderToolCall(
                         id=block.id or "",
@@ -485,5 +513,5 @@ class AnthropicMessagesProvider(LLMProviderBase):
             reasoning_content=reasoning_content,
             tool_calls=tool_calls,
             usage=usage,
-            raw_data=cast(dict[str, Any] | None, sanitize_for_log(raw_data) if raw_data is not None else None),
+            raw_data=cast(JsonObject | None, sanitize_for_log(raw_data) if raw_data is not None else None),
         )

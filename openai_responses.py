@@ -1,5 +1,7 @@
 import logging
-from typing import Any, Literal, cast
+import math
+from collections.abc import Awaitable, Callable
+from typing import Literal, cast
 
 from maibot_sdk import LLMProviderBase
 from openai import DEFAULT_MAX_RETRIES, APIConnectionError, APIStatusError, AsyncOpenAI, not_given
@@ -38,6 +40,7 @@ from .schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
     GenericUsageSnapshot,
+    JsonObject,
     MessagePartImage,
     MessagePartText,
     MessageSnapshot,
@@ -97,7 +100,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
     def __init__(self, *, options: ProviderRuntimeOptions) -> None:
         self.options = options
 
-    async def get_response(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def get_response(self, request: JsonObject) -> JsonObject:
         request_model = ResponseRequestSnapshot.model_validate(request)
         client = self._build_client(request_model.api_provider)
         upstream_request = self._build_request(request_model)
@@ -133,7 +136,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
         )
         return result.to_host_dict()
 
-    async def get_embedding(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def get_embedding(self, request: JsonObject) -> JsonObject:
         request_model = EmbeddingRequestSnapshot.model_validate(request)
         client = self._build_client(request_model.api_provider)
         model = read_model_identifier(request_model.model_info)
@@ -162,10 +165,10 @@ class OpenAIResponsesProvider(LLMProviderBase):
             else None
         )
         return ProviderResponse(
-            embedding=embedding, usage=usage, raw_data=cast(dict[str, Any] | None, raw_data)
+            embedding=embedding, usage=usage, raw_data=cast(JsonObject | None, raw_data)
         ).to_host_dict()
 
-    async def get_audio_transcriptions(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def get_audio_transcriptions(self, request: JsonObject) -> JsonObject:
         request_model = AudioTranscriptionRequestSnapshot.model_validate(request)
         client = self._build_client(request_model.api_provider)
         model = read_model_identifier(request_model.model_info)
@@ -194,7 +197,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
         if not isinstance(content, str):
             raise ValueError(build_parse_error_message("OpenAI Audio Transcriptions", "缺少文本内容"))
         raw_data = sanitize_for_log(SdkDumpAdapter.to_plain(raw_response)) if self.options.include_raw_data else None
-        return ProviderResponse(content=content, raw_data=cast(dict[str, Any] | None, raw_data)).to_host_dict()
+        return ProviderResponse(content=content, raw_data=cast(JsonObject | None, raw_data)).to_host_dict()
 
     def _build_client(self, api_provider: ApiProviderSnapshot) -> AsyncOpenAI:
         client_config = build_openai_compatible_client_config(api_provider)
@@ -243,9 +246,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
             direct_params=overrides.direct_params,
         )
 
-    def _build_text_config(
-        self, request: ResponseRequestSnapshot, extra_params: dict[str, Any]
-    ) -> OpenAITextConfig | None:
+    def _build_text_config(self, request: ResponseRequestSnapshot, extra_params: JsonObject) -> OpenAITextConfig | None:
         text_payload = extra_params.pop("text", None)
         response_text_config = extract_response_format(request)
         if text_payload is None:
@@ -264,20 +265,21 @@ class OpenAIResponsesProvider(LLMProviderBase):
         upstream_request: OpenAIResponsesRequest,
     ) -> object:
         kwargs = self._build_response_create_kwargs(request, upstream_request)
+        create_response = cast(Callable[..., Awaitable[object]], client.responses.create)
         if request.model_info.force_stream_mode:
             kwargs["stream"] = True
-            stream = await client.responses.create(**kwargs)
+            stream = await create_response(**kwargs)
             return await self._collect_stream_response(stream)
         kwargs["stream"] = False
-        return await client.responses.create(**kwargs)
+        return await create_response(**kwargs)
 
     def _build_response_create_kwargs(
         self,
         request: ResponseRequestSnapshot,
         upstream_request: OpenAIResponsesRequest,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         del request
-        kwargs: dict[str, Any] = {
+        kwargs: JsonObject = {
             "model": upstream_request.model,
             "input": upstream_request.input_params(),
             "extra_headers": upstream_request.extra_headers or None,
@@ -369,7 +371,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
             if isinstance(part, MessagePartText) and part.text:
                 parts.append(OpenAIInputTextBlock(text=part.text))
             elif message.role == "user" and isinstance(part, MessagePartImage):
-                data_url = image_data_url(part, logger, self.options.invalid_image_policy)
+                data_url = image_data_url(part, logger, self.options.invalid_image_policy, self.options.image_limits)
                 if data_url:
                     parts.append(OpenAIInputImageBlock(image_url=data_url, detail="auto"))
                 elif self.options.invalid_image_policy == "placeholder":
@@ -493,7 +495,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
         item: OpenAIResponseOutputItem,
         *,
         generated_call_id: bool,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         return {
             "provider": "openai_responses",
             "openai_responses": {
@@ -528,7 +530,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
         return tool_calls
 
     @staticmethod
-    def _extract_embedding(payload: dict[str, Any]) -> list[float]:
+    def _extract_embedding(payload: JsonObject) -> list[float]:
         data = payload.get("data")
         if not isinstance(data, list) or not data:
             raise ValueError(build_parse_error_message("OpenAI Embeddings", "缺少 embeddings 数据"))
@@ -538,4 +540,23 @@ class OpenAIResponsesProvider(LLMProviderBase):
         raw_embedding = first_item.get("embedding")
         if not isinstance(raw_embedding, list):
             raise ValueError(build_parse_error_message("OpenAI Embeddings", "缺少 embedding 数组"))
-        return [float(item) for item in raw_embedding]
+        embedding: list[float] = []
+        for index, item in enumerate(raw_embedding):
+            try:
+                value = float(item)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    build_parse_error_message(
+                        "OpenAI Embeddings",
+                        f"embedding[{index}] 无法转换为 float，类型为 {type(item).__name__}",
+                    )
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    build_parse_error_message(
+                        "OpenAI Embeddings",
+                        f"embedding[{index}] 不是有限数值，类型为 {type(item).__name__}",
+                    )
+                )
+            embedding.append(value)
+        return embedding

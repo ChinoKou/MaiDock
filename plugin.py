@@ -1,10 +1,11 @@
-from typing import Any, cast
+from typing import cast
 
 from maibot_sdk import Field, LLMProvider, LLMProviderBase, MaiBotPlugin, PluginConfigBase
 
 from .anthropic_messages import AnthropicMessagesProvider
-from .common import InvalidImagePolicy, ProviderRuntimeOptions
+from .common import ImageProcessingLimits, InvalidImagePolicy, ProviderRuntimeOptions
 from .openai_responses import OpenAIResponsesProvider
+from .schemas import JsonObject
 from .parsing import normalize_reasoning_parse_mode, normalize_tool_argument_parse_mode
 
 
@@ -29,6 +30,9 @@ class DiagnosticsConfig(PluginConfigBase):
     include_raw_data: bool = Field(default=False, description="是否把上游响应摘要放入 raw_data")
     log_payload_summary: bool = Field(default=True, description="是否记录脱敏后的请求/响应摘要日志")
     log_payload_debug: bool = Field(default=False, description="是否记录脱敏后的详细请求载荷")
+    anthropic_sdk_log_level: str = Field(
+        default="INFO", description="Anthropic SDK 日志级别：inherit/DEBUG/INFO/WARNING/ERROR/CRITICAL"
+    )
 
 
 class CompatibilityConfig(PluginConfigBase):
@@ -44,6 +48,10 @@ class CompatibilityConfig(PluginConfigBase):
     reasoning_parse_mode: str = Field(default="auto", description="推理内容解析模式：auto/native/think_tag/none")
     strict_extra_params: bool = Field(default=False, description="是否拒绝未知 extra_params 字段")
     invalid_image_policy: str = Field(default="placeholder", description="无效图片处理策略：placeholder/skip/error")
+    max_image_bytes_mb: int = Field(default=30, description="单张图片解码后最大字节数（MB）")
+    max_image_pixels: int = Field(default=25_000_000, description="单张图片最大像素数量")
+    max_image_dimension: int = Field(default=8192, description="单张图片单边最大像素")
+    max_image_frames: int = Field(default=64, description="动图最大帧数")
 
 
 class MaiDockConfig(PluginConfigBase):
@@ -71,7 +79,7 @@ class MaiDockPlugin(MaiBotPlugin):
         self._openai_provider = None
         self._anthropic_provider = None
 
-    async def on_config_update(self, scope: str, config_data: dict[str, Any], version: str) -> None:
+    async def on_config_update(self, scope: str, config_data: JsonObject, version: str) -> None:
         del scope, config_data, version
         self._refresh_providers()
 
@@ -86,10 +94,12 @@ class MaiDockPlugin(MaiBotPlugin):
             include_raw_data=bool(config.diagnostics.include_raw_data),
             log_payload_summary=bool(config.diagnostics.log_payload_summary),
             log_payload_debug=bool(config.diagnostics.log_payload_debug),
+            anthropic_sdk_log_level=self._normalize_anthropic_sdk_log_level(config.diagnostics.anthropic_sdk_log_level),
             tool_argument_parse_mode=normalize_tool_argument_parse_mode(config.compatibility.tool_argument_parse_mode),
             reasoning_parse_mode=normalize_reasoning_parse_mode(config.compatibility.reasoning_parse_mode),
             strict_extra_params=bool(config.compatibility.strict_extra_params),
             invalid_image_policy=invalid_image_policy,
+            image_limits=self._build_image_limits(config.compatibility),
         )
 
     @staticmethod
@@ -99,6 +109,33 @@ class MaiDockPlugin(MaiBotPlugin):
         if raw_policy == "error":
             return "error"
         return "placeholder"
+
+    @staticmethod
+    def _normalize_anthropic_sdk_log_level(raw_level: str | None) -> str | None:
+        normalized = (raw_level or "INFO").strip().upper()
+        if normalized in {"", "INHERIT"}:
+            return "inherit"
+        if normalized in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            return normalized
+        return "INFO"
+
+    @staticmethod
+    def _positive_int(value: object, default: int) -> int:
+        if isinstance(value, int) and value > 0:
+            return value
+        return default
+
+    @classmethod
+    def _build_image_limits(cls, config: CompatibilityConfig) -> ImageProcessingLimits:
+        limits = ImageProcessingLimits()
+        max_decoded_bytes = cls._positive_int(config.max_image_bytes_mb, 30) * 1024 * 1024
+        return ImageProcessingLimits(
+            max_base64_chars=((max_decoded_bytes + 2) // 3) * 4,
+            max_decoded_bytes=max_decoded_bytes,
+            max_pixels=cls._positive_int(config.max_image_pixels, limits.max_pixels),
+            max_dimension=cls._positive_int(config.max_image_dimension, limits.max_dimension),
+            max_frames=cls._positive_int(config.max_image_frames, limits.max_frames),
+        )
 
     def _refresh_providers(self) -> None:
         options = self._build_options()
@@ -133,7 +170,7 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于 OpenAI Responses API 的 LLM Provider。",
         version="1.0.0",
     )
-    async def openai_responses_provider(self, operation: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def openai_responses_provider(self, operation: str, request: JsonObject) -> JsonObject:
         self._ensure_enabled()
         return await self._require_openai_provider().dispatch(operation=operation, request=request)
 
@@ -143,7 +180,7 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于 Anthropic Messages API 的 LLM Provider。",
         version="1.0.0",
     )
-    async def anthropic_provider(self, operation: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def anthropic_provider(self, operation: str, request: JsonObject) -> JsonObject:
         self._ensure_enabled()
         return await self._require_anthropic_provider().dispatch(operation=operation, request=request)
 
