@@ -74,26 +74,45 @@ extra_params = { thinking = { type = "enabled", budget_tokens = 1024 } }
 
 ```toml
 [plugin]
-enabled = false
+enabled = true
 config_version = "1.0.0"
 
 [diagnostics]
 include_raw_data = false
 log_payload_summary = true
 log_payload_debug = false
+anthropic_sdk_log_level = "INFO"
 
 [compatibility]
 tool_argument_parse_mode = "auto"
 reasoning_parse_mode = "auto"
 strict_extra_params = false
 invalid_image_policy = "placeholder"
+max_image_bytes_mb = 30
+max_image_pixels = 25000000
+max_image_dimension = 8192
+max_image_frames = 64
 ```
+
+`diagnostics`：
+
+- `include_raw_data`：是否把脱敏后的上游响应摘要放入 Host `raw_data`，默认关闭。
+- `log_payload_summary`：是否记录请求/响应摘要日志。
+- `log_payload_debug`：是否记录脱敏后的详细请求载荷，默认关闭。
+- `anthropic_sdk_log_level`：Anthropic SDK logger 级别，支持 `inherit`、`DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`；`inherit` 表示不修改 SDK logger。
 
 `invalid_image_policy`：
 
 - `placeholder`：把无效图片替换为 `[图片内容不可用]`。
 - `skip`：跳过无效图片。
 - `error`：直接报错。
+
+图片处理资源上限：
+
+- `max_image_bytes_mb`：单张图片 base64 解码后的最大字节数，非正数会回退默认值。
+- `max_image_pixels`：单张图片最大像素数量，同时用于 Pillow decompression bomb 防护。
+- `max_image_dimension`：单张图片单边最大像素。
+- `max_image_frames`：动图最大帧数。
 
 ## extra_params 约定
 
