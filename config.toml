@@ -1,0 +1,14 @@
+[plugin]
+enabled = true
+config_version = "1.0.0"
+
+[diagnostics]
+include_raw_data = false
+log_payload_summary = true
+log_payload_debug = false
+
+[compatibility]
+tool_argument_parse_mode = "auto"
+reasoning_parse_mode = "auto"
+strict_extra_params = false
+invalid_image_policy = "placeholder"

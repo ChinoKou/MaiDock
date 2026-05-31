@@ -1,0 +1,77 @@
+{
+  "manifest_version": 2,
+  "id": "chinokou.maidock",
+  "version": "1.0.0",
+  "name": "MaiDock",
+  "description": "为 MaiBot 提供额外的 OpenAI Responses API 与 Anthropic Messages API 端点支持。",
+  "author": {
+    "name": "ChinoKou",
+    "url": "https://chinokou.cn"
+  },
+  "license": "GPL-v3.0-or-later",
+  "urls": {
+    "repository": "https://github.com/ChinoKou/MaiDock",
+    "homepage": "https://github.com/ChinoKou/MaiDock",
+    "documentation": "https://github.com/ChinoKou/MaiDock",
+    "issues": "https://github.com/ChinoKou/MaiDock/issues"
+  },
+  "host_application": {
+    "min_version": "1.0.0",
+    "max_version": "1.99.99"
+  },
+  "sdk": {
+    "min_version": "2.0.0",
+    "max_version": "2.99.99"
+  },
+  "dependencies": [
+    {
+      "type": "python_package",
+      "name": "openai",
+      "version_spec": ">=1.95.0"
+    },
+    {
+      "type": "python_package",
+      "name": "anthropic",
+      "version_spec": ">=0.105.2"
+    },
+    {
+      "type": "python_package",
+      "name": "json-repair",
+      "version_spec": ">=0.47.6"
+    },
+    {
+      "type": "python_package",
+      "name": "pillow",
+      "version_spec": ">=11.3.0"
+    }
+  ],
+  "llm_providers": [
+    {
+      "client_type": "maidock-openai-responses",
+      "name": "MaiDock OpenAI Responses",
+      "description": "基于 OpenAI Responses API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-anthropic",
+      "name": "MaiDock Anthropic Messages",
+      "description": "基于 Anthropic Messages API 的 LLM Provider。",
+      "version": "1.0.0"
+    }
+  ],
+  "capabilities": [],
+  "i18n": {
+    "default_locale": "zh-CN",
+    "supported_locales": [
+      "zh-CN"
+    ]
+  },
+  "plugin_type": "provider",
+  "display": {
+    "icon": {
+      "type": "lucide",
+      "value": "dock",
+      "fallback": "plug"
+    }
+  }
+}
