@@ -11,8 +11,10 @@ from typing import Literal
 
 from PIL import Image as PILImage
 
+from ..version import DEFAULT_USER_AGENT
 from .diagnostics import sanitize_for_log
 from .parsing import ReasoningParseMode, ToolArgumentParseMode, arguments_to_json
+from .json_types import JsonObject, empty_json_object, empty_str_dict
 from .schemas import (
     ApiProviderSnapshot,
     AudioTranscriptionRequestSnapshot,
@@ -22,7 +24,6 @@ from .schemas import (
     MessagePartText,
     MessageSnapshot,
     ModelInfoSnapshot,
-    JsonObject,
     ObjectFields,
     OpenAITextConfig,
     OpenAITextFormatConfig,
@@ -33,7 +34,7 @@ from .schemas import (
 
 SUPPORTED_IMAGE_FORMATS = {"jpeg", "png", "webp"}
 InvalidImagePolicy = Literal["placeholder", "skip", "error"]
-MAIDOCK_USER_AGENT = "MaiDock/1.0.0"
+MAIDOCK_USER_AGENT = DEFAULT_USER_AGENT
 DEFAULT_MAX_IMAGE_BYTES = 30 * 1024 * 1024
 DEFAULT_MAX_IMAGE_PIXELS = 25_000_000
 DEFAULT_MAX_IMAGE_DIMENSION = 8192
@@ -63,6 +64,8 @@ class ProviderRuntimeOptions:
     reasoning_parse_mode: ReasoningParseMode = "auto"
     strict_extra_params: bool = False
     invalid_image_policy: InvalidImagePolicy = "placeholder"
+    openai_user_agent: str = MAIDOCK_USER_AGENT
+    anthropic_user_agent: str = MAIDOCK_USER_AGENT
     image_limits: ImageProcessingLimits = field(default_factory=ImageProcessingLimits)
 
 
@@ -72,18 +75,18 @@ class OpenAICompatibleClientConfig:
 
     api_key: str
     base_url: str | None
-    default_headers: dict[str, str] = field(default_factory=dict)
-    default_query: JsonObject = field(default_factory=dict)
+    default_headers: dict[str, str] = field(default_factory=empty_str_dict)
+    default_query: JsonObject = field(default_factory=empty_json_object)
 
 
 @dataclass(slots=True)
 class RequestOverrides:
     """SDK 单次请求覆盖参数。"""
 
-    extra_headers: dict[str, str] = field(default_factory=dict)
-    extra_query: JsonObject = field(default_factory=dict)
-    extra_body: JsonObject = field(default_factory=dict)
-    direct_params: JsonObject = field(default_factory=dict)
+    extra_headers: dict[str, str] = field(default_factory=empty_str_dict)
+    extra_query: JsonObject = field(default_factory=empty_json_object)
+    extra_body: JsonObject = field(default_factory=empty_json_object)
+    direct_params: JsonObject = field(default_factory=empty_json_object)
 
 
 def read_model_identifier(model_info: ModelInfoSnapshot) -> str:
@@ -187,14 +190,19 @@ def _build_auth_header_value(prefix: str, api_key: str) -> str:
     return f"{normalized_prefix} {api_key}"
 
 
-def with_default_user_agent(headers: Mapping[str, str], user_agent: str = MAIDOCK_USER_AGENT) -> dict[str, str]:
+def with_default_user_agent(headers: Mapping[str, str], user_agent: str | None = MAIDOCK_USER_AGENT) -> dict[str, str]:
     result = dict(headers)
     if not any(key.lower() == "user-agent" for key in result):
-        result["User-Agent"] = user_agent
+        normalized_user_agent = (user_agent or "").strip() or MAIDOCK_USER_AGENT
+        result["User-Agent"] = normalized_user_agent
     return result
 
 
-def build_openai_compatible_client_config(api_provider: ApiProviderSnapshot) -> OpenAICompatibleClientConfig:
+def build_openai_compatible_client_config(
+    api_provider: ApiProviderSnapshot,
+    *,
+    user_agent: str | None = MAIDOCK_USER_AGENT,
+) -> OpenAICompatibleClientConfig:
     """按 OpenAI 兼容规则构造 SDK 鉴权配置。"""
 
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
@@ -229,12 +237,16 @@ def build_openai_compatible_client_config(api_provider: ApiProviderSnapshot) -> 
     return OpenAICompatibleClientConfig(
         api_key=client_api_key,
         base_url=normalize_base_url(api_provider.base_url),
-        default_headers=with_default_user_agent(default_headers),
+        default_headers=with_default_user_agent(default_headers, user_agent),
         default_query=default_query,
     )
 
 
-def build_anthropic_client_config(api_provider: ApiProviderSnapshot) -> OpenAICompatibleClientConfig:
+def build_anthropic_client_config(
+    api_provider: ApiProviderSnapshot,
+    *,
+    user_agent: str | None = MAIDOCK_USER_AGENT,
+) -> OpenAICompatibleClientConfig:
     """构造 Anthropic SDK 初始化配置。"""
 
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
@@ -267,7 +279,7 @@ def build_anthropic_client_config(api_provider: ApiProviderSnapshot) -> OpenAICo
     return OpenAICompatibleClientConfig(
         api_key=client_api_key,
         base_url=normalize_anthropic_base_url(api_provider.base_url),
-        default_headers=with_default_user_agent(default_headers),
+        default_headers=with_default_user_agent(default_headers, user_agent),
         default_query=default_query,
     )
 

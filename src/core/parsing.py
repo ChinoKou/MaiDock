@@ -6,7 +6,8 @@ from uuid import uuid4
 from json_repair import repair_json
 from pydantic import TypeAdapter
 
-from .schemas import JsonObject, JsonValue, ObjectFields, ProviderFunctionCall, ProviderToolCall
+from .json_types import JsonObject, JsonValue
+from .schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
 
 ToolArgumentParseMode = Literal["auto", "strict", "repair", "double_decode"]
 ReasoningParseMode = Literal["auto", "native", "think_tag", "none"]

@@ -6,6 +6,7 @@ from .config import MaiDockConfig, build_runtime_options
 from .core.schemas import JsonObject
 from .providers.anthropic_messages import AnthropicMessagesProvider
 from .providers.openai_responses import OpenAIResponsesProvider
+from .version import __version__
 
 
 class MaiDockPlugin(MaiBotPlugin):
@@ -63,7 +64,7 @@ class MaiDockPlugin(MaiBotPlugin):
         client_type="maidock-openai-responses",
         name="MaiDock OpenAI Responses",
         description="基于 OpenAI Responses API 的 LLM Provider。",
-        version="1.0.0",
+        version=__version__,
     )
     async def openai_responses_provider(self, operation: str, request: JsonObject) -> JsonObject:
         self._ensure_enabled()
@@ -73,7 +74,7 @@ class MaiDockPlugin(MaiBotPlugin):
         client_type="maidock-anthropic",
         name="MaiDock Anthropic Messages",
         description="基于 Anthropic Messages API 的 LLM Provider。",
-        version="1.0.0",
+        version=__version__,
     )
     async def anthropic_provider(self, operation: str, request: JsonObject) -> JsonObject:
         self._ensure_enabled()

@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterable, Awaitable, Callable, Mapping
 from typing import Literal, cast
 
 from anthropic import DEFAULT_MAX_RETRIES, APIConnectionError, APIStatusError, AsyncAnthropic, not_given
@@ -20,6 +20,7 @@ from ..core.common import (
     read_timeout,
     split_request_overrides,
 )
+from ..core.json_types import mapping_to_json_object
 from ..core.diagnostics import (
     build_connection_error_message,
     build_parse_error_message,
@@ -144,7 +145,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
         )
 
     def _build_client(self, api_provider: ApiProviderSnapshot) -> AsyncAnthropic:
-        client_config = build_anthropic_client_config(api_provider)
+        client_config = build_anthropic_client_config(api_provider, user_agent=self.options.anthropic_user_agent)
         timeout = read_timeout(api_provider)
         return AsyncAnthropic(
             api_key=client_config.api_key,
@@ -172,8 +173,10 @@ class AnthropicMessagesProvider(LLMProviderBase):
             is_tool_required = True
         elif "tool_choice" in overrides.direct_params:
             tc = overrides.direct_params["tool_choice"]
-            if isinstance(tc, dict) and tc.get("type") == "any":
-                is_tool_required = True
+            if isinstance(tc, Mapping):
+                tool_choice_fields = cast(Mapping[object, object], tc)
+                if tool_choice_fields.get("type") == "any":
+                    is_tool_required = True
             elif isinstance(tc, str) and tc.lower() in ("any", "required"):
                 is_tool_required = True
 
@@ -202,7 +205,7 @@ class AnthropicMessagesProvider(LLMProviderBase):
         if request.model_info.force_stream_mode:
             kwargs["stream"] = True
             stream = await create_message(**kwargs)
-            return await self._collect_stream_response(stream)
+            return await self._collect_stream_response(cast(AsyncIterable[object], stream))
         kwargs["stream"] = False
         return await create_message(**kwargs)
 
@@ -227,34 +230,43 @@ class AnthropicMessagesProvider(LLMProviderBase):
         kwargs.update(upstream_request.direct_params)
         return kwargs
 
-    async def _collect_stream_response(self, stream: object) -> object:
+    async def _collect_stream_response(self, stream: AsyncIterable[object]) -> object:
         content_blocks: list[JsonObject] = []
         input_json_parts: dict[int, list[str]] = {}
         message_payload: JsonObject = {"content": content_blocks, "usage": {}}
-        async for event in stream:  # type: ignore[attr-defined]
+        async for event in stream:
             plain_event = SdkDumpAdapter.to_plain(event)
-            if not isinstance(plain_event, dict):
+            if not isinstance(plain_event, Mapping):
                 continue
-            event_type = str(plain_event.get("type") or "")
-            if event_type == "message_start" and isinstance(plain_event.get("message"), dict):
-                self._merge_message_start(message_payload, cast(JsonObject, plain_event["message"]))
-            elif event_type == "content_block_start" and isinstance(plain_event.get("content_block"), dict):
-                index = self._stream_block_index(plain_event, content_blocks)
+            event_mapping = cast(Mapping[object, object], plain_event)
+            event_payload = mapping_to_json_object(event_mapping)
+            event_type = str(event_payload.get("type") or "")
+            message = event_payload.get("message")
+            content_block = event_payload.get("content_block")
+            delta = event_payload.get("delta")
+            if event_type == "message_start" and isinstance(message, Mapping):
+                self._merge_message_start(
+                    message_payload, mapping_to_json_object(cast(Mapping[object, object], message))
+                )
+            elif event_type == "content_block_start" and isinstance(content_block, Mapping):
+                index = self._stream_block_index(event_payload, content_blocks)
                 self._put_stream_block(
                     content_blocks,
                     index,
-                    cast(JsonObject, plain_event["content_block"]),
+                    mapping_to_json_object(cast(Mapping[object, object], content_block)),
                 )
-            elif event_type == "content_block_delta" and isinstance(plain_event.get("delta"), dict):
-                index = self._stream_block_index(plain_event, content_blocks)
+            elif event_type == "content_block_delta" and isinstance(delta, Mapping):
+                index = self._stream_block_index(event_payload, content_blocks)
                 block = self._ensure_stream_block(content_blocks, index)
-                self._apply_stream_delta(block, cast(JsonObject, plain_event["delta"]), input_json_parts, index)
+                self._apply_stream_delta(
+                    block, mapping_to_json_object(cast(Mapping[object, object], delta)), input_json_parts, index
+                )
             elif event_type == "content_block_stop":
-                index = self._stream_block_index(plain_event, content_blocks)
+                index = self._stream_block_index(event_payload, content_blocks)
                 if 0 <= index < len(content_blocks):
                     self._finalize_stream_block(content_blocks[index], input_json_parts.get(index, []))
             elif event_type == "message_delta":
-                self._merge_message_delta(message_payload, plain_event)
+                self._merge_message_delta(message_payload, event_payload)
         message_payload["content"] = content_blocks
         return message_payload
 
@@ -263,30 +275,43 @@ class AnthropicMessagesProvider(LLMProviderBase):
         for key, value in message.items():
             if key == "content":
                 continue
-            if key == "usage" and isinstance(value, dict):
-                AnthropicMessagesProvider._merge_stream_usage(message_payload, value)
+            if key == "usage" and isinstance(value, Mapping):
+                AnthropicMessagesProvider._merge_stream_usage(
+                    message_payload,
+                    mapping_to_json_object(cast(Mapping[object, object], value)),
+                )
                 continue
             message_payload[key] = value
 
     @staticmethod
     def _merge_message_delta(message_payload: JsonObject, event: JsonObject) -> None:
-        delta = event.get("delta") if isinstance(event.get("delta"), dict) else {}
-        if isinstance(delta, dict):
+        raw_delta = event.get("delta")
+        if isinstance(raw_delta, Mapping):
+            delta = mapping_to_json_object(cast(Mapping[object, object], raw_delta))
             for key in ("stop_reason", "stop_sequence"):
                 value = delta.get(key)
                 if value is not None:
                     message_payload[key] = value
             usage = delta.get("usage")
-            if isinstance(usage, dict):
-                AnthropicMessagesProvider._merge_stream_usage(message_payload, usage)
+            if isinstance(usage, Mapping):
+                AnthropicMessagesProvider._merge_stream_usage(
+                    message_payload,
+                    mapping_to_json_object(cast(Mapping[object, object], usage)),
+                )
         usage = event.get("usage")
-        if isinstance(usage, dict):
-            AnthropicMessagesProvider._merge_stream_usage(message_payload, usage)
+        if isinstance(usage, Mapping):
+            AnthropicMessagesProvider._merge_stream_usage(
+                message_payload, mapping_to_json_object(cast(Mapping[object, object], usage))
+            )
 
     @staticmethod
     def _merge_stream_usage(message_payload: JsonObject, usage: JsonObject) -> None:
         current_usage = message_payload.get("usage")
-        merged_usage = dict(current_usage) if isinstance(current_usage, dict) else {}
+        merged_usage: JsonObject = (
+            mapping_to_json_object(cast(Mapping[object, object], current_usage))
+            if isinstance(current_usage, Mapping)
+            else {}
+        )
         merged_usage.update(usage)
         message_payload["usage"] = merged_usage
 

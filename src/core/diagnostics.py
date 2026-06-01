@@ -1,22 +1,26 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from typing import cast
 
 SECRET_KEY_PARTS = ("api_key", "apikey", "authorization", "token", "secret", "password")
 IMAGE_DATA_PREFIX = "data:image/"
 
 
-def _sanitize_bytes(value: bytes | bytearray | memoryview, *, max_text_length: int) -> str:
+def _sanitize_bytes(value: bytes | bytearray, *, max_text_length: int) -> str:
     del max_text_length
-    return f"<bytes:{len(bytes(value))}>"
+    return f"<bytes:{len(value)}>"
 
 
 def sanitize_for_log(value: object, *, max_text_length: int = 300) -> object:
     """递归脱敏用于日志或 raw_data 的对象。"""
 
-    if isinstance(value, (bytes, bytearray, memoryview)):
+    if isinstance(value, (bytes, bytearray)):
         return _sanitize_bytes(value, max_text_length=max_text_length)
+    if isinstance(value, memoryview):
+        return f"<bytes:{value.nbytes}>"
     if isinstance(value, Mapping):
         sanitized: dict[str, object] = {}
-        for key, item in value.items():
+        mapping = cast(Mapping[object, object], value)
+        for key, item in mapping.items():
             normalized_key = str(key)
             lowered_key = normalized_key.lower()
             if any(secret_key in lowered_key for secret_key in SECRET_KEY_PARTS):
@@ -25,7 +29,8 @@ def sanitize_for_log(value: object, *, max_text_length: int = 300) -> object:
             sanitized[normalized_key] = sanitize_for_log(item, max_text_length=max_text_length)
         return sanitized
     if isinstance(value, (list, tuple, set)):
-        return [sanitize_for_log(item, max_text_length=max_text_length) for item in value]
+        iterable = cast(Iterable[object], value)
+        return [sanitize_for_log(item, max_text_length=max_text_length) for item in iterable]
     if isinstance(value, str):
         if value.startswith(IMAGE_DATA_PREFIX):
             return f"{value[:48]}...<base64:{len(value)}>"

@@ -8,6 +8,12 @@ log_payload_summary = true
 log_payload_debug = false
 anthropic_sdk_log_level = "INFO"
 
+[openai_responses]
+user_agent = ""
+
+[anthropic_messages]
+user_agent = ""
+
 [compatibility]
 tool_argument_parse_mode = "auto"
 reasoning_parse_mode = "auto"

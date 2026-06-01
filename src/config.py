@@ -2,6 +2,7 @@ from maibot_sdk import Field, PluginConfigBase
 
 from .core.common import ImageProcessingLimits, InvalidImagePolicy, ProviderRuntimeOptions
 from .core.parsing import normalize_reasoning_parse_mode, normalize_tool_argument_parse_mode
+from .version import DEFAULT_USER_AGENT, __version__
 
 
 class PluginSectionConfig(PluginConfigBase):
@@ -12,7 +13,7 @@ class PluginSectionConfig(PluginConfigBase):
     __ui_order__ = 0
 
     enabled: bool = Field(default=True, description="是否启用 MaiDock")
-    config_version: str = Field(default="1.0.0", description="配置版本")
+    config_version: str = Field(default=__version__, description="配置版本")
 
 
 class DiagnosticsConfig(PluginConfigBase):
@@ -30,12 +31,32 @@ class DiagnosticsConfig(PluginConfigBase):
     )
 
 
+class OpenAIResponsesConfig(PluginConfigBase):
+    """OpenAI Responses Provider 配置。"""
+
+    __ui_label__ = "OpenAI Responses"
+    __ui_icon__ = "bot"
+    __ui_order__ = 2
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+
+
+class AnthropicMessagesConfig(PluginConfigBase):
+    """Anthropic Messages Provider 配置。"""
+
+    __ui_label__ = "Anthropic Messages"
+    __ui_icon__ = "bot-message-square"
+    __ui_order__ = 3
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+
+
 class CompatibilityConfig(PluginConfigBase):
     """兼容性配置。"""
 
     __ui_label__ = "兼容性"
     __ui_icon__ = "settings-2"
-    __ui_order__ = 2
+    __ui_order__ = 4
 
     tool_argument_parse_mode: str = Field(
         default="auto", description="工具参数解析模式：auto/strict/repair/double_decode"
@@ -54,6 +75,8 @@ class MaiDockConfig(PluginConfigBase):
 
     plugin: PluginSectionConfig = Field(default_factory=PluginSectionConfig)
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
+    openai_responses: OpenAIResponsesConfig = Field(default_factory=OpenAIResponsesConfig)
+    anthropic_messages: AnthropicMessagesConfig = Field(default_factory=AnthropicMessagesConfig)
     compatibility: CompatibilityConfig = Field(default_factory=CompatibilityConfig)
 
 
@@ -65,6 +88,13 @@ def normalize_invalid_image_policy(raw_policy: str) -> InvalidImagePolicy:
     if raw_policy == "error":
         return "error"
     return "placeholder"
+
+
+def normalize_user_agent(raw_user_agent: str | None) -> str:
+    """规范化 Provider User-Agent，留空时使用默认 UA。"""
+
+    normalized = (raw_user_agent or "").strip()
+    return normalized or DEFAULT_USER_AGENT
 
 
 def normalize_anthropic_sdk_log_level(raw_level: str | None) -> str | None:
@@ -115,5 +145,7 @@ def build_runtime_options(config: MaiDockConfig | None = None) -> ProviderRuntim
         reasoning_parse_mode=normalize_reasoning_parse_mode(config.compatibility.reasoning_parse_mode),
         strict_extra_params=bool(config.compatibility.strict_extra_params),
         invalid_image_policy=invalid_image_policy,
+        openai_user_agent=normalize_user_agent(config.openai_responses.user_agent),
+        anthropic_user_agent=normalize_user_agent(config.anthropic_messages.user_agent),
         image_limits=build_image_limits(config.compatibility),
     )

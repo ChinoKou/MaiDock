@@ -1,11 +1,11 @@
-from collections.abc import Mapping
-from typing import Literal, Protocol, TypeAlias, runtime_checkable
+from collections.abc import Iterable, Mapping
+from typing import Literal, Protocol, TypeAlias, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-JsonValue: TypeAlias = str | int | float | bool | None | dict[str, object] | list[object]
-JsonObject: TypeAlias = dict[str, object]
-JsonArray: TypeAlias = list[object]
+from .json_types import JsonArray, JsonObject, empty_json_object, empty_str_dict, mapping_to_json_object
+
+
 OpenAITextVerbosity: TypeAlias = Literal["low", "medium", "high"]
 AnthropicImageMediaType: TypeAlias = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
 
@@ -39,7 +39,7 @@ class IgnoreExtraModel(BaseModel):
 class ObjectFields(IgnoreExtraModel):
     """显式 object 包装，避免宽泛类型在 Pydantic 边界散落。"""
 
-    fields: JsonObject = Field(default_factory=dict)
+    fields: JsonObject = Field(default_factory=empty_json_object)
 
     @classmethod
     def from_unknown(cls, value: object) -> "ObjectFields":
@@ -50,7 +50,8 @@ class ObjectFields(IgnoreExtraModel):
         if isinstance(value, ModelDumpable):
             return cls(fields=_DICT_ADAPTER.validate_python(value.model_dump(mode="python")))
         if isinstance(value, Mapping):
-            return cls(fields=_DICT_ADAPTER.validate_python(dict(value)))
+            mapping = cast(Mapping[object, object], value)
+            return cls(fields=_DICT_ADAPTER.validate_python(mapping_to_json_object(mapping)))
         if value is None:
             return cls()
         raise TypeError(f"期望 object/mapping，实际为 {type(value).__name__}")
@@ -62,7 +63,8 @@ class ObjectFields(IgnoreExtraModel):
     @classmethod
     def validate_fields(cls, value: object) -> JsonObject:
         if isinstance(value, Mapping):
-            return _DICT_ADAPTER.validate_python(dict(value))
+            mapping = cast(Mapping[object, object], value)
+            return _DICT_ADAPTER.validate_python(mapping_to_json_object(mapping))
         if value is None:
             return {}
         raise TypeError(f"ObjectFields.fields 必须是 mapping，实际为 {type(value).__name__}")
@@ -72,7 +74,7 @@ class ProviderFunctionCall(HostDumpModel):
     """返回给 Host 的函数调用。"""
 
     name: str
-    arguments: JsonObject = Field(default_factory=dict)
+    arguments: JsonObject = Field(default_factory=empty_json_object)
 
 
 class ProviderToolCall(HostDumpModel):
@@ -80,7 +82,7 @@ class ProviderToolCall(HostDumpModel):
 
     id: str
     function: ProviderFunctionCall
-    extra_content: JsonObject = Field(default_factory=dict)
+    extra_content: JsonObject = Field(default_factory=empty_json_object)
 
 
 class ProviderUsage(HostDumpModel):
@@ -93,12 +95,16 @@ class ProviderUsage(HostDumpModel):
     prompt_cache_miss_tokens: int = 0
 
 
+def _empty_provider_tool_call_list() -> list[ProviderToolCall]:
+    return []
+
+
 class ProviderResponse(HostDumpModel):
     """LLM Provider 返回给 Host 的统一响应。"""
 
     content: str | None = None
     reasoning_content: str | None = None
-    tool_calls: list[ProviderToolCall] = Field(default_factory=list)
+    tool_calls: list[ProviderToolCall] = Field(default_factory=_empty_provider_tool_call_list)
     embedding: list[float] | None = None
     usage: ProviderUsage = Field(default_factory=ProviderUsage)
     raw_data: JsonObject | None = None
@@ -277,16 +283,25 @@ class ResponseFormatSnapshot(IgnoreExtraModel):
         if isinstance(value, (ResponseFormatSchemaSnapshot, ObjectFields)):
             return value
         if isinstance(value, Mapping) and any(key in value for key in ("name", "description", "schema", "strict")):
-            return ResponseFormatSchemaSnapshot.model_validate(dict(value))
-        return ObjectFields.from_unknown(value)
+            mapping = cast(Mapping[object, object], value)
+            return ResponseFormatSchemaSnapshot.model_validate(mapping_to_json_object(mapping))
+        return ObjectFields.from_unknown(cast(object, value))
+
+
+def _empty_message_part_list() -> list[MessagePart]:
+    return []
+
+
+def _empty_tool_call_snapshot_list() -> list[ToolCallSnapshot]:
+    return []
 
 
 class MessageSnapshot(IgnoreExtraModel):
     """Host 序列化后的消息。"""
 
     role: str = ""
-    parts: list[MessagePart] = Field(default_factory=list)
-    tool_calls: list[ToolCallSnapshot] = Field(default_factory=list)
+    parts: list[MessagePart] = Field(default_factory=_empty_message_part_list)
+    tool_calls: list[ToolCallSnapshot] = Field(default_factory=_empty_tool_call_snapshot_list)
     tool_call_id: str | None = None
     tool_name: str | None = None
 
@@ -296,10 +311,11 @@ class MessageSnapshot(IgnoreExtraModel):
         if not isinstance(value, list):
             return []
         normalized: list[MessagePart] = []
-        for item in value:
+        for item in cast(list[object], value):
             if not isinstance(item, Mapping):
                 continue
-            item_dict = dict(item)
+            item_mapping = cast(Mapping[object, object], item)
+            item_dict = mapping_to_json_object(item_mapping)
             part_type = item_dict.get("type")
             if part_type == "text":
                 normalized.append(MessagePartText.model_validate(item_dict))
@@ -311,8 +327,8 @@ class MessageSnapshot(IgnoreExtraModel):
 
     @field_validator("tool_calls", mode="before")
     @classmethod
-    def validate_tool_calls(cls, value: object) -> list[object]:
-        return value if isinstance(value, list) else []
+    def validate_tool_calls(cls, value: object) -> JsonArray:
+        return cast(JsonArray, value) if isinstance(value, list) else []
 
 
 class BaseProviderRequestSnapshot(IgnoreExtraModel):
@@ -328,20 +344,28 @@ class BaseProviderRequestSnapshot(IgnoreExtraModel):
         return ObjectFields.from_unknown(value)
 
 
+def _empty_message_snapshot_list() -> list[MessageSnapshot]:
+    return []
+
+
+def _empty_tool_option_snapshot_list() -> list[ToolOptionSnapshot]:
+    return []
+
+
 class ResponseRequestSnapshot(BaseProviderRequestSnapshot):
     """文本/多模态响应请求快照。"""
 
     request_kind: str = "response"
-    message_list: list[MessageSnapshot] = Field(default_factory=list)
-    tool_options: list[ToolOptionSnapshot] = Field(default_factory=list)
+    message_list: list[MessageSnapshot] = Field(default_factory=_empty_message_snapshot_list)
+    tool_options: list[ToolOptionSnapshot] = Field(default_factory=_empty_tool_option_snapshot_list)
     temperature: int | float | None = None
     max_tokens: int | None = None
     response_format: ResponseFormatSnapshot | None = None
 
     @field_validator("message_list", "tool_options", mode="before")
     @classmethod
-    def validate_list_fields(cls, value: object) -> list[object]:
-        return value if isinstance(value, list) else []
+    def validate_list_fields(cls, value: object) -> JsonArray:
+        return cast(JsonArray, value) if isinstance(value, list) else []
 
 
 class EmbeddingRequestSnapshot(BaseProviderRequestSnapshot):
@@ -538,6 +562,10 @@ class OpenAITextConfig(HostDumpModel):
         return result
 
 
+def _empty_openai_responses_tool_list() -> list[OpenAIResponsesTool]:
+    return []
+
+
 class OpenAIResponsesRequest(HostDumpModel):
     """OpenAI Responses create 请求。"""
 
@@ -545,12 +573,12 @@ class OpenAIResponsesRequest(HostDumpModel):
     input: list[OpenAIResponseInputItem]
     max_output_tokens: int | None = None
     temperature: float | None = None
-    tools: list[OpenAIResponsesTool] = Field(default_factory=list)
+    tools: list[OpenAIResponsesTool] = Field(default_factory=_empty_openai_responses_tool_list)
     text: OpenAITextConfig | None = None
-    extra_headers: dict[str, str] = Field(default_factory=dict)
-    extra_query: JsonObject = Field(default_factory=dict)
-    extra_body: JsonObject = Field(default_factory=dict)
-    direct_params: JsonObject = Field(default_factory=dict)
+    extra_headers: dict[str, str] = Field(default_factory=empty_str_dict)
+    extra_query: JsonObject = Field(default_factory=empty_json_object)
+    extra_body: JsonObject = Field(default_factory=empty_json_object)
+    direct_params: JsonObject = Field(default_factory=empty_json_object)
 
     def input_params(self) -> list[JsonObject]:
         return [item.to_sdk_param() for item in self.input]
@@ -599,6 +627,10 @@ class OpenAIResponseOutputContentBlock(IgnoreExtraModel):
     text: str | None = None
 
 
+def _empty_openai_response_output_content_block_list() -> list[OpenAIResponseOutputContentBlock]:
+    return []
+
+
 class OpenAIResponseOutputItem(IgnoreExtraModel):
     """OpenAI Responses output item 摘要。"""
 
@@ -608,13 +640,21 @@ class OpenAIResponseOutputItem(IgnoreExtraModel):
     name: str = ""
     arguments: str = ""
     status: str | None = None
-    content: list[OpenAIResponseOutputContentBlock] = Field(default_factory=list)
-    summary: list[OpenAIResponseOutputContentBlock] = Field(default_factory=list)
+    content: list[OpenAIResponseOutputContentBlock] = Field(
+        default_factory=_empty_openai_response_output_content_block_list
+    )
+    summary: list[OpenAIResponseOutputContentBlock] = Field(
+        default_factory=_empty_openai_response_output_content_block_list
+    )
 
     @field_validator("content", "summary", mode="before")
     @classmethod
-    def validate_blocks(cls, value: object) -> list[object]:
-        return value if isinstance(value, list) else []
+    def validate_blocks(cls, value: object) -> JsonArray:
+        return cast(JsonArray, value) if isinstance(value, list) else []
+
+
+def _empty_openai_response_output_item_list() -> list[OpenAIResponseOutputItem]:
+    return []
 
 
 class OpenAIResponseSnapshot(IgnoreExtraModel):
@@ -624,7 +664,7 @@ class OpenAIResponseSnapshot(IgnoreExtraModel):
     model: str = ""
     status: str = ""
     output_text: str = ""
-    output: list[OpenAIResponseOutputItem] = Field(default_factory=list)
+    output: list[OpenAIResponseOutputItem] = Field(default_factory=_empty_openai_response_output_item_list)
     usage: GenericUsageSnapshot = Field(default_factory=GenericUsageSnapshot)
 
 
@@ -665,7 +705,7 @@ class AnthropicToolUseBlock(HostDumpModel):
     type: Literal["tool_use"] = "tool_use"
     id: str
     name: str
-    input: JsonObject = Field(default_factory=dict)
+    input: JsonObject = Field(default_factory=empty_json_object)
 
     def to_sdk_param(self) -> JsonObject:
         return {"type": self.type, "id": self.id, "name": self.name, "input": self.input}
@@ -708,6 +748,10 @@ class AnthropicTool(HostDumpModel):
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema.to_plain_dict()}
 
 
+def _empty_anthropic_tool_list() -> list[AnthropicTool]:
+    return []
+
+
 class AnthropicMessagesRequest(HostDumpModel):
     """Anthropic messages.create 请求。"""
 
@@ -716,12 +760,12 @@ class AnthropicMessagesRequest(HostDumpModel):
     max_tokens: int
     system: str | None = None
     temperature: float | None = None
-    tools: list[AnthropicTool] = Field(default_factory=list)
+    tools: list[AnthropicTool] = Field(default_factory=_empty_anthropic_tool_list)
     tool_choice: ObjectFields | None = None
-    extra_headers: dict[str, str] = Field(default_factory=dict)
-    extra_query: JsonObject = Field(default_factory=dict)
-    extra_body: JsonObject = Field(default_factory=dict)
-    direct_params: JsonObject = Field(default_factory=dict)
+    extra_headers: dict[str, str] = Field(default_factory=empty_str_dict)
+    extra_query: JsonObject = Field(default_factory=empty_json_object)
+    extra_body: JsonObject = Field(default_factory=empty_json_object)
+    direct_params: JsonObject = Field(default_factory=empty_json_object)
 
     def message_params(self) -> list[JsonObject]:
         return [message.to_sdk_param() for message in self.messages]
@@ -747,12 +791,16 @@ class AnthropicResponseContentBlock(IgnoreExtraModel):
     thinking: str | None = None
     id: str | None = None
     name: str | None = None
-    input: JsonObject = Field(default_factory=dict)
+    input: JsonObject = Field(default_factory=empty_json_object)
 
     @field_validator("input", mode="before")
     @classmethod
     def validate_input(cls, value: object) -> JsonObject:
         return ObjectFields.from_unknown(value).to_plain_dict()
+
+
+def _empty_anthropic_response_content_block_list() -> list[AnthropicResponseContentBlock]:
+    return []
 
 
 class AnthropicResponseSnapshot(IgnoreExtraModel):
@@ -762,12 +810,12 @@ class AnthropicResponseSnapshot(IgnoreExtraModel):
     model: str = ""
     stop_reason: str = ""
     usage: GenericUsageSnapshot = Field(default_factory=GenericUsageSnapshot)
-    content: list[AnthropicResponseContentBlock] = Field(default_factory=list)
+    content: list[AnthropicResponseContentBlock] = Field(default_factory=_empty_anthropic_response_content_block_list)
 
     @field_validator("content", mode="before")
     @classmethod
-    def validate_content(cls, value: object) -> list[object]:
-        return value if isinstance(value, list) else []
+    def validate_content(cls, value: object) -> JsonArray:
+        return cast(JsonArray, value) if isinstance(value, list) else []
 
 
 class SdkDumpAdapter:
@@ -782,9 +830,11 @@ class SdkDumpAdapter:
         if isinstance(value, ModelDumpable):
             return value.model_dump(mode="python")
         if isinstance(value, Mapping):
-            return {str(key): SdkDumpAdapter.to_plain(item) for key, item in value.items()}
+            mapping = cast(Mapping[object, object], value)
+            return {str(key): SdkDumpAdapter.to_plain(item) for key, item in mapping.items()}
         if isinstance(value, (list, tuple, set)):
-            return [SdkDumpAdapter.to_plain(item) for item in value]
+            iterable = cast(Iterable[object], value)
+            return [SdkDumpAdapter.to_plain(item) for item in iterable]
         to_dict = getattr(value, "to_dict", None)
         if callable(to_dict):
             return SdkDumpAdapter.to_plain(to_dict())
@@ -794,7 +844,8 @@ class SdkDumpAdapter:
     def to_plain_dict(value: object) -> JsonObject:
         plain = SdkDumpAdapter.to_plain(value)
         if isinstance(plain, Mapping):
-            return _DICT_ADAPTER.validate_python(dict(plain))
+            mapping = cast(Mapping[object, object], plain)
+            return _DICT_ADAPTER.validate_python(mapping_to_json_object(mapping))
         raise TypeError(f"不支持的 SDK 响应对象类型: {type(value).__name__}")
 
     @staticmethod

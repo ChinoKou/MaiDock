@@ -1,6 +1,6 @@
 import logging
 import math
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterable, Awaitable, Callable, Mapping
 from typing import Literal, cast
 
 from maibot_sdk import LLMProviderBase
@@ -23,6 +23,7 @@ from ..core.common import (
     split_request_overrides,
     tool_arguments_to_json,
 )
+from ..core.json_types import mapping_to_json_object
 from ..core.diagnostics import (
     build_connection_error_message,
     build_parse_error_message,
@@ -192,15 +193,18 @@ class OpenAIResponsesProvider(LLMProviderBase):
         content = raw_response if isinstance(raw_response, str) else getattr(raw_response, "text", None)
         if not isinstance(content, str):
             payload = SdkDumpAdapter.to_plain(raw_response)
-            if isinstance(payload, dict) and isinstance(payload.get("text"), str):
-                content = payload["text"]
+            if isinstance(payload, Mapping):
+                payload_mapping = cast(Mapping[object, object], payload)
+                text = payload_mapping.get("text")
+                if isinstance(text, str):
+                    content = text
         if not isinstance(content, str):
             raise ValueError(build_parse_error_message("OpenAI Audio Transcriptions", "缺少文本内容"))
         raw_data = sanitize_for_log(SdkDumpAdapter.to_plain(raw_response)) if self.options.include_raw_data else None
         return ProviderResponse(content=content, raw_data=cast(JsonObject | None, raw_data)).to_host_dict()
 
     def _build_client(self, api_provider: ApiProviderSnapshot) -> AsyncOpenAI:
-        client_config = build_openai_compatible_client_config(api_provider)
+        client_config = build_openai_compatible_client_config(api_provider, user_agent=self.options.openai_user_agent)
         timeout = read_timeout(api_provider)
         return AsyncOpenAI(
             api_key=client_config.api_key,
@@ -269,7 +273,7 @@ class OpenAIResponsesProvider(LLMProviderBase):
         if request.model_info.force_stream_mode:
             kwargs["stream"] = True
             stream = await create_response(**kwargs)
-            return await self._collect_stream_response(stream)
+            return await self._collect_stream_response(cast(AsyncIterable[object], stream))
         kwargs["stream"] = False
         return await create_response(**kwargs)
 
@@ -296,19 +300,21 @@ class OpenAIResponsesProvider(LLMProviderBase):
         kwargs.update(upstream_request.direct_params)
         return kwargs
 
-    async def _collect_stream_response(self, stream: object) -> object:
+    async def _collect_stream_response(self, stream: AsyncIterable[object]) -> object:
         final_response: object | None = None
         output_text_chunks: list[str] = []
-        async for event in stream:  # type: ignore[attr-defined]
+        async for event in stream:
             plain_event = SdkDumpAdapter.to_plain(event)
-            if isinstance(plain_event, dict):
-                response = plain_event.get("response")
-                if isinstance(response, dict):
-                    final_response = response
-                delta = plain_event.get("delta")
+            if isinstance(plain_event, Mapping):
+                plain_mapping = cast(Mapping[object, object], plain_event)
+                response = plain_mapping.get("response")
+                if isinstance(response, Mapping):
+                    final_response = mapping_to_json_object(cast(Mapping[object, object], response))
+                delta = plain_mapping.get("delta")
                 if isinstance(delta, str):
                     output_text_chunks.append(delta)
-            response_attr = getattr(event, "response", None)
+            event_object: object = event
+            response_attr = getattr(event_object, "response", None)
             if response_attr is not None:
                 final_response = response_attr
         if final_response is not None:
@@ -383,10 +389,11 @@ class OpenAIResponsesProvider(LLMProviderBase):
         tool_call: ToolCallSnapshot,
     ) -> tuple[str | None, Literal["in_progress", "completed", "incomplete"] | None]:
         metadata = tool_call.extra_content.to_plain_dict().get("openai_responses")
-        if not isinstance(metadata, dict):
+        if not isinstance(metadata, Mapping):
             return None, None
-        item_id = metadata.get("item_id")
-        status = metadata.get("status")
+        metadata_mapping = cast(Mapping[object, object], metadata)
+        item_id = metadata_mapping.get("item_id")
+        status = metadata_mapping.get("status")
         normalized_item_id = item_id if isinstance(item_id, str) and item_id.strip() else None
         if status in {"in_progress", "completed", "incomplete"}:
             return normalized_item_id, cast(Literal["in_progress", "completed", "incomplete"], status)
@@ -534,14 +541,24 @@ class OpenAIResponsesProvider(LLMProviderBase):
         data = payload.get("data")
         if not isinstance(data, list) or not data:
             raise ValueError(build_parse_error_message("OpenAI Embeddings", "缺少 embeddings 数据"))
-        first_item = data[0]
-        if not isinstance(first_item, dict):
+        data_items = cast(list[object], data)
+        first_item = data_items[0]
+        if not isinstance(first_item, Mapping):
             raise ValueError(build_parse_error_message("OpenAI Embeddings", "embedding 数据项不是 object"))
-        raw_embedding = first_item.get("embedding")
+        first_item_mapping = cast(Mapping[object, object], first_item)
+        raw_embedding = first_item_mapping.get("embedding")
         if not isinstance(raw_embedding, list):
             raise ValueError(build_parse_error_message("OpenAI Embeddings", "缺少 embedding 数组"))
+        raw_embedding_items = cast(list[object], raw_embedding)
         embedding: list[float] = []
-        for index, item in enumerate(raw_embedding):
+        for index, item in enumerate(raw_embedding_items):
+            if not isinstance(item, (str, int, float)):
+                raise ValueError(
+                    build_parse_error_message(
+                        "OpenAI Embeddings",
+                        f"embedding[{index}] 无法转换为 float，类型为 {type(item).__name__}",
+                    )
+                )
             try:
                 value = float(item)
             except (TypeError, ValueError, OverflowError) as exc:
