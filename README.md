@@ -16,7 +16,11 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补齐主程序原生客户
 ## 图片与插件 RPC 注意事项
 
 MaiBot Host 通过插件 RPC 发送给 Runner，然后才进入 MaiDock。当前由于 maibot_sdk 传输层有 16 MB 单帧限制。
-如果发送大图，`message_list` 中的图片 base64 可能在到达 MaiDock 前就让 RPC 帧超过 16 MB。可尝试修改 MaiBot 配置 `[visual]` 或 WebUI 可视化配置降低入站图片体积与多模态上下文图片数量。
+如果发送大图，`message_list` 中的图片 base64 可能在到达 MaiDock 前就让 RPC 帧超过 16 MB。
+可尝试修改 MaiBot 配置 `[visual]` 或 WebUI 可视化配置降低入站图片体积与多模态上下文图片数量。
+关键配置字段: 
+- `max_image_num` 
+- `max_image_size_mb`
 
 ## 模型配置示例
 
