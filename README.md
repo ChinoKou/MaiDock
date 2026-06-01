@@ -1,7 +1,9 @@
 # MaiDock
 
 MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的端点。
-目前已实现:
+
+目前已实现：
+
 - `maidock-openai-responses`: OpenAI Responses API。
 - `maidock-anthropic-messages`: Anthropic Messages API。
 
@@ -41,11 +43,14 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 ### 图片，多模态相关 / 帧大小超过限制
 
-报错信息为: **"插件 LLM Provider RPC 调用失败: [E_UNKNOWN] 帧大小 xxx 超过最大限制 16777216"**
+报错信息为：**"插件 LLM Provider RPC 调用失败: [E_UNKNOWN] 帧大小 xxx 超过最大限制 16777216"**
+
 当前由于传输层有 16 MB 单帧限制。如果发送大图，图片 base64 可能在到达本插件前就让 RPC 帧超过 16 MB。
+
 WebUI 可视化界面暂无**最大图片数量**的设置界面，请切换到上方源代码后修改配置文件。
 
-配置文件(bot_config.toml)关键字段:
+配置文件 `bot_config.toml` 关键字段：
+
 ```toml
 [visual]
 max_image_num = 1 # 建议为 1, 具体视上下文长度与单图片大小而定
@@ -54,12 +59,15 @@ max_image_size_mb = 5 # 视情况而定
 
 ### 超时
 
-报错信息为: **插件 LLM Provider RPC 调用失败: [E_TIMEOUT] 请求 plugin.invoke_llm_provider 超时 (30000ms)**
-建议操作:
+报错信息为：**插件 LLM Provider RPC 调用失败: [E_TIMEOUT] 请求 plugin.invoke_llm_provider 超时 (30000ms)**
+
+建议操作：
+
 - 变更默认超时(30s)设置
 - 更换响应更快的模型、提供商
 
-模型配置文件(model_config.toml)关键字段:
+模型配置文件 `model_config.toml` 关键字段：
+
 ```toml
 [[api_providers]]
 timeout = 30 # 默认值为 30
