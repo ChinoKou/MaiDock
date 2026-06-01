@@ -10,10 +10,8 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补齐主程序原生客户
 
 | client_type | response | vision | tool calling | reasoning/thinking | JSON response_format | embedding | audio transcription |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `maidock-openai-responses` | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ 未测试 | ✅ |
+| `maidock-openai-responses` | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ 未测试 | ⚠️ 未测试 |
 | `maidock-anthropic-messages` | ✅ | ✅ | ✅ | ✅ | N/A | ❌ | ❌ |
-
-说明: MaiBot 当前插件 LLM Provider 链路会等待插件返回完整 dict，暂不支持 Host 侧自定义 streaming callback。MaiDock 在 `force_stream_mode = true` 时只做插件内部流式累积，最后一次性返回完整响应。`maidock-openai-responses` 的 embedding 链路已有实现但尚未做真实上游验证。
 
 ## 图片与插件 RPC 注意事项
 
