@@ -4,14 +4,14 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补齐主程序原生客户
 
 目前已实现：
 - `maidock-openai-responses`: OpenAI Responses API。
-- `maidock-anthropic`: Anthropic Messages API。
+- `maidock-anthropic-messages`: Anthropic Messages API。
 
 ## Provider 能力矩阵
 
 | client_type | response | vision | tool calling | reasoning/thinking | JSON response_format | embedding | audio transcription |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `maidock-openai-responses` | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ 未测试 | ✅ |
-| `maidock-anthropic` | ✅ | ✅ | ✅ | ✅ | N/A | ❌ | ❌ |
+| `maidock-anthropic-messages` | ✅ | ✅ | ✅ | ✅ | N/A | ❌ | ❌ |
 
 说明: MaiBot 当前插件 LLM Provider 链路会等待插件返回完整 dict，暂不支持 Host 侧自定义 streaming callback。MaiDock 在 `force_stream_mode = true` 时只做插件内部流式累积，最后一次性返回完整响应。`maidock-openai-responses` 的 embedding 链路已有实现但尚未做真实上游验证。
 
@@ -44,8 +44,8 @@ extra_params = { reasoning = { effort = "medium" } }
 
 ```toml
 [[api_providers]]
-name = "maidock-anthropic"
-client_type = "maidock-anthropic"
+name = "maidock-anthropic-messages"
+client_type = "maidock-anthropic-messages"
 base_url = "https://api.anthropic.com"
 # 兼容 https://api.anthropic.com/v1
 api_key = "your-api-key"
@@ -55,7 +55,7 @@ auth_header_name = "x-api-key"
 
 [[models]]
 name = "messages/claude-opus-4-8"
-api_provider = "maidock-anthropic"
+api_provider = "maidock-anthropic-messages"
 model_identifier = "claude-opus-4-8"
 visual = true
 extra_params = { thinking = { type = "enabled", budget_tokens = 1024 } }

@@ -71,7 +71,7 @@ class MaiDockPlugin(MaiBotPlugin):
         return cast(JsonObject, await self._require_openai_provider().dispatch(operation=operation, request=request))
 
     @LLMProvider(
-        client_type="maidock-anthropic",
+        client_type="maidock-anthropic-messages",
         name="MaiDock Anthropic Messages",
         description="基于 Anthropic Messages API 的 LLM Provider。",
         version=__version__,

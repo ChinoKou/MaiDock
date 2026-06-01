@@ -38,7 +38,7 @@
       "version": "1.0.0"
     },
     {
-      "client_type": "maidock-anthropic",
+      "client_type": "maidock-anthropic-messages",
       "name": "MaiDock Anthropic Messages",
       "description": "基于 Anthropic Messages API 的 LLM Provider。",
       "version": "1.0.0"
