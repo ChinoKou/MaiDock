@@ -13,31 +13,31 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 基础能力：
 
-| 能力 | 支持情况 | 说明 |
+| 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| 文本响应 | ✅ 支持 | 基础对话与文本生成。 |
-| 多模态图片输入 | ✅ 支持 | 会把图片转换为 Responses API 可用的 input image。 |
-| 工具调用 | ✅ 支持 | 支持原生工具调用，也会兼容部分 XML 工具调用输出。 |
-| 推理/思考参数与内容 | ✅ 支持 | 可通过 `extra_params.reasoning` 透传 Responses `reasoning` 参数；会从 `reasoning` / `reasoning_summary` 提取 `reasoning_content`。 |
+| 文本响应 | ✅ | 基础对话与文本生成。 |
+| 多模态图片输入 | ✅ | 转换为 Responses API 的 input image。 |
+| 工具调用 | ✅ | 原生工具调用，兼容部分 XML 工具调用输出。 |
+| 推理/思考 | ✅ | 透传 `extra_params.reasoning`，并提取 `reasoning_content`。 |
 
 额外能力：
 
-| 能力 | 支持情况 | 说明 |
+| 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| JSON / `response_format` | ✅ 支持 | 会转换为 Responses API 的 `text.format`。 |
-| Embedding | 🧪 实验性 | 复用 OpenAI SDK embeddings 端点。 |
-| 音频转写 | 🧪 实验性 | 复用 OpenAI SDK audio transcriptions 端点。 |
+| JSON / `response_format` | ✅ | 转换为 Responses API 的 `text.format`。 |
+| Embedding | 🧪 | 复用 OpenAI SDK embeddings 端点。 |
+| 音频转写 | 🧪 | 复用 OpenAI SDK audio transcriptions 端点。 |
 
 ### `maidock-anthropic-messages`
 
 基础能力：
 
-| 能力 | 支持情况 | 说明 |
+| 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| 文本响应 | ✅ 支持 | 基础对话与文本生成。 |
-| 多模态图片输入 | ✅ 支持 | 支持 Anthropic Messages 图片块。 |
-| 工具调用 | ✅ 支持 | 支持 Anthropic 原生工具调用，也会兼容部分 XML 工具调用输出。 |
-| 推理/思考参数与内容 | ✅ 支持 | 可通过 `extra_params.thinking` 透传 Messages `thinking` 参数；会从 `thinking` / `redacted_thinking` 内容块提取 `reasoning_content`。 |
+| 文本响应 | ✅ | 基础对话与文本生成。 |
+| 多模态图片输入 | ✅ | 支持 Anthropic Messages 图片块。 |
+| 工具调用 | ✅ | 原生工具调用，兼容部分 XML 工具调用输出。 |
+| 推理/思考 | ✅ | 透传 `extra_params.thinking`，并提取 `reasoning_content`。 |
 
 ## 注意事项
 
