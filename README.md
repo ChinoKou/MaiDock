@@ -66,7 +66,7 @@ extra_params = { thinking = { type = "enabled", budget_tokens = 1024 } }
 ```toml
 [plugin]
 enabled = true
-config_version = "1.0.0"
+config_version = "1.0.1"
 
 [diagnostics]
 include_raw_data = false
