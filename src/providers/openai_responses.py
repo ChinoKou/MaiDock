@@ -6,7 +6,7 @@ from typing import Literal, cast
 from maibot_sdk import LLMProviderBase
 from openai import DEFAULT_MAX_RETRIES, APIConnectionError, APIStatusError, AsyncOpenAI, not_given
 
-from .common import (
+from ..core.common import (
     ProviderRuntimeOptions,
     build_audio_file,
     build_openai_compatible_client_config,
@@ -23,19 +23,19 @@ from .common import (
     split_request_overrides,
     tool_arguments_to_json,
 )
-from .diagnostics import (
+from ..core.diagnostics import (
     build_connection_error_message,
     build_parse_error_message,
     build_status_error_message,
     sanitize_for_log,
 )
-from .parsing import (
+from ..core.parsing import (
     extract_xml_tool_calls,
     fallback_tool_call_id,
     merge_native_or_text_reasoning,
     normalize_arguments,
 )
-from .schemas import (
+from ..core.schemas import (
     ApiProviderSnapshot,
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,

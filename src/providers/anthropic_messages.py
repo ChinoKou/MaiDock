@@ -5,7 +5,7 @@ from typing import Literal, cast
 from anthropic import DEFAULT_MAX_RETRIES, APIConnectionError, APIStatusError, AsyncAnthropic, not_given
 from maibot_sdk import LLMProviderBase
 
-from .common import (
+from ..core.common import (
     ProviderRuntimeOptions,
     build_anthropic_client_config,
     build_usage_from_snapshot,
@@ -20,14 +20,14 @@ from .common import (
     read_timeout,
     split_request_overrides,
 )
-from .diagnostics import (
+from ..core.diagnostics import (
     build_connection_error_message,
     build_parse_error_message,
     build_status_error_message,
     sanitize_for_log,
 )
-from .parsing import extract_xml_tool_calls, merge_native_or_text_reasoning, normalize_arguments
-from .schemas import (
+from ..core.parsing import extract_xml_tool_calls, merge_native_or_text_reasoning, normalize_arguments
+from ..core.schemas import (
     AnthropicContentBlock,
     AnthropicImageBlock,
     AnthropicImageMediaType,

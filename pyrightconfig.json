@@ -1,6 +1,8 @@
 {
   "include": [
-    "."
+    "plugin.py",
+    "__init__.py",
+    "src"
   ],
   "exclude": [
     "**/__pycache__",
@@ -10,10 +12,10 @@
   ],
   "venvPath": "../..",
   "venv": ".venv",
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.12",
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false,
-  "reportUnknownMemberType": false,
-  "reportUnknownArgumentType": false,
-  "reportUnknownVariableType": false
+  "reportUnknownMemberType": "warning",
+  "reportUnknownArgumentType": "warning",
+  "reportUnknownVariableType": "warning"
 }
