@@ -10,7 +10,7 @@ from .version import __version__
 
 
 class MaiDockPlugin(MaiBotPlugin):
-    """提供 OpenAI Responses 与 Anthropic Messages 端点的 Provider 插件。"""
+    """提供额外端点支持的插件。"""
 
     config_model = MaiDockConfig
 
