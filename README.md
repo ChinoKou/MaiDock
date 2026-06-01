@@ -49,7 +49,7 @@ extra_params = { reasoning = { effort = "medium" } }
 name = "maidock-anthropic-messages"
 client_type = "maidock-anthropic-messages"
 base_url = "https://api.anthropic.com"
-# 兼容 https://api.anthropic.com/v1
+# 自动兼容 /v1
 api_key = "your-api-key"
 auth_type = "header"
 auth_header_name = "x-api-key"
@@ -106,9 +106,9 @@ max_image_frames = 64
 - `user_agent`: OpenAI Responses Provider 使用的自定义 User-Agent。
 
 `anthropic_messages`
-- `user_agent`: Anthropic Messages Provider 使用的自定义 User-Agent。留空时，MaiDock 会自动使用内置默认值 `MaiDock/<版本号>`。
+- `user_agent`: Anthropic Messages Provider 使用的自定义 User-Agent
 
-若 user_agent 留空时，MaiDock 会自动使用内置默认值 `MaiDock/<版本号>`。。
+若 user_agent 留空时，MaiDock 会自动使用内置默认值 `MaiDock/<版本号>`。
 如果配置文件 **model_config.toml** 中 `api_provider.default_headers` 已显式配置 `User-Agent`/`user-agent`，该请求级配置优先，MaiDock 不会覆盖。
 
 `invalid_image_policy`: 
