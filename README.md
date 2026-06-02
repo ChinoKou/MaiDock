@@ -2,6 +2,8 @@
 
 MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的端点。
 
+**最低支持的 MaiBot 版本: 1.0.0-rc.3**
+
 目前已实现：
 
 - `maidock-openai-responses`: OpenAI Responses API。
