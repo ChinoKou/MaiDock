@@ -1,6 +1,6 @@
 [plugin]
 enabled = true
-config_version = "1.0.6"
+config_version = "1.0.7"
 
 [diagnostics]
 include_raw_data = false
@@ -708,4 +708,3 @@ max_image_bytes_mb = 30
 max_image_pixels = 25000000
 max_image_dimension = 8192
 max_image_frames = 64
-
