@@ -162,6 +162,7 @@ unknown_extra_params = "forward"
 
 [openai_responses.image_generation.override_params]
 
+
 [anthropic_messages]
 user_agent = ""
 max_retries = 3
@@ -221,6 +222,7 @@ unknown_extra_params = "forward"
 [anthropic_messages.image_generation.default_params]
 
 [anthropic_messages.image_generation.override_params]
+
 
 [dashscope]
 user_agent = ""
@@ -384,6 +386,7 @@ unknown_extra_params = "forward"
 
 [dashscope.image_generation.override_params]
 
+
 [siliconflow]
 user_agent = ""
 force_official_endpoint = true
@@ -507,6 +510,7 @@ unknown_extra_params = "forward"
 
 [siliconflow.image_generation.override_params]
 
+
 [volcengine_ark]
 user_agent = ""
 force_official_endpoint = true
@@ -626,6 +630,7 @@ unknown_extra_params = "forward"
 
 [volcengine_ark.image_generation.override_params]
 
+
 [xiaomi_mimo]
 user_agent = ""
 force_disable_thinking = true
@@ -694,6 +699,7 @@ unknown_extra_params = "forward"
 
 [xiaomi_mimo.audio_transcription.override_params]
 
+
 [compatibility]
 tool_argument_parse_mode = "auto"
 reasoning_parse_mode = "auto"
@@ -702,3 +708,4 @@ max_image_bytes_mb = 30
 max_image_pixels = 25000000
 max_image_dimension = 8192
 max_image_frames = 64
+

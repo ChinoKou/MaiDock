@@ -16,89 +16,17 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 ## 能力矩阵
 
-<table style="border-collapse: collapse; width: 100%;">
-<thead>
-<tr>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: left; font-weight: 600;">Provider</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">文本生成</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">Embedding</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">音频转录</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">流式输出</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">工具调用</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">多模态</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">推理/思考</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">响应格式</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-openai-responses</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-anthropic-messages</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-dashscope</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-siliconflow</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-volcengine-ark-responses</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-xiaomi-mimo</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-</tbody>
-</table>
+| Provider | 文本生成 | Embedding | 音频转录 | 流式输出 | 工具调用 | 多模态 | 推理/思考 | 响应格式 |
+|---|---|---|---|---|---|---|---|---|
+| `maidock-openai-responses` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `maidock-anthropic-messages` | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `maidock-dashscope` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ |
+| `maidock-siliconflow` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `maidock-volcengine-ark-responses` | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `maidock-xiaomi-mimo` | ✅ | ❌ | ⚠️ | ✅ | ✅ | ✅ | ⚠️ | ✅ |
+
+> - 阿里云百炼 DashScope 不支持 `json_schema`。
+> - 小米 Mimo 在开启深度思考且历史会话存在工具调用时要求回传思考内容，本插件无法满足该协议要求，因此默认强制关闭思考。
 
 > - 阿里云百炼 DashScope 不支持 `json_schema`。
 > - 小米 Mimo 在开启深度思考且历史会话存在工具调用时要求回传思考内容，本插件无法满足该协议要求，因此默认强制关闭思考。
@@ -160,47 +88,14 @@ timeout = 30 # 默认值为 30
 
 在 WebUI 的**模型管理 → 添加厂商**界面中选择对应的客户端类型即可使用。
 
-<table style="border-collapse: collapse; width: 100%;">
-<thead>
-<tr>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: left; font-weight: 600;">Provider</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: left; font-weight: 600;">默认 Base URL</th>
-  <th style="border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-weight: 600;">强制官方端点</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-openai-responses</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">无</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-anthropic-messages</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">无</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-dashscope</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>https://dashscope.aliyuncs.com/api/v1</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-siliconflow</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>https://api.siliconflow.cn/v1</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-volcengine-ark-responses</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>https://ark.cn-beijing.volces.com/api/v3</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-xiaomi-mimo</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">无</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-</tr>
-</tbody>
-</table>
+| Provider | 默认 Base URL | 强制官方端点 |
+|---|---|---|
+| `maidock-openai-responses` | 无 | ❌ |
+| `maidock-anthropic-messages` | 无 | ❌ |
+| `maidock-dashscope` | `https://dashscope.aliyuncs.com/api/v1` | ✅ |
+| `maidock-siliconflow` | `https://api.siliconflow.cn/v1` | ✅ |
+| `maidock-volcengine-ark-responses` | `https://ark.cn-beijing.volces.com/api/v3` | ✅ |
+| `maidock-xiaomi-mimo` | 无 | ❌ |
 
 > - 阿里云百炼 DashScope、SiliconFlow、Volcengine Ark 默认使用官方端点，如需自定义地址可在 MaiDock 配置页面中关闭对应开关。
 > - Xiaomi Mimo 无默认端点，始终使用 Host 提供的 base_url。Mimo 官方有按量付费与 Token Plan 两套地址，由 Host 侧按需配置。
