@@ -291,8 +291,10 @@ def normalize_user_agent(raw_user_agent: str | None) -> str:
 def positive_int(value: object, default: int) -> int:
     """读取正整数配置，非法时回退到默认值。"""
 
-    if isinstance(value, int) and value > 0:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
+    if isinstance(value, float) and not isinstance(value, bool) and value > 0 and value == int(value):
+        return int(value)
     return default
 
 

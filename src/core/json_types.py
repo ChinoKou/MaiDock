@@ -9,7 +9,7 @@ def is_json_mapping(value: object) -> TypeGuard[Mapping[str, JsonValue]]:
 
 
 def is_json_iterable(value: object) -> TypeGuard[Iterable[JsonValue]]:
-    return isinstance(value, (list, tuple, set))
+    return isinstance(value, (list, tuple))
 
 
 def is_json_list(value: object) -> TypeGuard[list[JsonValue]]:

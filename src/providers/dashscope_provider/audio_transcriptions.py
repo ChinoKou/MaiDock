@@ -7,9 +7,8 @@ from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import AudioTranscriptionRequestSnapshot
 from ..common.parameter_translation import build_translation_context, TranslationEnvelope
+from .chat import DASHSCOPE_PROVIDER_LABEL
 from .parameter_translation import apply_dashscope_audio_parameters
-
-DASHSCOPE_PROVIDER_LABEL = "dashscope"
 
 # 常见音频格式魔数 → MIME 类型映射
 _AUDIO_MIME_BY_MAGIC: dict[bytes, str] = {

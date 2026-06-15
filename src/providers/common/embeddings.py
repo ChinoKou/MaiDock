@@ -30,7 +30,7 @@ def coerce_embedding_vector(value: object, *, provider_label: str, encoding_form
         raise HttpxProviderParseError(build_parse_error_message(provider_label, "缺少 embedding 数组"))
     embedding: list[float] = []
     for index, item in enumerate(raw_embedding):
-        if not isinstance(item, (str, int, float)):
+        if not isinstance(item, (str, int, float)) or isinstance(item, bool):
             raise HttpxProviderParseError(
                 build_parse_error_message(
                     provider_label,

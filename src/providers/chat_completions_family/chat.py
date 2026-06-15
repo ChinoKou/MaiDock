@@ -154,7 +154,9 @@ class ChatCompletionsMapper:
             content = self._convert_message_content(message)
             current: dict = {"role": message.role, "content": content}
             if message.role == "assistant":
-                tool_calls = [self._convert_history_tool_call(tool_call) for tool_call in message.tool_calls]
+                tool_calls = [
+                    self._convert_history_tool_call(tc, index=i) for i, tc in enumerate(message.tool_calls, start=1)
+                ]
                 filtered_tool_calls = [tc for tc in tool_calls if tc is not None]
                 if filtered_tool_calls:
                     current["tool_calls"] = filtered_tool_calls
@@ -180,11 +182,12 @@ class ChatCompletionsMapper:
     def _convert_tools(self, tool_options: list[ToolOptionSnapshot]) -> list[dict]:
         return convert_family_tools(tool_options)
 
-    def _convert_history_tool_call(self, tool_call: ToolCallSnapshot) -> dict | None:
+    def _convert_history_tool_call(self, tool_call: ToolCallSnapshot, *, index: int = 1) -> dict | None:
         return convert_family_history_tool_call(
             tool_call,
             options=self.options,
             fallback_prefix=self.history_tool_prefix,
+            index=index,
         )
 
     def _apply_chat_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:

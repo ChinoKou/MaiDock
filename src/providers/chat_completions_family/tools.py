@@ -29,12 +29,13 @@ def convert_history_tool_call(
     *,
     options: ProviderRuntimeOptions,
     fallback_prefix: str,
+    index: int = 1,
 ) -> dict | None:
     """把 Host 历史工具调用转换为 Chat Completions tool_call。"""
     name = tool_call.function.name
     if not name:
         return None
-    call_id = tool_call.resolved_call_id() or resolve_tool_call_id(None, fallback_prefix=fallback_prefix, index=1)
+    call_id = tool_call.resolved_call_id() or resolve_tool_call_id(None, fallback_prefix=fallback_prefix, index=index)
     return {
         "id": call_id,
         "type": "function",

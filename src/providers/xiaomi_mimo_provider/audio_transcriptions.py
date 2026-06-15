@@ -10,6 +10,7 @@ from ...core.common import (
     build_usage_from_snapshot,
     read_model_identifier,
 )
+from ...core.diagnostics import sanitize_json_object
 from ...core.json_types import json_mapping_or_none, mapping_field
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
@@ -110,10 +111,10 @@ async def build_mimo_audio_transcription(
             max_retries=options.default_max_retries,
         )
 
-    return _parse_audio_transcription_response(payload)
+    return _parse_audio_transcription_response(payload, options=options)
 
 
-def _parse_audio_transcription_response(payload: dict) -> ProviderResponse:
+def _parse_audio_transcription_response(payload: dict, *, options: ProviderRuntimeOptions) -> ProviderResponse:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
         raise ValueError(f"{MIMO_AUDIO_TRANSCRIPTION_LABEL} 响应中没有 choices")
@@ -140,5 +141,5 @@ def _parse_audio_transcription_response(payload: dict) -> ProviderResponse:
     return ProviderResponse(
         content=content,
         usage=build_usage_from_snapshot(GenericUsageSnapshot.model_validate(payload.get("usage") or {})),
-        raw_data=None,
+        raw_data=sanitize_json_object(payload) if options.include_raw_data else None,
     )

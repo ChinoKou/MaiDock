@@ -238,7 +238,7 @@ def convert_response(response: object, *, options: ProviderRuntimeOptions) -> Pr
             thinking = block.thinking or block.text
             if thinking:
                 reasoning_parts.append(thinking)
-        elif block.type in ("tool_use", "tool_calls"):
+        elif block.type == "tool_use":
             tool_calls.append(
                 ProviderToolCall(
                     id=block.id or "",

@@ -52,6 +52,8 @@ def translate_response_tools(
     value: object,
 ) -> None:
     del context
+    if value is None:
+        return
     current_value = envelope.body.get("tools")
     current_tools: list[object] = cast(list[object], current_value) if isinstance(current_value, list) else []
     incoming_tools: list[object] = cast(list[object], value) if isinstance(value, list) else [value]

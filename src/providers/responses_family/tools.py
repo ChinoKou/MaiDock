@@ -33,8 +33,6 @@ def extract_tool_calls(
         if item.type != "function_call" or not item.name:
             continue
         call_id = (item.call_id or item.id or fallback_tool_call_id(item.name)).strip()
-        if not call_id:
-            call_id = fallback_tool_call_id(item.name)
         tool_calls.append(
             ProviderToolCall(
                 id=call_id,

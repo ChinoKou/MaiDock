@@ -139,7 +139,7 @@ def finalize_stream_block(
     *,
     parse_mode: ToolArgumentParseMode,
 ) -> None:
-    if block.get("type") not in ("tool_use", "tool_calls") or not input_parts:
+    if block.get("type") != "tool_use" or not input_parts:
         return
     raw_input = "".join(input_parts)
     block["input"] = normalize_arguments(raw_input, parse_mode)

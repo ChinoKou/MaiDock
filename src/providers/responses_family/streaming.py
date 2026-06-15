@@ -101,9 +101,11 @@ class ResponsesStreamAccumulator:
         tool.set_arguments(arguments)
 
     def merge_usage(self, value: object) -> None:
-        usage = json_mapping_or_none({"usage": value}.get("usage"))
+        usage = json_mapping_or_none(value)
         if usage is not None:
-            self.usage = usage
+            merged = dict(self.usage)
+            merged.update(usage)
+            self.usage = merged
 
     def _tool_for_event(self, event: dict) -> ResponsesToolCallChunk:
         key = _event_key(event)

@@ -99,6 +99,9 @@ class XiaomiMimoProvider(LLMProviderBase):
         )
         return result.to_host_dict()
 
+    async def get_embedding(self, request: dict) -> dict:
+        raise NotImplementedError("Xiaomi Mimo Provider 当前不提供 embedding 端点")
+
     async def get_audio_transcriptions(self, request: dict) -> dict:
         request_model = AudioTranscriptionRequestSnapshot.model_validate(request)
         result = await build_mimo_audio_transcription(

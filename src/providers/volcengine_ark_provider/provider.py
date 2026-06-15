@@ -41,19 +41,11 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
         stream = bool(request_model.model_info.force_stream_mode)
         body = self._responses_mapper.build_http_body(upstream_request, stream=stream, apply_policy=False)
         policy = self.options.parameter_policies.get("volcengine_ark", "response")
+        request_headers = build_ark_request_headers(upstream_request.extra_headers, body)
         transport = apply_transport_parameter_policy(
             body=body,
-            headers=upstream_request.extra_headers,
-            query=upstream_request.extra_query,
-            policy=policy,
-            provider_label=VOLCENGINE_PROVIDER_LABEL,
-            capability="response",
-        )
-        request_headers = build_ark_request_headers(transport.headers, transport.body)
-        transport = apply_transport_parameter_policy(
-            body=transport.body,
             headers=request_headers,
-            query=transport.query,
+            query=upstream_request.extra_query,
             policy=policy,
             provider_label=VOLCENGINE_PROVIDER_LABEL,
             capability="response",
