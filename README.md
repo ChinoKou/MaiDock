@@ -7,10 +7,10 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 目前已实现：
 - `maidock-openai-responses` — OpenAI Responses API
 - `maidock-anthropic-messages` — Anthropic Messages API
-- `maidock-dashscope` — 百炼 DashScope API
+- `maidock-dashscope` — 阿里云百炼 DashScope API
 - `maidock-siliconflow` — 硅基流动 SiliconFlow API
-- `maidock-xiaomi-mimo` — 小米 Mimo API
 - `maidock-volcengine-ark-responses` — 火山方舟 Volcengine Ark API
+- `maidock-xiaomi-mimo` — 小米 Mimo API
 
 ---
 
@@ -76,17 +76,6 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
 </tr>
 <tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-xiaomi-mimo</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
-</tr>
-<tr>
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-volcengine-ark-responses</code></td>
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
@@ -97,10 +86,21 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
 </tr>
+<tr>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: left;"><code>maidock-xiaomi-mimo</code></td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">⚠️</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
+</tr>
 </tbody>
 </table>
 
-> - DashScope 不支持 `json_schema`。
+> - 阿里云百炼 DashScope 不支持 `json_schema`。
 > - 小米 Mimo 在开启深度思考且历史会话存在工具调用时要求回传思考内容，本插件无法满足该协议要求，因此默认强制关闭思考。
 > - 小米 Mimo 无独立音频转录 API，实际通过文本生成端点 + `input_audio` 实现转录。可在插件管理 → MaiDock 中修改默认转录提示词。
 
@@ -190,17 +190,17 @@ timeout = 30 # 默认值为 30
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
 </tr>
 <tr>
-  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-xiaomi-mimo</code></td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">无</td>
-  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
-</tr>
-<tr>
   <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-volcengine-ark-responses</code></td>
   <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>https://ark.cn-beijing.volces.com/api/v3</code></td>
   <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">✅</td>
 </tr>
+<tr>
+  <td style="border: 1px solid #30363d; padding: 8px 12px;"><code>maidock-xiaomi-mimo</code></td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">无</td>
+  <td style="border: 1px solid #30363d; padding: 8px 12px; text-align: center;">❌</td>
+</tr>
 </tbody>
 </table>
 
-> - DashScope、SiliconFlow、Volcengine Ark 默认使用官方端点，如需自定义地址可在 MaiDock 配置页面中关闭对应开关。
+> - 阿里云百炼 DashScope、SiliconFlow、Volcengine Ark 默认使用官方端点，如需自定义地址可在 MaiDock 配置页面中关闭对应开关。
 > - Xiaomi Mimo 无默认端点，始终使用 Host 提供的 base_url。Mimo 官方有按量付费与 Token Plan 两套地址，由 Host 侧按需配置。

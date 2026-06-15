@@ -18,6 +18,7 @@ from .audio_transcriptions import (
 from .chat import (
     DASHSCOPE_GENERATION_ENDPOINT,
     DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT,
+    DASHSCOPE_PROVIDER_LABEL,
     build_client_config,
     build_generation_body,
     convert_response,
@@ -31,7 +32,7 @@ logger = logging.getLogger("maibot_plugin.maidock.dashscope")
 
 
 class DashScopeProvider(LLMProviderBase):
-    """DashScope 原生 HTTP Provider。"""
+    """阿里云百炼 DashScope 原生 HTTP Provider。"""
 
     def __init__(
         self,
@@ -88,7 +89,7 @@ class DashScopeProvider(LLMProviderBase):
                     json_body=body,
                     headers=extra_headers,
                     query=extra_query,
-                    provider_label="DashScope",
+                    provider_label=DASHSCOPE_PROVIDER_LABEL,
                     max_retries=config.max_retries,
                 )
                 result = convert_response(payload, options=self.options)
@@ -122,7 +123,7 @@ class DashScopeProvider(LLMProviderBase):
                 json_body=body,
                 headers=extra_headers,
                 query=extra_query,
-                provider_label="DashScope Embeddings",
+                provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Embeddings",
                 max_retries=config.max_retries,
             )
         return build_dashscope_embedding_response(
@@ -146,7 +147,7 @@ class DashScopeProvider(LLMProviderBase):
                 json_body=body,
                 headers=extra_headers,
                 query=extra_query,
-                provider_label="DashScope Audio Transcriptions",
+                provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions",
                 max_retries=config.max_retries,
             )
 

@@ -87,25 +87,6 @@ user_agent = ""
 | `[anthropic_messages.chat_completion]` | 文本生成（Messages API） |
 | `[anthropic_messages.image_generation]` | 图像生成（**占位**） |
 
-### `[volcengine_ark]`
-
-```toml
-[volcengine_ark]
-user_agent = ""
-force_official_endpoint = true
-```
-
-| 配置项 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `user_agent` | str | `""` | 自定义 User-Agent |
-| `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用火山方舟官方 endpoint |
-
-| 子段 | 说明 |
-| --- | --- |
-| `[volcengine_ark.response]` | 文本生成（Responses API） |
-| `[volcengine_ark.embeddings]` | Embeddings |
-| `[volcengine_ark.image_generation]` | 图像生成（**占位**） |
-
 ### `[dashscope]`
 
 ```toml
@@ -117,7 +98,7 @@ force_official_endpoint = true
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
-| `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用 DashScope 官方 endpoint |
+| `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用阿里云百炼 DashScope 官方 endpoint |
 
 | 子段 | 说明 |
 | --- | --- |
@@ -145,6 +126,25 @@ force_official_endpoint = true
 | `[siliconflow.embeddings]` | Embeddings |
 | `[siliconflow.audio_transcription]` | 语音转录 |
 | `[siliconflow.image_generation]` | 图像生成（**占位**） |
+
+### `[volcengine_ark]`
+
+```toml
+[volcengine_ark]
+user_agent = ""
+force_official_endpoint = true
+```
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `user_agent` | str | `""` | 自定义 User-Agent |
+| `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用火山方舟官方 endpoint |
+
+| 子段 | 说明 |
+| --- | --- |
+| `[volcengine_ark.response]` | 文本生成（Responses API） |
+| `[volcengine_ark.embeddings]` | Embeddings |
+| `[volcengine_ark.image_generation]` | 图像生成（**占位**） |
 
 ### `[xiaomi_mimo]`
 

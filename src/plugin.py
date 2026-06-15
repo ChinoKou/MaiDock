@@ -209,21 +209,9 @@ class MaiDockPlugin(MaiBotPlugin):
         )
 
     @LLMProvider(
-        client_type="maidock-volcengine-ark-responses",
-        name="MaiDock Volcengine Ark Responses",
-        description="基于火山方舟 Responses API 的 LLM Provider。",
-        version=__version__,
-    )
-    async def volcengine_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(
-            await self._require_volcengine_provider().dispatch(operation=operation, request=request)
-        )
-
-    @LLMProvider(
         client_type="maidock-dashscope",
-        name="MaiDock DashScope",
-        description="基于 DashScope 原生 HTTP API 的 LLM Provider。",
+        name="MaiDock 阿里云百炼 DashScope",
+        description="基于阿里云百炼 DashScope 原生 HTTP API 的 LLM Provider。",
         version=__version__,
     )
     async def dashscope_provider(self, operation: str, request: dict) -> dict:
@@ -242,6 +230,18 @@ class MaiDockPlugin(MaiBotPlugin):
         self._ensure_enabled()
         return value_to_json_object(
             await self._require_siliconflow_provider().dispatch(operation=operation, request=request)
+        )
+
+    @LLMProvider(
+        client_type="maidock-volcengine-ark-responses",
+        name="MaiDock Volcengine Ark Responses",
+        description="基于火山方舟 Responses API 的 LLM Provider。",
+        version=__version__,
+    )
+    async def volcengine_provider(self, operation: str, request: dict) -> dict:
+        self._ensure_enabled()
+        return value_to_json_object(
+            await self._require_volcengine_provider().dispatch(operation=operation, request=request)
         )
 
     @LLMProvider(

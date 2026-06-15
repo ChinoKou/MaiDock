@@ -37,7 +37,7 @@ api_provider = "anthropic"
 extra_params = { thinking = { type = "enabled", budget_tokens = 1024 } }
 ```
 
-### DashScope
+### 阿里云百炼 DashScope
 
 ```toml
 [[api_providers]]
@@ -76,6 +76,21 @@ model_identifier = "BAAI/bge-m3"
 api_provider = "siliconflow"
 ```
 
+### Volcengine Ark
+
+```toml
+[[api_providers]]
+name = "volcengine"
+client_type = "maidock-volcengine-ark-responses"
+api_key = "..."
+
+[[models]]
+name = "Doubao-Seed-2.0-Lite"
+model_identifier = "doubao-seed-2-0-lite-260428"
+api_provider = "volcengine"
+extra_params = { reasoning = { effort = "medium" } }
+```
+
 ### Xiaomi Mimo
 
 ```toml
@@ -96,19 +111,4 @@ name = "MIMO-2.5-ASR"
 model_identifier = "mimo-v2.5-asr"
 api_provider = "mimo"
 extra_params = { prompt = "请准确转写这段音频，只返回转写文本" }
-```
-
-### Volcengine Ark
-
-```toml
-[[api_providers]]
-name = "volcengine"
-client_type = "maidock-volcengine-ark-responses"
-api_key = "..."
-
-[[models]]
-name = "Doubao-Seed-2.0-Lite"
-model_identifier = "doubao-seed-2-0-lite-260428"
-api_provider = "volcengine"
-extra_params = { reasoning = { effort = "medium" } }
 ```

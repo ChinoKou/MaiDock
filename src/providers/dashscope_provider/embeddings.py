@@ -34,7 +34,7 @@ def dashscope_embedding_endpoint(model: str) -> EmbeddingEndpoint:
     if normalized.startswith("tongyi-embedding-vision-"):
         return DASHSCOPE_MULTIMODAL_EMBEDDING_ENDPOINT
     raise ValueError(
-        "DashScope embedding 模型必须匹配 text-embedding-v*、multimodal-embedding-*、"
+        f"{DASHSCOPE_PROVIDER_LABEL} embedding 模型必须匹配 text-embedding-v*、multimodal-embedding-*、"
         "qwen*-vl-embedding 或 tongyi-embedding-vision-*"
     )
 
@@ -98,7 +98,7 @@ def build_dashscope_embedding_response(
     candidate = first_embedding.get("embedding") if first_embedding is not None else None
     return ProviderResponse(
         embedding=coerce_embedding_vector(
-            candidate, provider_label="DashScope Embeddings", encoding_format=encoding_format
+            candidate, provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Embeddings", encoding_format=encoding_format
         ),
         usage=build_usage_from_snapshot(GenericUsageSnapshot.model_validate(payload.get("usage") or {})),
         raw_data=raw_data_or_none(payload, options=options),

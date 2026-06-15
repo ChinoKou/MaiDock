@@ -35,7 +35,7 @@ def build_audio_transcription_request(
     *,
     options: ProviderRuntimeOptions,
 ) -> tuple[dict, dict[str, str], dict]:
-    """构建用于音频转录的 DashScope 多模态生成请求。"""
+    """构建用于音频转录的阿里云百炼 DashScope 多模态生成请求。"""
     model = read_model_identifier(request.model_info)
     policy = options.parameter_policies.get("dashscope", "audio_transcription")
     catalog = get_parameter_catalog("dashscope", "audio_transcription")
@@ -86,7 +86,7 @@ def parse_audio_transcription_response(
     *,
     options: ProviderRuntimeOptions,
 ) -> tuple[str, dict | None]:
-    """解析 DashScope 多模态生成响应，提取转录文本。"""
+    """解析阿里云百炼 DashScope 多模态生成响应，提取转录文本。"""
     output = mapping_field(payload, "output")
     choices = list_field(output, "choices") if output is not None else None
     first_choice = json_mapping_or_none(choices[0]) if choices else None
@@ -95,4 +95,4 @@ def parse_audio_transcription_response(
     if isinstance(content, str) and content:
         raw_data = sanitize_json_object(payload) if options.include_raw_data else None
         return content, raw_data
-    raise ValueError(build_parse_error_message("DashScope Audio Transcriptions", "响应缺少文本内容"))
+    raise ValueError(build_parse_error_message(f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions", "响应缺少文本内容"))

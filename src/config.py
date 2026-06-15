@@ -166,34 +166,17 @@ class AnthropicMessagesConfig(PluginConfigBase):
     image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
 
-class VolcengineArkConfig(PluginConfigBase):
-    """Volcengine Ark Provider 配置。"""
+class DashScopeConfig(PluginConfigBase):
+    """阿里云百炼 DashScope Provider 配置。"""
 
-    __ui_label__ = "Volcengine Ark"
+    __ui_label__ = "阿里云百炼 DashScope"
     __ui_icon__ = "bot"
     __ui_order__ = 4
 
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
     force_official_endpoint: bool = Field(
         default=True,
-        description="是否忽略 Host 提供的 base_url，改用火山方舟原生 endpoint",
-    )
-    response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
-    embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
-    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
-
-
-class DashScopeConfig(PluginConfigBase):
-    """DashScope Provider 配置。"""
-
-    __ui_label__ = "DashScope"
-    __ui_icon__ = "bot"
-    __ui_order__ = 5
-
-    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
-    force_official_endpoint: bool = Field(
-        default=True,
-        description="是否忽略 Host 提供的 base_url，改用 DashScope 原生 endpoint",
+        description="是否忽略 Host 提供的 base_url，改用阿里云百炼 DashScope 原生 endpoint",
     )
     chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
@@ -206,7 +189,7 @@ class SiliconFlowConfig(PluginConfigBase):
 
     __ui_label__ = "SiliconFlow"
     __ui_icon__ = "bot"
-    __ui_order__ = 6
+    __ui_order__ = 5
 
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
     force_official_endpoint: bool = Field(
@@ -216,6 +199,23 @@ class SiliconFlowConfig(PluginConfigBase):
     chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+
+
+class VolcengineArkConfig(PluginConfigBase):
+    """Volcengine Ark Provider 配置。"""
+
+    __ui_label__ = "Volcengine Ark"
+    __ui_icon__ = "bot"
+    __ui_order__ = 6
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    force_official_endpoint: bool = Field(
+        default=True,
+        description="是否忽略 Host 提供的 base_url，改用火山方舟原生 endpoint",
+    )
+    response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
 
@@ -264,9 +264,9 @@ class MaiDockConfig(PluginConfigBase):
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
     openai_responses: OpenAIResponsesConfig = Field(default_factory=OpenAIResponsesConfig)
     anthropic_messages: AnthropicMessagesConfig = Field(default_factory=AnthropicMessagesConfig)
-    volcengine_ark: VolcengineArkConfig = Field(default_factory=VolcengineArkConfig)
     dashscope: DashScopeConfig = Field(default_factory=DashScopeConfig)
     siliconflow: SiliconFlowConfig = Field(default_factory=SiliconFlowConfig)
+    volcengine_ark: VolcengineArkConfig = Field(default_factory=VolcengineArkConfig)
     xiaomi_mimo: XiaomiMimoConfig = Field(default_factory=XiaomiMimoConfig)
     compatibility: CompatibilityConfig = Field(default_factory=CompatibilityConfig)
 
@@ -366,20 +366,6 @@ def build_parameter_policies(config: MaiDockConfig) -> ParameterPolicyRegistry:
                 get_parameter_catalog("anthropic_messages", "image_generation"),
             ),
         ),
-        volcengine_ark=ProviderCapabilityPolicies(
-            response=build_parameter_policy(
-                config.volcengine_ark.response,
-                get_parameter_catalog("volcengine_ark", "response"),
-            ),
-            embeddings=build_parameter_policy(
-                config.volcengine_ark.embeddings,
-                get_parameter_catalog("volcengine_ark", "embeddings"),
-            ),
-            image_generation=build_parameter_policy(
-                config.volcengine_ark.image_generation,
-                get_parameter_catalog("volcengine_ark", "image_generation"),
-            ),
-        ),
         dashscope=ProviderCapabilityPolicies(
             chat_completion=build_parameter_policy(
                 config.dashscope.chat_completion,
@@ -414,6 +400,20 @@ def build_parameter_policies(config: MaiDockConfig) -> ParameterPolicyRegistry:
             image_generation=build_parameter_policy(
                 config.siliconflow.image_generation,
                 get_parameter_catalog("siliconflow", "image_generation"),
+            ),
+        ),
+        volcengine_ark=ProviderCapabilityPolicies(
+            response=build_parameter_policy(
+                config.volcengine_ark.response,
+                get_parameter_catalog("volcengine_ark", "response"),
+            ),
+            embeddings=build_parameter_policy(
+                config.volcengine_ark.embeddings,
+                get_parameter_catalog("volcengine_ark", "embeddings"),
+            ),
+            image_generation=build_parameter_policy(
+                config.volcengine_ark.image_generation,
+                get_parameter_catalog("volcengine_ark", "image_generation"),
             ),
         ),
         xiaomi_mimo=ProviderCapabilityPolicies(

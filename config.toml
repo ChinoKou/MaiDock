@@ -214,121 +214,6 @@ unknown_extra_params = "forward"
 
 [anthropic_messages.image_generation.override_params]
 
-[volcengine_ark]
-user_agent = ""
-force_official_endpoint = true
-
-[volcengine_ark.response]
-accept_model_extra_params = true
-accept_request_extra_params = true
-disabled_paths = []
-rejected_paths = []
-unknown_extra_params = "forward"
-
-[volcengine_ark.response.fields]
-body_temperature_enabled = true
-body_temperature_override_enabled = false
-body_temperature_override_value = ""
-body_max_output_tokens_enabled = true
-body_max_output_tokens_override_enabled = false
-body_max_output_tokens_override_value = ""
-body_text_format_enabled = true
-body_text_format_override_enabled = false
-body_text_format_override_value = ""
-body_top_p_enabled = true
-body_top_p_override_enabled = false
-body_top_p_override_value = ""
-body_reasoning_enabled = true
-body_reasoning_override_enabled = false
-body_reasoning_override_value = ""
-body_thinking_enabled = true
-body_thinking_override_enabled = false
-body_thinking_override_value = ""
-body_text_enabled = true
-body_text_override_enabled = false
-body_text_override_value = ""
-body_tool_choice_enabled = true
-body_tool_choice_override_enabled = false
-body_tool_choice_override_value = ""
-body_parallel_tool_calls_enabled = true
-body_parallel_tool_calls_override_enabled = false
-body_parallel_tool_calls_override_value = false
-body_max_tool_calls_enabled = true
-body_max_tool_calls_override_enabled = false
-body_max_tool_calls_override_value = ""
-body_include_enabled = true
-body_include_override_enabled = false
-body_include_override_value = ""
-body_instructions_enabled = true
-body_instructions_override_enabled = false
-body_instructions_override_value = ""
-body_metadata_enabled = true
-body_metadata_override_enabled = false
-body_metadata_override_value = ""
-body_store_enabled = true
-body_store_override_enabled = false
-body_store_override_value = false
-body_truncation_enabled = true
-body_truncation_override_enabled = false
-body_truncation_override_value = ""
-body_service_tier_enabled = true
-body_service_tier_override_enabled = false
-body_service_tier_override_value = ""
-body_previous_response_id_enabled = true
-body_previous_response_id_override_enabled = false
-body_previous_response_id_override_value = ""
-body_user_enabled = true
-body_user_override_enabled = false
-body_user_override_value = ""
-body_session_enabled = true
-body_session_override_enabled = false
-body_session_override_value = ""
-body_caching_enabled = true
-body_caching_override_enabled = false
-body_caching_override_value = ""
-body_expire_at_enabled = true
-body_expire_at_override_enabled = false
-body_expire_at_override_value = ""
-
-[volcengine_ark.response.default_params]
-
-[volcengine_ark.response.override_params]
-
-[volcengine_ark.embeddings]
-accept_model_extra_params = true
-accept_request_extra_params = true
-disabled_paths = []
-rejected_paths = []
-unknown_extra_params = "forward"
-
-[volcengine_ark.embeddings.fields]
-body_dimensions_enabled = true
-body_dimensions_override_enabled = false
-body_dimensions_override_value = ""
-body_sparse_embedding_enabled = true
-body_sparse_embedding_override_enabled = false
-body_sparse_embedding_override_value = false
-body_encoding_format_enabled = true
-body_encoding_format_override_enabled = false
-body_encoding_format_override_value = ""
-
-[volcengine_ark.embeddings.default_params]
-
-[volcengine_ark.embeddings.override_params]
-
-[volcengine_ark.image_generation]
-accept_model_extra_params = true
-accept_request_extra_params = true
-disabled_paths = []
-rejected_paths = []
-unknown_extra_params = "forward"
-
-[volcengine_ark.image_generation.fields]
-
-[volcengine_ark.image_generation.default_params]
-
-[volcengine_ark.image_generation.override_params]
-
 [dashscope]
 user_agent = ""
 force_official_endpoint = true
@@ -605,6 +490,121 @@ unknown_extra_params = "forward"
 [siliconflow.image_generation.default_params]
 
 [siliconflow.image_generation.override_params]
+
+[volcengine_ark]
+user_agent = ""
+force_official_endpoint = true
+
+[volcengine_ark.response]
+accept_model_extra_params = true
+accept_request_extra_params = true
+disabled_paths = []
+rejected_paths = []
+unknown_extra_params = "forward"
+
+[volcengine_ark.response.fields]
+body_temperature_enabled = true
+body_temperature_override_enabled = false
+body_temperature_override_value = ""
+body_max_output_tokens_enabled = true
+body_max_output_tokens_override_enabled = false
+body_max_output_tokens_override_value = ""
+body_text_format_enabled = true
+body_text_format_override_enabled = false
+body_text_format_override_value = ""
+body_top_p_enabled = true
+body_top_p_override_enabled = false
+body_top_p_override_value = ""
+body_reasoning_enabled = true
+body_reasoning_override_enabled = false
+body_reasoning_override_value = ""
+body_thinking_enabled = true
+body_thinking_override_enabled = false
+body_thinking_override_value = ""
+body_text_enabled = true
+body_text_override_enabled = false
+body_text_override_value = ""
+body_tool_choice_enabled = true
+body_tool_choice_override_enabled = false
+body_tool_choice_override_value = ""
+body_parallel_tool_calls_enabled = true
+body_parallel_tool_calls_override_enabled = false
+body_parallel_tool_calls_override_value = false
+body_max_tool_calls_enabled = true
+body_max_tool_calls_override_enabled = false
+body_max_tool_calls_override_value = ""
+body_include_enabled = true
+body_include_override_enabled = false
+body_include_override_value = ""
+body_instructions_enabled = true
+body_instructions_override_enabled = false
+body_instructions_override_value = ""
+body_metadata_enabled = true
+body_metadata_override_enabled = false
+body_metadata_override_value = ""
+body_store_enabled = true
+body_store_override_enabled = false
+body_store_override_value = false
+body_truncation_enabled = true
+body_truncation_override_enabled = false
+body_truncation_override_value = ""
+body_service_tier_enabled = true
+body_service_tier_override_enabled = false
+body_service_tier_override_value = ""
+body_previous_response_id_enabled = true
+body_previous_response_id_override_enabled = false
+body_previous_response_id_override_value = ""
+body_user_enabled = true
+body_user_override_enabled = false
+body_user_override_value = ""
+body_session_enabled = true
+body_session_override_enabled = false
+body_session_override_value = ""
+body_caching_enabled = true
+body_caching_override_enabled = false
+body_caching_override_value = ""
+body_expire_at_enabled = true
+body_expire_at_override_enabled = false
+body_expire_at_override_value = ""
+
+[volcengine_ark.response.default_params]
+
+[volcengine_ark.response.override_params]
+
+[volcengine_ark.embeddings]
+accept_model_extra_params = true
+accept_request_extra_params = true
+disabled_paths = []
+rejected_paths = []
+unknown_extra_params = "forward"
+
+[volcengine_ark.embeddings.fields]
+body_dimensions_enabled = true
+body_dimensions_override_enabled = false
+body_dimensions_override_value = ""
+body_sparse_embedding_enabled = true
+body_sparse_embedding_override_enabled = false
+body_sparse_embedding_override_value = false
+body_encoding_format_enabled = true
+body_encoding_format_override_enabled = false
+body_encoding_format_override_value = ""
+
+[volcengine_ark.embeddings.default_params]
+
+[volcengine_ark.embeddings.override_params]
+
+[volcengine_ark.image_generation]
+accept_model_extra_params = true
+accept_request_extra_params = true
+disabled_paths = []
+rejected_paths = []
+unknown_extra_params = "forward"
+
+[volcengine_ark.image_generation.fields]
+
+[volcengine_ark.image_generation.default_params]
+
+[volcengine_ark.image_generation.override_params]
 
 [xiaomi_mimo]
 user_agent = ""

@@ -3,7 +3,7 @@
   "id": "chinokou.maidock",
   "version": "1.0.4",
   "name": "MaiDock",
-  "description": "为 MaiBot 提供额外的 OpenAI Responses、Anthropic Messages、百炼 DashScope、硅基流动 与 火山方舟 Responses 等端点支持与高级参数控制功能。",
+  "description": "为 MaiBot 提供额外的 OpenAI Responses、Anthropic Messages、阿里云百炼 DashScope、硅基流动 与 火山方舟 Responses 等端点支持与高级参数控制功能。",
   "author": {
     "name": "ChinoKou",
     "url": "https://github.com/ChinoKou"
@@ -59,21 +59,21 @@
       "version": "1.0.0"
     },
     {
-      "client_type": "maidock-volcengine-ark-responses",
-      "name": "MaiDock Volcengine Ark Responses",
-      "description": "基于火山方舟 Responses API 的 LLM Provider。",
-      "version": "1.0.0"
-    },
-    {
       "client_type": "maidock-dashscope",
-      "name": "MaiDock DashScope",
-      "description": "基于百炼 DashScope API 的 LLM Provider。",
+      "name": "MaiDock 阿里云百炼 DashScope",
+      "description": "基于阿里云百炼 DashScope API 的 LLM Provider。",
       "version": "1.0.0"
     },
     {
       "client_type": "maidock-siliconflow",
       "name": "MaiDock SiliconFlow",
       "description": "基于硅基流动 SiliconFlow API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-volcengine-ark-responses",
+      "name": "MaiDock Volcengine Ark Responses",
+      "description": "基于火山方舟 Responses API 的 LLM Provider。",
       "version": "1.0.0"
     },
     {

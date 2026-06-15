@@ -31,7 +31,7 @@ from .tools import convert_history_tool_call, convert_tools, extract_tool_calls
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
 DASHSCOPE_API_PREFIX = "api/v1"
-DASHSCOPE_PROVIDER_LABEL = "DashScope"
+DASHSCOPE_PROVIDER_LABEL = "阿里云百炼 DashScope"
 DASHSCOPE_GENERATION_ENDPOINT = "services/aigc/text-generation/generation"
 DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT = "services/aigc/multimodal-generation/generation"
 DASHSCOPE_DEFAULT_TIMEOUT = 300.0

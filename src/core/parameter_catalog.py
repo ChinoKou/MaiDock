@@ -85,9 +85,9 @@ class CapabilityParameterCatalog:
 _PROVIDER_ORDER: tuple[ProviderPolicyKey, ...] = (
     "openai_responses",
     "anthropic_messages",
-    "volcengine_ark",
     "dashscope",
     "siliconflow",
+    "volcengine_ark",
     "xiaomi_mimo",
 )
 _CAPABILITY_ORDER: tuple[CapabilityKey, ...] = (
@@ -101,9 +101,9 @@ _CAPABILITY_ORDER: tuple[CapabilityKey, ...] = (
 PROVIDER_TITLES: dict[ProviderPolicyKey, str] = {
     "openai_responses": "OpenAI Responses",
     "anthropic_messages": "Anthropic Messages",
-    "volcengine_ark": "Volcengine Ark",
-    "dashscope": "DashScope",
+    "dashscope": "阿里云百炼 DashScope",
     "siliconflow": "SiliconFlow",
+    "volcengine_ark": "Volcengine Ark",
     "xiaomi_mimo": "Xiaomi Mimo",
 }
 
@@ -192,6 +192,8 @@ def _accepted_keys(fields: tuple[ParameterFieldDefinition, ...], *extra_keys: st
     return frozenset(keys)
 
 
+# ── OpenAI Responses ─────────────────────────────────────────
+
 _RESPONSES_FIELDS = _fields(
     _field("temperature", "body.temperature", value_kind="number", order=10),
     _field(
@@ -243,6 +245,8 @@ _OPENAI_AUDIO_FIELDS = _fields(
 _OPENAI_AUDIO_DIRECT_KEYS = _accepted_keys(_OPENAI_AUDIO_FIELDS)
 _OPENAI_AUDIO_RESERVED_KEYS = frozenset({"file", "model"})
 
+# ── Anthropic Messages ───────────────────────────────────────
+
 _ANTHROPIC_FIELDS = _fields(
     _field("temperature", "body.temperature", value_kind="number", order=10),
     _field("max_tokens", "body.max_tokens", value_kind="integer", order=20),
@@ -256,6 +260,8 @@ _ANTHROPIC_FIELDS = _fields(
 )
 _ANTHROPIC_DIRECT_KEYS = _accepted_keys(_ANTHROPIC_FIELDS)
 _ANTHROPIC_RESERVED_KEYS = frozenset({"messages", "model", "stream", "system", "tools"})
+
+# ── 阿里云百炼 DashScope ─────────────────────────────────────
 
 _DASHSCOPE_CHAT_FIELDS = _fields(
     _field("temperature", "body.parameters.temperature", value_kind="number", order=10),
@@ -320,6 +326,8 @@ _DASHSCOPE_AUDIO_FIELDS = _fields(
 _DASHSCOPE_AUDIO_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_AUDIO_FIELDS)
 _DASHSCOPE_AUDIO_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
 
+# ── SiliconFlow ──────────────────────────────────────────────
+
 _SILICONFLOW_CHAT_FIELDS = _fields(
     _field("temperature", "body.temperature", value_kind="number", order=10),
     _field("max_tokens", "body.max_tokens", value_kind="integer", order=20),
@@ -356,21 +364,7 @@ _SILICONFLOW_AUDIO_FIELDS = _fields(
 _SILICONFLOW_AUDIO_DIRECT_KEYS = _accepted_keys(_SILICONFLOW_AUDIO_FIELDS)
 _SILICONFLOW_AUDIO_RESERVED_KEYS = frozenset({"file", "model"})
 
-_MIMO_CHAT_FIELDS = _fields(
-    _field("temperature", "body.temperature", value_kind="number", order=10),
-    _field("max_tokens", "body.max_tokens", value_kind="integer", order=20),
-    _field("response_format", "body.response_format", order=30),
-    _field("top_p", "body.top_p", value_kind="number", order=40),
-    _field("tool_choice", "body.tool_choice", order=50),
-    _field("tools", "body.tools", order=60),
-    _field("frequency_penalty", "body.frequency_penalty", value_kind="number", order=70),
-    _field("presence_penalty", "body.presence_penalty", value_kind="number", order=80),
-    _field("seed", "body.seed", value_kind="integer", order=90),
-    _field("stop", "body.stop", order=100),
-    _field("n", "body.n", value_kind="integer", order=110),
-)
-_MIMO_CHAT_DIRECT_KEYS = _accepted_keys(_MIMO_CHAT_FIELDS)
-_MIMO_CHAT_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
+# ── Volcengine Ark ───────────────────────────────────────────
 
 _ARK_EMBEDDING_FIELDS = _fields(
     _field("dimensions", "body.dimensions", value_kind="integer", order=10),
@@ -387,7 +381,27 @@ _ARK_EMBEDDING_FIELDS = _fields(
 _ARK_EMBEDDING_DIRECT_KEYS = _accepted_keys(_ARK_EMBEDDING_FIELDS)
 _ARK_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model"})
 
+# ── Xiaomi Mimo ──────────────────────────────────────────────
+
+_MIMO_CHAT_FIELDS = _fields(
+    _field("temperature", "body.temperature", value_kind="number", order=10),
+    _field("max_tokens", "body.max_tokens", value_kind="integer", order=20),
+    _field("response_format", "body.response_format", order=30),
+    _field("top_p", "body.top_p", value_kind="number", order=40),
+    _field("tool_choice", "body.tool_choice", order=50),
+    _field("tools", "body.tools", order=60),
+    _field("frequency_penalty", "body.frequency_penalty", value_kind="number", order=70),
+    _field("presence_penalty", "body.presence_penalty", value_kind="number", order=80),
+    _field("seed", "body.seed", value_kind="integer", order=90),
+    _field("stop", "body.stop", order=100),
+    _field("n", "body.n", value_kind="integer", order=110),
+)
+_MIMO_CHAT_DIRECT_KEYS = _accepted_keys(_MIMO_CHAT_FIELDS)
+_MIMO_CHAT_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
+
+
 _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCatalog] = {
+    # ── OpenAI Responses ──
     ("openai_responses", "response"): CapabilityParameterCatalog(
         provider="openai_responses",
         capability="response",
@@ -412,6 +426,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         direct_body_keys=_OPENAI_AUDIO_DIRECT_KEYS,
         reserved_body_keys=_OPENAI_AUDIO_RESERVED_KEYS,
     ),
+    # ── Anthropic Messages ──
     ("anthropic_messages", "chat_completion"): CapabilityParameterCatalog(
         provider="anthropic_messages",
         capability="chat_completion",
@@ -420,26 +435,11 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         direct_body_keys=_ANTHROPIC_DIRECT_KEYS,
         reserved_body_keys=_ANTHROPIC_RESERVED_KEYS,
     ),
-    ("volcengine_ark", "response"): CapabilityParameterCatalog(
-        provider="volcengine_ark",
-        capability="response",
-        title="Volcengine Ark 文本生成参数",
-        fields=_RESPONSES_FIELDS,
-        direct_body_keys=_RESPONSES_DIRECT_KEYS,
-        reserved_body_keys=_RESPONSES_RESERVED_KEYS,
-    ),
-    ("volcengine_ark", "embeddings"): CapabilityParameterCatalog(
-        provider="volcengine_ark",
-        capability="embeddings",
-        title="Volcengine Ark Embeddings 参数",
-        fields=_ARK_EMBEDDING_FIELDS,
-        direct_body_keys=_ARK_EMBEDDING_DIRECT_KEYS,
-        reserved_body_keys=_ARK_EMBEDDING_RESERVED_KEYS,
-    ),
+    # ── 阿里云百炼 DashScope ──
     ("dashscope", "chat_completion"): CapabilityParameterCatalog(
         provider="dashscope",
         capability="chat_completion",
-        title="DashScope 文本生成参数",
+        title="阿里云百炼 DashScope 文本生成参数",
         fields=_DASHSCOPE_CHAT_FIELDS,
         direct_body_keys=_DASHSCOPE_CHAT_DIRECT_KEYS,
         reserved_body_keys=_DASHSCOPE_CHAT_RESERVED_KEYS,
@@ -447,7 +447,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
     ("dashscope", "embeddings"): CapabilityParameterCatalog(
         provider="dashscope",
         capability="embeddings",
-        title="DashScope Embeddings 参数",
+        title="阿里云百炼 DashScope Embeddings 参数",
         fields=_DASHSCOPE_EMBEDDING_FIELDS,
         direct_body_keys=_DASHSCOPE_EMBEDDING_DIRECT_KEYS,
         reserved_body_keys=_DASHSCOPE_EMBEDDING_RESERVED_KEYS,
@@ -455,11 +455,12 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
     ("dashscope", "audio_transcription"): CapabilityParameterCatalog(
         provider="dashscope",
         capability="audio_transcription",
-        title="DashScope 语音转录参数",
+        title="阿里云百炼 DashScope 语音转录参数",
         fields=_DASHSCOPE_AUDIO_FIELDS,
         direct_body_keys=_DASHSCOPE_AUDIO_DIRECT_KEYS,
         reserved_body_keys=_DASHSCOPE_AUDIO_RESERVED_KEYS,
     ),
+    # ── SiliconFlow ──
     ("siliconflow", "chat_completion"): CapabilityParameterCatalog(
         provider="siliconflow",
         capability="chat_completion",
@@ -484,6 +485,24 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         direct_body_keys=_SILICONFLOW_AUDIO_DIRECT_KEYS,
         reserved_body_keys=_SILICONFLOW_AUDIO_RESERVED_KEYS,
     ),
+    # ── Volcengine Ark ──
+    ("volcengine_ark", "response"): CapabilityParameterCatalog(
+        provider="volcengine_ark",
+        capability="response",
+        title="Volcengine Ark 文本生成参数",
+        fields=_RESPONSES_FIELDS,
+        direct_body_keys=_RESPONSES_DIRECT_KEYS,
+        reserved_body_keys=_RESPONSES_RESERVED_KEYS,
+    ),
+    ("volcengine_ark", "embeddings"): CapabilityParameterCatalog(
+        provider="volcengine_ark",
+        capability="embeddings",
+        title="Volcengine Ark Embeddings 参数",
+        fields=_ARK_EMBEDDING_FIELDS,
+        direct_body_keys=_ARK_EMBEDDING_DIRECT_KEYS,
+        reserved_body_keys=_ARK_EMBEDDING_RESERVED_KEYS,
+    ),
+    # ── Xiaomi Mimo ──
     ("xiaomi_mimo", "chat_completion"): CapabilityParameterCatalog(
         provider="xiaomi_mimo",
         capability="chat_completion",

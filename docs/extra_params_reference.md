@@ -93,9 +93,9 @@ extra_params = {
 - `tool_choice` 可以覆盖 MaiDock 自动生成的默认工具选择策略。
 - 其他未识别顶层字段默认进入 `extra_body`。如需严格模式，在 `[anthropic_messages.chat_completion]` 中设置 `unknown_extra_params = "reject"`。
 
-## DashScope
+## 阿里云百炼 DashScope
 
-文本生成请求中，以下 `extra_params` 顶层字段会进入 DashScope `parameters`：
+文本生成请求中，以下 `extra_params` 顶层字段会进入阿里云百炼 DashScope `parameters`：
 
 - `customized_model_id`（特殊放入 `input.customized_model_id`）
 - `enable_search`
@@ -121,9 +121,9 @@ extra_params = {
 特殊规则：
 
 - `input`、`model`、`parameters`、`stream` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
-- `result_format` 默认设置为 `message`，用于控制 DashScope API 返回 JSON 结构；Host `response_format` 会单独映射到 `parameters.response_format` 作为模型输出内容格式约束，目前仅确认并支持 `json_object`。
+- `result_format` 默认设置为 `message`，用于控制阿里云百炼 DashScope API 返回 JSON 结构；Host `response_format` 会单独映射到 `parameters.response_format` 作为模型输出内容格式约束，目前仅确认并支持 `json_object`。
 - 流式请求默认设置 `incremental_output = true` 和 `stream = true`，并发送 `Accept: text/event-stream`、`X-Accel-Buffering: no`、`X-DashScope-SSE: enable`。
-- DashScope Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并额外支持顶层 `dimension`、`encoding_format`、`enable_fusion`、`text_type`、`output_type`、`instruct`、`fps`、`res_level`、`max_video_frames`、`auto_truncation` 写入 `parameters`；多模态 embedding 的 `factor` 会放入 `input.contents[0].factor`，默认 `1.0`。DashScope native embedding 使用 singular `dimension`，不会接受 OpenAI-compatible 的 `dimensions`。
+- 阿里云百炼 DashScope Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并额外支持顶层 `dimension`、`encoding_format`、`enable_fusion`、`text_type`、`output_type`、`instruct`、`fps`、`res_level`、`max_video_frames`、`auto_truncation` 写入 `parameters`；多模态 embedding 的 `factor` 会放入 `input.contents[0].factor`，默认 `1.0`。阿里云百炼 DashScope native embedding 使用 singular `dimension`，不会接受 OpenAI-compatible 的 `dimensions`。
 
 ## SiliconFlow / Xiaomi Mimo Chat Completions
 

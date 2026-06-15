@@ -45,8 +45,8 @@ def translate_dashscope_response_format(
         set_target_value(envelope, ("body", "parameters", "response_format"), {"type": "json_object"})
         return
     if format_type == "json_schema":
-        raise ValueError("DashScope native response_format 暂未确认支持 json_schema，不能擅自转译 Host schema")
-    raise ValueError(f"DashScope 不支持的 response_format.format_type: {response_format.format_type}")
+        raise ValueError("阿里云百炼 DashScope native response_format 暂未确认支持 json_schema，不能擅自转译 Host schema")
+    raise ValueError(f"阿里云百炼 DashScope 不支持的 response_format.format_type: {response_format.format_type}")
 
 
 def translate_dashscope_parameters_identity(target_name: str, *, field_name: str) -> FieldTranslator:

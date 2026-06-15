@@ -71,9 +71,9 @@ class ParameterPolicyRegistry:
 
     openai_responses: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
     anthropic_messages: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
-    volcengine_ark: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
     dashscope: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
     siliconflow: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
+    volcengine_ark: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
     xiaomi_mimo: ProviderCapabilityPolicies = field(default_factory=ProviderCapabilityPolicies)
 
     def get(self, provider: ProviderPolicyKey, capability: CapabilityKey) -> ParameterPolicy:
@@ -82,12 +82,12 @@ class ParameterPolicyRegistry:
                 return self.openai_responses.get(capability)
             case "anthropic_messages":
                 return self.anthropic_messages.get(capability)
-            case "volcengine_ark":
-                return self.volcengine_ark.get(capability)
             case "dashscope":
                 return self.dashscope.get(capability)
             case "siliconflow":
                 return self.siliconflow.get(capability)
+            case "volcengine_ark":
+                return self.volcengine_ark.get(capability)
             case "xiaomi_mimo":
                 return self.xiaomi_mimo.get(capability)
         raise ValueError(f"不支持的 Provider 参数策略: {provider}")

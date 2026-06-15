@@ -14,18 +14,18 @@ from .version import __version__
 _PROVIDER_ICONS: dict[ProviderPolicyKey, str] = {
     "openai_responses": "bot",
     "anthropic_messages": "bot-message-square",
-    "volcengine_ark": "bot",
     "dashscope": "bot",
     "siliconflow": "bot",
+    "volcengine_ark": "bot",
     "xiaomi_mimo": "bot",
 }
 
 _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     "openai_responses": ("user_agent",),
     "anthropic_messages": ("user_agent",),
-    "volcengine_ark": ("user_agent", "force_official_endpoint"),
     "dashscope": ("user_agent", "force_official_endpoint"),
     "siliconflow": ("user_agent", "force_official_endpoint"),
+    "volcengine_ark": ("user_agent", "force_official_endpoint"),
     "xiaomi_mimo": ("user_agent", "force_disable_thinking", "audio_transcription_prompt"),
 }
 
@@ -373,7 +373,7 @@ def _force_endpoint_label(provider: ProviderPolicyKey) -> str:
         case "volcengine_ark":
             return "使用火山方舟原生 endpoint"
         case "dashscope":
-            return "使用 DashScope 原生 endpoint"
+            return "使用阿里云百炼 DashScope 原生 endpoint"
         case "siliconflow":
             return "使用 SiliconFlow 官方 endpoint"
         case _:
@@ -385,7 +385,7 @@ def _force_endpoint_hint(provider: ProviderPolicyKey) -> str:
         case "volcengine_ark":
             return "开启后忽略 Host 提供的 base_url，改用火山方舟原生 API endpoint。"
         case "dashscope":
-            return "开启后忽略 Host 提供的 base_url，改用 DashScope 原生 API endpoint。"
+            return "开启后忽略 Host 提供的 base_url，改用阿里云百炼 DashScope 原生 API endpoint。"
         case "siliconflow":
             return "开启后忽略 Host 提供的 base_url，改用 SiliconFlow 官方 API endpoint。"
         case _:

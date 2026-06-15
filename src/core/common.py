@@ -61,12 +61,12 @@ class ProviderRuntimeOptions:
     invalid_image_policy: InvalidImagePolicy = "placeholder"
     openai_user_agent: str = MAIDOCK_USER_AGENT
     anthropic_user_agent: str = MAIDOCK_USER_AGENT
-    volcengine_user_agent: str = MAIDOCK_USER_AGENT
     dashscope_user_agent: str = MAIDOCK_USER_AGENT
     siliconflow_user_agent: str = MAIDOCK_USER_AGENT
-    volcengine_force_official_endpoint: bool = True
+    volcengine_user_agent: str = MAIDOCK_USER_AGENT
     dashscope_force_official_endpoint: bool = True
     siliconflow_force_official_endpoint: bool = True
+    volcengine_force_official_endpoint: bool = True
     mimo_user_agent: str = MAIDOCK_USER_AGENT
     mimo_force_disable_thinking: bool = True
     mimo_audio_transcription_prompt: str = "请转写这段音频"
