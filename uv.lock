@@ -121,7 +121,7 @@ wheels = [
 
 [[package]]
 name = "maidock"
-version = "1.0.4"
+version = "1.0.5"
 source = { virtual = "." }
 dependencies = [
     { name = "httpx" },
