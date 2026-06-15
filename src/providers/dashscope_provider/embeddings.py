@@ -7,7 +7,6 @@ from ...core.common import (
     read_model_identifier,
 )
 from ...core.json_types import (
-    normalize_json_value,
     json_list_or_none,
     json_mapping_or_none,
 )
@@ -77,8 +76,7 @@ def build_embedding_request(
     if endpoint == DASHSCOPE_TEXT_EMBEDDING_ENDPOINT:
         input_value: dict = {"texts": [request.embedding_input]}
     else:
-        factor = normalize_json_value(context.normalized.fields.pop("factor", 1.0))
-        input_value = {"contents": [{"text": request.embedding_input, "factor": factor}]}
+        input_value = {"contents": [{"text": request.embedding_input}]}
         if model.strip().lower() == "qwen3-vl-embedding" and "enable_fusion" not in context.normalized.fields:
             context.normalized.fields["enable_fusion"] = True
             context.normalized.sources["enable_fusion"] = "provider.default"

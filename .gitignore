@@ -222,3 +222,6 @@ tests/
 
 # scripts
 scripts/
+
+# config_back
+config_back/
