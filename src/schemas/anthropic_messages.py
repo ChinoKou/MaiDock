@@ -3,7 +3,13 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from ..core.json_types import is_json_list
-from .base import AnthropicImageMediaType, HostDumpModel, IgnoreExtraModel, ObjectFields, default_tool_parameters
+from .base import (
+    AnthropicImageMediaType,
+    HostDumpModel,
+    IgnoreExtraModel,
+    ObjectFields,
+    default_tool_parameters,
+)
 from .usage import GenericUsageSnapshot
 
 
@@ -47,7 +53,12 @@ class AnthropicToolUseBlock(HostDumpModel):
     input: dict = Field(default_factory=dict)
 
     def to_sdk_param(self) -> dict:
-        return {"type": self.type, "id": self.id, "name": self.name, "input": self.input}
+        return {
+            "type": self.type,
+            "id": self.id,
+            "name": self.name,
+            "input": self.input,
+        }
 
 
 class AnthropicToolResultBlock(HostDumpModel):
@@ -58,7 +69,11 @@ class AnthropicToolResultBlock(HostDumpModel):
     content: str
 
     def to_sdk_param(self) -> dict:
-        return {"type": self.type, "tool_use_id": self.tool_use_id, "content": self.content}
+        return {
+            "type": self.type,
+            "tool_use_id": self.tool_use_id,
+            "content": self.content,
+        }
 
 
 type AnthropicContentBlock = AnthropicTextBlock | AnthropicImageBlock | AnthropicToolUseBlock | AnthropicToolResultBlock
@@ -71,7 +86,10 @@ class AnthropicMessage(HostDumpModel):
     content: list[AnthropicContentBlock]
 
     def to_sdk_param(self) -> dict:
-        return {"role": self.role, "content": [block.to_sdk_param() for block in self.content]}
+        return {
+            "role": self.role,
+            "content": [block.to_sdk_param() for block in self.content],
+        }
 
 
 class AnthropicTool(HostDumpModel):
@@ -82,7 +100,11 @@ class AnthropicTool(HostDumpModel):
     input_schema: ObjectFields = Field(default_factory=default_tool_parameters)
 
     def to_sdk_param(self) -> dict:
-        return {"name": self.name, "description": self.description, "input_schema": self.input_schema.to_plain_dict()}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.input_schema.to_plain_dict(),
+        }
 
 
 def _empty_anthropic_tool_list() -> list[AnthropicTool]:

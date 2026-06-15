@@ -8,7 +8,11 @@ from ...schemas import (
     ResponseRequestSnapshot,
 )
 from ..chat_completions_family.chat import ChatCompletionsMapper
-from ..common.httpx import HttpxClientConfig, build_httpx_client_config, resolve_endpoint_path
+from ..common.httpx import (
+    HttpxClientConfig,
+    build_httpx_client_config,
+    resolve_endpoint_path,
+)
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 SILICONFLOW_API_PREFIX = "v1"
@@ -22,12 +26,20 @@ def build_client_config(
     *,
     user_agent: str,
     force_official_endpoint: bool,
+    default_max_retries: int = 3,
+    force_max_retries: bool = False,
+    default_retry_interval: float = 5.0,
+    force_retry_interval: bool = False,
 ) -> HttpxClientConfig:
     return build_httpx_client_config(
         api_provider,
         default_base_url=SILICONFLOW_BASE_URL,
         user_agent=user_agent,
         force_default_base_url=force_official_endpoint,
+        default_max_retries=default_max_retries,
+        force_max_retries=force_max_retries,
+        default_retry_interval=default_retry_interval,
+        force_retry_interval=force_retry_interval,
     )
 
 

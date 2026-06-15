@@ -45,7 +45,10 @@ def build_client_config(
     *,
     user_agent: str,
     force_official_endpoint: bool,
-    default_max_retries: int = 2,
+    default_max_retries: int = 3,
+    force_max_retries: bool = False,
+    default_retry_interval: float = 5.0,
+    force_retry_interval: bool = False,
 ) -> HttpxClientConfig:
     return build_httpx_client_config(
         api_provider,
@@ -54,6 +57,9 @@ def build_client_config(
         force_default_base_url=force_official_endpoint,
         default_timeout=ARK_DEFAULT_TIMEOUT,
         default_max_retries=default_max_retries,
+        force_max_retries=force_max_retries,
+        default_retry_interval=default_retry_interval,
+        force_retry_interval=force_retry_interval,
     )
 
 

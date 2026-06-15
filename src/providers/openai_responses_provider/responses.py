@@ -1,6 +1,12 @@
 import logging
 
-from ...core.common import ProviderRuntimeOptions, build_openai_compatible_client_config, read_timeout
+from ...core.common import (
+    ProviderRuntimeOptions,
+    build_openai_compatible_client_config,
+    read_timeout,
+    resolve_max_retries,
+    resolve_retry_interval,
+)
 from ...schemas import ApiProviderSnapshot
 from ..common.httpx import HttpxClientConfig
 from ..responses_family.responses import ResponsesMapper
@@ -22,7 +28,15 @@ def create_responses_mapper(*, options: ProviderRuntimeOptions, logger: logging.
     )
 
 
-def build_client_config(api_provider: ApiProviderSnapshot, *, user_agent: str) -> HttpxClientConfig:
+def build_client_config(
+    api_provider: ApiProviderSnapshot,
+    *,
+    user_agent: str,
+    default_max_retries: int = 3,
+    force_max_retries: bool = False,
+    default_retry_interval: float = 5.0,
+    force_retry_interval: bool = False,
+) -> HttpxClientConfig:
     client_config = build_openai_compatible_client_config(api_provider, user_agent=user_agent)
     headers = dict(client_config.default_headers)
     if client_config.api_key:
@@ -37,4 +51,16 @@ def build_client_config(api_provider: ApiProviderSnapshot, *, user_agent: str) -
         default_headers=headers,
         default_query=dict(client_config.default_query),
         timeout=read_timeout(api_provider),
+        max_retries=resolve_max_retries(
+            api_provider,
+            config_value=default_max_retries,
+            force=force_max_retries,
+            default=3,
+        ),
+        retry_interval=resolve_retry_interval(
+            api_provider,
+            config_value=default_retry_interval,
+            force=force_retry_interval,
+            default=5.0,
+        ),
     )

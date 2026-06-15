@@ -1,4 +1,7 @@
-from ..common.embeddings_translation import EMBEDDING_TRANSLATORS, apply_embedding_parameters
+from ..common.embeddings_translation import (
+    EMBEDDING_TRANSLATORS,
+    apply_embedding_parameters,
+)
 from ..common.parameter_translation import (
     FieldTranslator,
     TranslationContext,

@@ -4,7 +4,11 @@ from ..common.chat_completions_translation import (
     CHAT_COMPLETIONS_TRANSLATORS,
     apply_chat_completions_parameters,
 )
-from ..common.parameter_translation import FieldTranslator, TranslationContext, TranslationEnvelope
+from ..common.parameter_translation import (
+    FieldTranslator,
+    TranslationContext,
+    TranslationEnvelope,
+)
 
 CHAT_COMPLETIONS_FAMILY_TRANSLATORS: dict[str, FieldTranslator] = dict(CHAT_COMPLETIONS_TRANSLATORS)
 

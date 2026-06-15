@@ -10,6 +10,8 @@ from ...core.common import (
     read_model_identifier,
     read_timeout,
     require_string_mapping,
+    resolve_max_retries,
+    resolve_retry_interval,
     with_default_user_agent,
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
@@ -39,7 +41,11 @@ from ..common.httpx import HttpxClientConfig
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .multimodal import convert_content_blocks
 from .parameter_translation import apply_anthropic_parameters
-from .tools import convert_assistant_tool_calls, convert_tools, orphan_tool_result_message
+from .tools import (
+    convert_assistant_tool_calls,
+    convert_tools,
+    orphan_tool_result_message,
+)
 
 ANTHROPIC_PROVIDER_LABEL = "Anthropic Messages"
 ANTHROPIC_API_PREFIX = "v1"
@@ -54,7 +60,15 @@ def _auth_header_value(prefix: str, api_key: str) -> str:
     return f"{normalized_prefix} {api_key}"
 
 
-def build_client_config(api_provider: ApiProviderSnapshot, *, user_agent: str) -> HttpxClientConfig:
+def build_client_config(
+    api_provider: ApiProviderSnapshot,
+    *,
+    user_agent: str,
+    default_max_retries: int = 3,
+    force_max_retries: bool = False,
+    default_retry_interval: float = 5.0,
+    force_retry_interval: bool = False,
+) -> HttpxClientConfig:
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
     default_query = api_provider.default_query.to_plain_dict()
     auth_type = (api_provider.auth_type or "bearer").strip().lower()
@@ -85,6 +99,18 @@ def build_client_config(api_provider: ApiProviderSnapshot, *, user_agent: str) -
         default_headers=headers,
         default_query=default_query,
         timeout=read_timeout(api_provider),
+        max_retries=resolve_max_retries(
+            api_provider,
+            config_value=default_max_retries,
+            force=force_max_retries,
+            default=3,
+        ),
+        retry_interval=resolve_retry_interval(
+            api_provider,
+            config_value=default_retry_interval,
+            force=force_retry_interval,
+            default=5.0,
+        ),
     )
 
 

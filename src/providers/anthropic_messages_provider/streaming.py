@@ -16,6 +16,8 @@ async def collect_stream_response(
     headers: Mapping[str, str],
     query: Mapping[str, object],
     parse_mode: ToolArgumentParseMode,
+    max_retries: int,
+    retry_interval: float,
 ) -> dict:
     content_blocks: list[dict] = []
     input_json_parts: dict[int, list[str]] = {}
@@ -27,6 +29,8 @@ async def collect_stream_response(
         headers=headers,
         query=query,
         provider_label=ANTHROPIC_PROVIDER_LABEL,
+        max_retries=max_retries,
+        retry_interval=retry_interval,
     ):
         event_payload = event.data
         event_type = str(event_payload.get("type") or event.event or "")
@@ -54,7 +58,11 @@ async def collect_stream_response(
         elif event_type == "content_block_stop":
             index = stream_block_index(event_payload, content_blocks)
             if 0 <= index < len(content_blocks):
-                finalize_stream_block(content_blocks[index], input_json_parts.get(index, []), parse_mode=parse_mode)
+                finalize_stream_block(
+                    content_blocks[index],
+                    input_json_parts.get(index, []),
+                    parse_mode=parse_mode,
+                )
         elif event_type == "message_delta":
             merge_message_delta(message_payload, event_payload)
     message_payload["content"] = content_blocks

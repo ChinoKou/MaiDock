@@ -5,9 +5,20 @@ import httpx
 
 from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
-from ...core.json_types import JsonValue, json_list_or_none, json_mapping_or_none, mapping_field, mapping_to_json_object
+from ...core.json_types import (
+    JsonValue,
+    json_list_or_none,
+    json_mapping_or_none,
+    mapping_field,
+    mapping_to_json_object,
+)
 from ...core.parsing import ToolArgumentParseMode
-from ...schemas import GenericUsageSnapshot, ProviderFunctionCall, ProviderResponse, ProviderToolCall
+from ...schemas import (
+    GenericUsageSnapshot,
+    ProviderFunctionCall,
+    ProviderResponse,
+    ProviderToolCall,
+)
 from ..common.httpx import HttpxProviderError, HttpxProviderParseError, stream_sse_json
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
@@ -168,7 +179,9 @@ class ChatCompletionsStreamAccumulator:
         )
 
     @staticmethod
-    def _first_choice(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+    def _first_choice(
+        payload: Mapping[str, JsonValue],
+    ) -> Mapping[str, JsonValue] | None:
         from ...core.json_types import list_field
 
         choices = list_field(payload, "choices")
@@ -201,7 +214,8 @@ async def collect_chat_completions_stream(
     query: Mapping[str, object],
     options: ProviderRuntimeOptions,
     provider_label: str,
-    max_retries: int = 0,
+    max_retries: int,
+    retry_interval: float,
 ) -> ProviderResponse:
     """收集 Chat Completions SSE 流并返回 ProviderResponse。"""
     accumulator = ChatCompletionsStreamAccumulator(options=options)
@@ -213,6 +227,7 @@ async def collect_chat_completions_stream(
         query=query,
         provider_label=provider_label,
         max_retries=max_retries,
+        retry_interval=retry_interval,
     ):
         error_message = _stream_error_message(provider_label, event.data)
         if error_message is not None:

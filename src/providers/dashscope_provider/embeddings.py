@@ -1,13 +1,24 @@
 import re
 from typing import Literal
 
-from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot, read_model_identifier
-from ...core.json_types import normalize_json_value, json_list_or_none, json_mapping_or_none
+from ...core.common import (
+    ProviderRuntimeOptions,
+    build_usage_from_snapshot,
+    read_model_identifier,
+)
+from ...core.json_types import (
+    normalize_json_value,
+    json_list_or_none,
+    json_mapping_or_none,
+)
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import EmbeddingRequestSnapshot, GenericUsageSnapshot, ProviderResponse
 from ..common.embeddings import coerce_embedding_vector
-from ..common.parameter_translation import build_translation_context, TranslationEnvelope
+from ..common.parameter_translation import (
+    build_translation_context,
+    TranslationEnvelope,
+)
 from ..common.payloads import raw_data_or_none
 from .chat import DASHSCOPE_PROVIDER_LABEL
 from .parameter_translation import apply_dashscope_embedding_parameters
@@ -15,7 +26,10 @@ from .parameter_translation import apply_dashscope_embedding_parameters
 DASHSCOPE_TEXT_EMBEDDING_ENDPOINT = "services/embeddings/text-embedding/text-embedding"
 DASHSCOPE_MULTIMODAL_EMBEDDING_ENDPOINT = "services/embeddings/multimodal-embedding/multimodal-embedding"
 QWEN_VL_EMBEDDING_PATTERN = re.compile(r"^qwen.*-vl-embedding$", re.IGNORECASE)
-DASHSCOPE_MULTIMODAL_EMBEDDING_MODELS = {"multimodal-embedding-one-peace-v1", "multimodal-embedding-v1"}
+DASHSCOPE_MULTIMODAL_EMBEDDING_MODELS = {
+    "multimodal-embedding-one-peace-v1",
+    "multimodal-embedding-v1",
+}
 
 EmbeddingEndpoint = Literal[
     "services/embeddings/text-embedding/text-embedding",
@@ -98,7 +112,9 @@ def build_dashscope_embedding_response(
     candidate = first_embedding.get("embedding") if first_embedding is not None else None
     return ProviderResponse(
         embedding=coerce_embedding_vector(
-            candidate, provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Embeddings", encoding_format=encoding_format
+            candidate,
+            provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Embeddings",
+            encoding_format=encoding_format,
         ),
         usage=build_usage_from_snapshot(GenericUsageSnapshot.model_validate(payload.get("usage") or {})),
         raw_data=raw_data_or_none(payload, options=options),

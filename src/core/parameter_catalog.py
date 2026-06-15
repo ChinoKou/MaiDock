@@ -197,17 +197,30 @@ def _accepted_keys(fields: tuple[ParameterFieldDefinition, ...], *extra_keys: st
 _RESPONSES_FIELDS = _fields(
     _field("temperature", "body.temperature", value_kind="number", order=10),
     _field(
-        "max_tokens", "body.max_output_tokens", value_kind="integer", source_aliases=("max_output_tokens",), order=20
+        "max_tokens",
+        "body.max_output_tokens",
+        value_kind="integer",
+        source_aliases=("max_output_tokens",),
+        order=20,
     ),
     _field(
-        "response_format", "body.text.format", description="Host response_format 转译到 Responses text.format", order=30
+        "response_format",
+        "body.text.format",
+        description="Host response_format 转译到 Responses text.format",
+        order=30,
     ),
     _field("top_p", "body.top_p", value_kind="number", order=40),
     _field("reasoning", "body.reasoning", order=50),
     _field("thinking", "body.thinking", order=60),
     _field("text", "body.text", order=70),
     _field("tool_choice", "body.tool_choice", order=80),
-    _field("parallel_tool_calls", "body.parallel_tool_calls", value_kind="boolean", ui_label="并行工具调用", order=90),
+    _field(
+        "parallel_tool_calls",
+        "body.parallel_tool_calls",
+        value_kind="boolean",
+        ui_label="并行工具调用",
+        order=90,
+    ),
     _field("max_tool_calls", "body.max_tool_calls", value_kind="integer", order=100),
     _field("include", "body.include", value_kind="string_list", order=110),
     _field("instructions", "body.instructions", value_kind="string", order=120),
@@ -215,7 +228,12 @@ _RESPONSES_FIELDS = _fields(
     _field("store", "body.store", value_kind="boolean", ui_label="存储响应", order=140),
     _field("truncation", "body.truncation", value_kind="string", order=150),
     _field("service_tier", "body.service_tier", value_kind="string", order=160),
-    _field("previous_response_id", "body.previous_response_id", value_kind="string", order=170),
+    _field(
+        "previous_response_id",
+        "body.previous_response_id",
+        value_kind="string",
+        order=170,
+    ),
     _field("user", "body.user", value_kind="string", order=180),
     _field("session", "body.session", order=190),
     _field("caching", "body.caching", order=200),
@@ -237,7 +255,12 @@ _OPENAI_AUDIO_FIELDS = _fields(
     _field("prompt", "body.prompt", value_kind="string", order=20),
     _field("response_format", "body.response_format", value_kind="string", order=30),
     _field("temperature", "body.temperature", value_kind="number", order=40),
-    _field("timestamp_granularities", "body.timestamp_granularities", value_kind="string_list", order=50),
+    _field(
+        "timestamp_granularities",
+        "body.timestamp_granularities",
+        value_kind="string_list",
+        order=50,
+    ),
     _field("chunking_strategy", "body.chunking_strategy", order=60),
     _field("include", "body.include", value_kind="string_list", order=70),
     _field("stream", "body.stream", value_kind="boolean", ui_label="流式输出", order=80),
@@ -271,12 +294,34 @@ _DASHSCOPE_CHAT_FIELDS = _fields(
     _field("top_p", "body.parameters.top_p", value_kind="number", order=50),
     _field("top_k", "body.parameters.top_k", value_kind="integer", order=60),
     _field("max_length", "body.parameters.max_length", value_kind="integer", order=70),
-    _field("enable_thinking", "body.parameters.enable_thinking", value_kind="boolean", ui_label="启用思考链", order=80),
-    _field("enable_search", "body.parameters.enable_search", value_kind="boolean", ui_label="启用搜索", order=90),
     _field(
-        "incremental_output", "body.parameters.incremental_output", value_kind="boolean", ui_label="增量输出", order=100
+        "enable_thinking",
+        "body.parameters.enable_thinking",
+        value_kind="boolean",
+        ui_label="启用思考链",
+        order=80,
     ),
-    _field("stream", "body.parameters.stream", value_kind="boolean", ui_label="流式输出", order=110),
+    _field(
+        "enable_search",
+        "body.parameters.enable_search",
+        value_kind="boolean",
+        ui_label="启用搜索",
+        order=90,
+    ),
+    _field(
+        "incremental_output",
+        "body.parameters.incremental_output",
+        value_kind="boolean",
+        ui_label="增量输出",
+        order=100,
+    ),
+    _field(
+        "stream",
+        "body.parameters.stream",
+        value_kind="boolean",
+        ui_label="流式输出",
+        order=110,
+    ),
     _field(
         "parallel_tool_calls",
         "body.parameters.parallel_tool_calls",
@@ -287,33 +332,81 @@ _DASHSCOPE_CHAT_FIELDS = _fields(
     _field("seed", "body.parameters.seed", value_kind="integer", order=130),
     _field("stop", "body.parameters.stop", order=140),
     _field("n", "body.parameters.n", value_kind="integer", order=150),
-    _field("presence_penalty", "body.parameters.presence_penalty", value_kind="number", order=160),
-    _field("repetition_penalty", "body.parameters.repetition_penalty", value_kind="number", order=170),
+    _field(
+        "presence_penalty",
+        "body.parameters.presence_penalty",
+        value_kind="number",
+        order=160,
+    ),
+    _field(
+        "repetition_penalty",
+        "body.parameters.repetition_penalty",
+        value_kind="number",
+        order=170,
+    ),
     _field("tool_choice", "body.parameters.tool_choice", order=180),
     _field("tools", "body.parameters.tools", order=190),
     _field("plugins", "headers.X-DashScope-Plugin", order=200),
-    _field("customized_model_id", "body.input.customized_model_id", value_kind="string", order=210),
+    _field(
+        "customized_model_id",
+        "body.input.customized_model_id",
+        value_kind="string",
+        order=210,
+    ),
 )
 _DASHSCOPE_CHAT_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_CHAT_FIELDS)
 _DASHSCOPE_CHAT_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
 
 _DASHSCOPE_EMBEDDING_FIELDS = _fields(
-    _field("dimensions", "body.parameters.dimension", value_kind="integer", source_aliases=("dimension",), order=10),
-    _field("encoding_format", "body.parameters.encoding_format", value_kind="string", order=20),
+    _field(
+        "dimensions",
+        "body.parameters.dimension",
+        value_kind="integer",
+        source_aliases=("dimension",),
+        order=10,
+    ),
+    _field(
+        "encoding_format",
+        "body.parameters.encoding_format",
+        value_kind="string",
+        order=20,
+    ),
     _field("output_type", "body.parameters.output_type", value_kind="string", order=30),
     _field("instruct", "body.parameters.instruct", value_kind="string", order=40),
     _field("text_type", "body.parameters.text_type", value_kind="string", order=50),
-    _field("auto_truncation", "body.parameters.auto_truncation", value_kind="boolean", ui_label="自动截断", order=60),
-    _field("enable_fusion", "body.parameters.enable_fusion", value_kind="boolean", ui_label="启用融合", order=70),
+    _field(
+        "auto_truncation",
+        "body.parameters.auto_truncation",
+        value_kind="boolean",
+        ui_label="自动截断",
+        order=60,
+    ),
+    _field(
+        "enable_fusion",
+        "body.parameters.enable_fusion",
+        value_kind="boolean",
+        ui_label="启用融合",
+        order=70,
+    ),
     _field("fps", "body.parameters.fps", value_kind="number", order=90),
-    _field("max_video_frames", "body.parameters.max_video_frames", value_kind="integer", order=100),
+    _field(
+        "max_video_frames",
+        "body.parameters.max_video_frames",
+        value_kind="integer",
+        order=100,
+    ),
     _field("res_level", "body.parameters.res_level", value_kind="string", order=110),
 )
 _DASHSCOPE_EMBEDDING_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_EMBEDDING_FIELDS)
 _DASHSCOPE_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
 
 _DASHSCOPE_AUDIO_FIELDS = _fields(
-    _field("language", "body.parameters.asr_options.language", value_kind="string", order=10),
+    _field(
+        "language",
+        "body.parameters.asr_options.language",
+        value_kind="string",
+        order=10,
+    ),
     _field(
         "enable_itn",
         "body.parameters.asr_options.enable_itn",
@@ -356,7 +449,12 @@ _SILICONFLOW_AUDIO_FIELDS = _fields(
     _field("prompt", "body.prompt", value_kind="string", order=20),
     _field("response_format", "body.response_format", value_kind="string", order=30),
     _field("temperature", "body.temperature", value_kind="number", order=40),
-    _field("timestamp_granularities", "body.timestamp_granularities", value_kind="string_list", order=50),
+    _field(
+        "timestamp_granularities",
+        "body.timestamp_granularities",
+        value_kind="string_list",
+        order=50,
+    ),
     _field("chunking_strategy", "body.chunking_strategy", order=60),
     _field("include", "body.include", value_kind="string_list", order=70),
     _field("stream", "body.stream", value_kind="boolean", ui_label="流式输出", order=80),
@@ -534,5 +632,7 @@ def iter_parameter_catalogs() -> Iterable[CapabilityParameterCatalog]:
                 yield catalog
 
 
-def provider_catalogs(provider: ProviderPolicyKey) -> tuple[CapabilityParameterCatalog, ...]:
+def provider_catalogs(
+    provider: ProviderPolicyKey,
+) -> tuple[CapabilityParameterCatalog, ...]:
     return tuple(catalog for catalog in iter_parameter_catalogs() if catalog.provider == provider)

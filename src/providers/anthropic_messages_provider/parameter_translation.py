@@ -25,7 +25,11 @@ def translate_anthropic_max_tokens(
     value: object,
 ) -> None:
     del context
-    set_target_value(envelope, ("body", "max_tokens"), normalize_positive_int(value, field_name="max_tokens"))
+    set_target_value(
+        envelope,
+        ("body", "max_tokens"),
+        normalize_positive_int(value, field_name="max_tokens"),
+    )
 
 
 def translate_anthropic_identity(target_path: tuple[str, ...], *, field_name: str) -> FieldTranslator:

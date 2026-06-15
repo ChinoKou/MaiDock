@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 import httpx
 
 from ...core.diagnostics import sanitize_for_log, sanitize_json_object
-from ...core.json_types import mapping_field, mapping_to_json_object, json_mapping_or_none, string_field
+from ...core.json_types import (
+    mapping_field,
+    mapping_to_json_object,
+    json_mapping_or_none,
+    string_field,
+)
 from ...schemas import OpenAIResponseOutputContentBlock, OpenAIResponseOutputItem
 from ..common.httpx import HttpxProviderError, stream_sse_json
 
@@ -237,7 +242,8 @@ async def collect_responses_stream(
     model: str,
     provider_label: str,
     tool_fallback_prefix: str,
-    max_retries: int = 0,
+    max_retries: int,
+    retry_interval: float,
 ) -> Mapping:
     accumulator = ResponsesStreamAccumulator(model=model, tool_fallback_prefix=tool_fallback_prefix)
     final_response: Mapping | None = None
@@ -249,6 +255,7 @@ async def collect_responses_stream(
         query=query,
         provider_label=provider_label,
         max_retries=max_retries,
+        retry_interval=retry_interval,
     ):
         event_mapping = event.data
         event_type = _event_type(event_mapping, event.event)

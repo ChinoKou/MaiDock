@@ -21,12 +21,53 @@ _PROVIDER_ICONS: dict[ProviderPolicyKey, str] = {
 }
 
 _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
-    "openai_responses": ("user_agent",),
-    "anthropic_messages": ("user_agent",),
-    "dashscope": ("user_agent", "force_official_endpoint"),
-    "siliconflow": ("user_agent", "force_official_endpoint"),
-    "volcengine_ark": ("user_agent", "force_official_endpoint"),
-    "xiaomi_mimo": ("user_agent", "force_disable_thinking", "audio_transcription_prompt"),
+    "openai_responses": (
+        "user_agent",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
+    "anthropic_messages": (
+        "user_agent",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
+    "dashscope": (
+        "user_agent",
+        "force_official_endpoint",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
+    "siliconflow": (
+        "user_agent",
+        "force_official_endpoint",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
+    "volcengine_ark": (
+        "user_agent",
+        "force_official_endpoint",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
+    "xiaomi_mimo": (
+        "user_agent",
+        "force_disable_thinking",
+        "audio_transcription_prompt",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
 }
 
 
@@ -138,7 +179,15 @@ def build_maidock_config_schema(
         ),
     }
 
-    tabs: list[dict] = [_tab("general", "通用", ("plugin", "diagnostics", "compatibility"), icon="settings", order=0)]
+    tabs: list[dict] = [
+        _tab(
+            "general",
+            "通用",
+            ("plugin", "diagnostics", "compatibility"),
+            icon="settings",
+            order=0,
+        )
+    ]
     provider_order = 10
     for provider in PROVIDER_TITLES:
         provider_sections = _add_provider_sections(sections, provider, order=provider_order)
@@ -226,6 +275,53 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
             default="请转写这段音频",
             ui_type="text",
             hint="Mimo 无独立转录 API，实际使用文本生成端点 + input_audio；此处 prompt 会作为 text content part 与音频一同发送。",
+            order=current_order,
+        )
+        current_order += 1
+    if "max_retries" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["max_retries"] = _field(
+            name="max_retries",
+            field_type="integer",
+            label="最大重试次数",
+            default=3,
+            ui_type="number",
+            min_value=0,
+            hint="Provider API 调用失败时的最大重试次数。开关关闭时为回退值（Host 未配置时使用），开关开启时强制覆写 Host 值。",
+            order=current_order,
+        )
+        current_order += 1
+    if "force_max_retries" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["force_max_retries"] = _field(
+            name="force_max_retries",
+            field_type="boolean",
+            label="强制覆写 Host 重试次数",
+            default=False,
+            ui_type="switch",
+            hint="关闭：回退模式，Host 提供值时优先使用 Host 值；开启：始终使用上方配置值。",
+            order=current_order,
+        )
+        current_order += 1
+    if "retry_interval" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["retry_interval"] = _field(
+            name="retry_interval",
+            field_type="number",
+            label="重试间隔（秒）",
+            default=5.0,
+            ui_type="number",
+            min_value=0,
+            step=0.5,
+            hint="两次重试之间的等待时间。开关关闭时为回退值，开关开启时强制覆写 Host 值。",
+            order=current_order,
+        )
+        current_order += 1
+    if "force_retry_interval" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["force_retry_interval"] = _field(
+            name="force_retry_interval",
+            field_type="boolean",
+            label="强制覆写 Host 重试间隔",
+            default=False,
+            ui_type="switch",
+            hint="关闭：回退模式，Host 提供值时优先使用 Host 值；开启：始终使用上方配置值。",
             order=current_order,
         )
         current_order += 1
@@ -426,7 +522,13 @@ def _hint_for_value_kind(field: ParameterFieldDefinition) -> str:
 
 def _number_field(name: str, label: str, default: int, order: int) -> dict:
     return _field(
-        name=name, field_type="integer", label=label, default=default, ui_type="number", min_value=0, order=order
+        name=name,
+        field_type="integer",
+        label=label,
+        default=default,
+        ui_type="number",
+        min_value=0,
+        order=order,
     )
 
 
@@ -466,6 +568,7 @@ def _field(
     min_value: int | None = None,
     rows: int = 3,
     disabled: bool = False,
+    step: float = 1.0,
 ) -> dict:
     field: dict = {
         "name": name,
@@ -476,7 +579,7 @@ def _field(
         "choices": list(choices),
         "min": min_value,
         "max": None,
-        "step": 1,
+        "step": step,
         "pattern": None,
         "max_length": None,
         "label": label,
@@ -521,4 +624,10 @@ def _section(
 
 
 def _tab(tab_id: str, title: str, sections: tuple[str, ...], *, icon: str, order: int) -> dict:
-    return {"id": tab_id, "title": title, "sections": list(sections), "icon": icon, "order": order}
+    return {
+        "id": tab_id,
+        "title": title,
+        "sections": list(sections),
+        "icon": icon,
+        "order": order,
+    }

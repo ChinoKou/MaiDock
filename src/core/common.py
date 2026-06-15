@@ -70,7 +70,30 @@ class ProviderRuntimeOptions:
     mimo_user_agent: str = MAIDOCK_USER_AGENT
     mimo_force_disable_thinking: bool = True
     mimo_audio_transcription_prompt: str = "请转写这段音频"
-    default_max_retries: int = 2
+    openai_max_retries: int = 3
+    anthropic_max_retries: int = 3
+    dashscope_max_retries: int = 3
+    siliconflow_max_retries: int = 3
+    volcengine_max_retries: int = 3
+    mimo_max_retries: int = 3
+    openai_force_max_retries: bool = False
+    anthropic_force_max_retries: bool = False
+    dashscope_force_max_retries: bool = False
+    siliconflow_force_max_retries: bool = False
+    volcengine_force_max_retries: bool = False
+    mimo_force_max_retries: bool = False
+    openai_retry_interval: float = 5.0
+    anthropic_retry_interval: float = 5.0
+    dashscope_retry_interval: float = 5.0
+    siliconflow_retry_interval: float = 5.0
+    volcengine_retry_interval: float = 5.0
+    mimo_retry_interval: float = 5.0
+    openai_force_retry_interval: bool = False
+    anthropic_force_retry_interval: bool = False
+    dashscope_force_retry_interval: bool = False
+    siliconflow_force_retry_interval: bool = False
+    volcengine_force_retry_interval: bool = False
+    mimo_force_retry_interval: bool = False
     image_limits: ImageProcessingLimits = field(default_factory=ImageProcessingLimits)
     parameter_policies: ParameterPolicyRegistry = field(default_factory=ParameterPolicyRegistry)
 
@@ -122,12 +145,49 @@ def read_timeout(api_provider: ApiProviderSnapshot) -> float | None:
     return None
 
 
-def read_max_retries(api_provider: ApiProviderSnapshot, default: int) -> int:
-    """读取原生 HTTP 最大重试次数。"""
+def resolve_max_retries(
+    api_provider: ApiProviderSnapshot,
+    *,
+    config_value: int,
+    force: bool,
+    default: int,
+) -> int:
+    """按 force/fallback 逻辑计算有效的最大重试次数。"""
 
-    if isinstance(api_provider.max_retry, int) and api_provider.max_retry >= 0:
-        return api_provider.max_retry
-    return default
+    if force:
+        return config_value
+    host_value = api_provider.max_retry
+    if isinstance(host_value, int) and host_value >= 0:
+        return host_value
+    return config_value if config_value >= 0 else default
+
+
+def resolve_retry_interval(
+    api_provider: ApiProviderSnapshot,
+    *,
+    config_value: float,
+    force: bool,
+    default: float,
+) -> float:
+    """
+    按 force/fallback 逻辑计算有效的重试间隔（秒）。
+
+    非 force 模式下，0 视为无效值：Host 传入 0 或配置值为 0 时不会启用零间隔重试；
+    若需零间隔（立刻重试），请将 force 设为 True 并将 config_value 设为 0。
+    """
+
+    if force:
+        return config_value
+    host_value = api_provider.retry_interval
+    if isinstance(host_value, (int, float)) and host_value > 0:
+        return float(host_value)
+    return config_value if config_value > 0 else default
+
+
+def read_max_retries(api_provider: ApiProviderSnapshot, default: int) -> int:
+    """读取原生 HTTP 最大重试次数（向后兼容，委托 resolve_max_retries）。"""
+
+    return resolve_max_retries(api_provider, config_value=default, force=False, default=default)
 
 
 def merge_extra_params(request: BaseProviderRequestSnapshot) -> dict:
@@ -482,7 +542,9 @@ def build_usage_from_snapshot(usage: GenericUsageSnapshot) -> ProviderUsage:
     )
 
 
-def build_audio_file(audio_request: AudioTranscriptionRequestSnapshot) -> tuple[str, io.BytesIO]:
+def build_audio_file(
+    audio_request: AudioTranscriptionRequestSnapshot,
+) -> tuple[str, io.BytesIO]:
     """把 Host 的音频 base64 转为上游 multipart 文件对象。"""
 
     if not audio_request.audio_base64:
@@ -508,9 +570,19 @@ def log_request_summary(
 
     if not options.log_payload_summary:
         return
-    logger.info("[MaiDock/%s] request model=%s messages=%s tools=%s", provider_label, model, messages, tools)
+    logger.info(
+        "[MaiDock/%s] request model=%s messages=%s tools=%s",
+        provider_label,
+        model,
+        messages,
+        tools,
+    )
     if options.log_payload_debug and extra is not None:
-        logger.debug("[MaiDock/%s] request payload=%s", provider_label, sanitize_for_log(dict(extra)))
+        logger.debug(
+            "[MaiDock/%s] request payload=%s",
+            provider_label,
+            sanitize_for_log(dict(extra)),
+        )
 
 
 def log_response_summary(

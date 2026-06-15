@@ -1,7 +1,12 @@
 import logging
 from collections.abc import Mapping
 
-from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot, message_text, read_model_identifier
+from ...core.common import (
+    ProviderRuntimeOptions,
+    build_usage_from_snapshot,
+    message_text,
+    read_model_identifier,
+)
 from ...core.diagnostics import build_parse_error_message
 from ...core.json_types import JsonValue, json_mapping_or_none, mapping_field
 from ...core.parameter_catalog import get_parameter_catalog
@@ -18,7 +23,11 @@ from ...schemas import (
     ToolOptionSnapshot,
 )
 from ..common.httpx import HttpxProviderParseError
-from ..common.parameter_translation import TranslationContext, TranslationEnvelope, build_translation_context
+from ..common.parameter_translation import (
+    TranslationContext,
+    TranslationEnvelope,
+    build_translation_context,
+)
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .multimodal import (
@@ -48,7 +57,9 @@ def _first_choice(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] |
     return json_mapping_or_none(choices[0])
 
 
-def _first_choice_message(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+def _first_choice_message(
+    payload: Mapping[str, JsonValue],
+) -> Mapping[str, JsonValue] | None:
     choice = _first_choice(payload)
     if choice is None:
         return None

@@ -16,7 +16,10 @@ from ...schemas import (
     ResponseRequestSnapshot,
 )
 from ..common.httpx import create_async_client, post_json, post_multipart
-from .audio_transcriptions import build_audio_transcription_request, parse_audio_transcription_response
+from .audio_transcriptions import (
+    build_audio_transcription_request,
+    parse_audio_transcription_response,
+)
 from .chat import (
     SILICONFLOW_CHAT_COMPLETIONS_ENDPOINT,
     build_chat_body,
@@ -24,7 +27,11 @@ from .chat import (
     convert_response,
     resolve_path,
 )
-from .embeddings import SILICONFLOW_EMBEDDINGS_ENDPOINT, build_embedding_request, build_siliconflow_embedding_response
+from .embeddings import (
+    SILICONFLOW_EMBEDDINGS_ENDPOINT,
+    build_embedding_request,
+    build_siliconflow_embedding_response,
+)
 from .streaming import collect_stream_response
 
 logger = logging.getLogger("maibot_plugin.maidock.siliconflow")
@@ -69,6 +76,10 @@ class SiliconFlowProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.siliconflow_user_agent,
             force_official_endpoint=self.options.siliconflow_force_official_endpoint,
+            default_max_retries=self.options.siliconflow_max_retries,
+            force_max_retries=self.options.siliconflow_force_max_retries,
+            default_retry_interval=self.options.siliconflow_retry_interval,
+            force_retry_interval=self.options.siliconflow_force_retry_interval,
         )
         path = resolve_path(config, SILICONFLOW_CHAT_COMPLETIONS_ENDPOINT)
         async with create_async_client(config, transport=self._transport) as client:
@@ -80,7 +91,8 @@ class SiliconFlowProvider(LLMProviderBase):
                     headers=extra_headers,
                     query=extra_query,
                     options=self.options,
-                    max_retries=self.options.default_max_retries,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
             else:
                 payload = await post_json(
@@ -90,6 +102,8 @@ class SiliconFlowProvider(LLMProviderBase):
                     headers=extra_headers,
                     query=extra_query,
                     provider_label="SiliconFlow",
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
                 result = convert_response(payload, options=self.options)
 
@@ -110,6 +124,10 @@ class SiliconFlowProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.siliconflow_user_agent,
             force_official_endpoint=self.options.siliconflow_force_official_endpoint,
+            default_max_retries=self.options.siliconflow_max_retries,
+            force_max_retries=self.options.siliconflow_force_max_retries,
+            default_retry_interval=self.options.siliconflow_retry_interval,
+            force_retry_interval=self.options.siliconflow_force_retry_interval,
         )
         path = resolve_path(config, SILICONFLOW_EMBEDDINGS_ENDPOINT)
         async with create_async_client(config, transport=self._transport) as client:
@@ -120,6 +138,8 @@ class SiliconFlowProvider(LLMProviderBase):
                 headers=extra_headers,
                 query=extra_query,
                 provider_label="SiliconFlow Embeddings",
+                max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
 
         return build_siliconflow_embedding_response(
@@ -136,6 +156,10 @@ class SiliconFlowProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.siliconflow_user_agent,
             force_official_endpoint=self.options.siliconflow_force_official_endpoint,
+            default_max_retries=self.options.siliconflow_max_retries,
+            force_max_retries=self.options.siliconflow_force_max_retries,
+            default_retry_interval=self.options.siliconflow_retry_interval,
+            force_retry_interval=self.options.siliconflow_force_retry_interval,
         )
         path = resolve_path(config, SILICONFLOW_AUDIO_TRANSCRIPTIONS_ENDPOINT)
         async with create_async_client(config, transport=self._transport) as client:
@@ -147,6 +171,8 @@ class SiliconFlowProvider(LLMProviderBase):
                 headers=extra_headers,
                 query=extra_query,
                 provider_label="SiliconFlow Audio Transcriptions",
+                max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
 
         content, raw_data = parse_audio_transcription_response(response, options=self.options)

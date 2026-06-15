@@ -10,7 +10,11 @@ from ...core.common import (
     tool_arguments_to_json,
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
-from ...core.json_types import mapping_to_json_object, json_list_or_none, json_mapping_or_none
+from ...core.json_types import (
+    mapping_to_json_object,
+    json_list_or_none,
+    json_mapping_or_none,
+)
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import ProviderPolicyKey, apply_transport_parameter_policy
 from ...core.parsing import (
@@ -44,7 +48,9 @@ from ..common.parameter_translation import (
 from .multimodal import convert_user_content_parts as convert_family_user_content_parts
 from .multimodal import extract_reasoning_content as extract_family_reasoning_content
 from .multimodal import extract_text_content as extract_family_text_content
-from .parameter_translation import apply_responses_parameters as apply_family_responses_parameters
+from .parameter_translation import (
+    apply_responses_parameters as apply_family_responses_parameters,
+)
 from .tools import convert_tools as convert_family_tools
 from .tools import extract_tool_calls as extract_family_tool_calls
 
@@ -105,7 +111,11 @@ class ResponsesMapper:
 
         input_params = upstream_request.input_params()
         tool_params = upstream_request.tool_params()
-        body = {"model": upstream_request.model, "input": input_params, "stream": stream}
+        body = {
+            "model": upstream_request.model,
+            "input": input_params,
+            "stream": stream,
+        }
         if upstream_request.tools and "tools" not in normalized.fields:
             body["tools"] = tool_params
         envelope = TranslationEnvelope(body=body)
@@ -239,7 +249,8 @@ class ResponsesMapper:
                         call_id=call_id,
                         name=name,
                         arguments=tool_arguments_to_json(
-                            tool_call.function.arguments, self.options.tool_argument_parse_mode
+                            tool_call.function.arguments,
+                            self.options.tool_argument_parse_mode,
                         ),
                         id=item_id,
                         status=status,

@@ -1,4 +1,8 @@
-from ...schemas import ObjectFields, ResponseFormatSchemaSnapshot, ResponseFormatSnapshot
+from ...schemas import (
+    ObjectFields,
+    ResponseFormatSchemaSnapshot,
+    ResponseFormatSnapshot,
+)
 
 
 def normalize_response_format_snapshot(value: object) -> ResponseFormatSnapshot:

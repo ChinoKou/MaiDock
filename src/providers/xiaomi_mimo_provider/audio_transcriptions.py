@@ -98,7 +98,10 @@ async def build_mimo_audio_transcription(
     config = build_client_config(
         request.api_provider,
         user_agent=options.mimo_user_agent,
-        default_max_retries=options.default_max_retries,
+        default_max_retries=options.mimo_max_retries,
+        force_max_retries=options.mimo_force_max_retries,
+        default_retry_interval=options.mimo_retry_interval,
+        force_retry_interval=options.mimo_force_retry_interval,
     )
     path = resolve_path(config, MIMO_CHAT_COMPLETIONS_ENDPOINT)
 
@@ -108,7 +111,8 @@ async def build_mimo_audio_transcription(
             path,
             json_body=body,
             provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
-            max_retries=options.default_max_retries,
+            max_retries=config.max_retries,
+            retry_interval=config.retry_interval,
         )
 
     return _parse_audio_transcription_response(payload, options=options)

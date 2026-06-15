@@ -17,7 +17,8 @@ async def collect_mimo_stream_response(
     headers: Mapping[str, str],
     query: Mapping[str, object],
     options: ProviderRuntimeOptions,
-    max_retries: int = 2,
+    max_retries: int,
+    retry_interval: float,
 ) -> ProviderResponse:
     return await collect_chat_completions_stream(
         client,
@@ -28,4 +29,5 @@ async def collect_mimo_stream_response(
         options=options,
         provider_label=MIMO_PROVIDER_LABEL,
         max_retries=max_retries,
+        retry_interval=retry_interval,
     )

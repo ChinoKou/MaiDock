@@ -2,9 +2,18 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from ...core.json_types import mapping_to_json_object, normalize_json_value, json_mapping_or_none
+from ...core.json_types import (
+    mapping_to_json_object,
+    normalize_json_value,
+    json_mapping_or_none,
+)
 from ...core.parameter_catalog import CapabilityParameterCatalog, dotted_path
-from ...core.parameter_policy import CapabilityKey, ParameterPolicy, ProviderPolicyKey, UnknownExtraParamsPolicy
+from ...core.parameter_policy import (
+    CapabilityKey,
+    ParameterPolicy,
+    ProviderPolicyKey,
+    UnknownExtraParamsPolicy,
+)
 from ...schemas.host_snapshots import (
     AudioTranscriptionRequestSnapshot,
     BaseProviderRequestSnapshot,
@@ -94,7 +103,11 @@ def build_normalized_host_parameters(
             source_label="model_info.extra_params",
         )
     _merge_typed_model_fallbacks(
-        fields, request, catalog_keys=catalog_keys, disabled_paths=disabled_paths, sources=sources
+        fields,
+        request,
+        catalog_keys=catalog_keys,
+        disabled_paths=disabled_paths,
+        sources=sources,
     )
     if policy.accept_request_extra_params:
         _merge_source(
@@ -108,7 +121,11 @@ def build_normalized_host_parameters(
             source_label="request.extra_params",
         )
     _merge_typed_request_fields(
-        fields, request, catalog_keys=catalog_keys, disabled_paths=disabled_paths, sources=sources
+        fields,
+        request,
+        catalog_keys=catalog_keys,
+        disabled_paths=disabled_paths,
+        sources=sources,
     )
 
     _raise_for_rejected_normalized_fields(
@@ -367,7 +384,11 @@ def _merge_source(
             if _is_disabled_source(normalized_key, disabled_paths):
                 continue
             _merge_control_root(
-                fields, normalized_key, value, sources=sources, source_label=f"{source_label}.{normalized_key}"
+                fields,
+                normalized_key,
+                value,
+                sources=sources,
+                source_label=f"{source_label}.{normalized_key}",
             )
             continue
         if normalized_key in reserved_keys:

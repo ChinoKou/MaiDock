@@ -55,7 +55,11 @@ def convert_tools(tool_options: list[ToolOptionSnapshot]) -> list[AnthropicTool]
         if function.name is None or not function.name:
             continue
         tools.append(
-            AnthropicTool(name=function.name, description=function.description, input_schema=function.parameters)
+            AnthropicTool(
+                name=function.name,
+                description=function.description,
+                input_schema=function.parameters,
+            )
         )
     return tools
 

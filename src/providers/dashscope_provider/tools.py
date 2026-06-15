@@ -2,9 +2,18 @@ import json
 from dataclasses import dataclass
 
 from ...core.common import ProviderRuntimeOptions, tool_arguments_to_json
-from ...core.json_types import mapping_to_json_object, json_list_or_none, json_mapping_or_none
+from ...core.json_types import (
+    mapping_to_json_object,
+    json_list_or_none,
+    json_mapping_or_none,
+)
 from ...core.parsing import ToolArgumentParseMode
-from ...schemas import ProviderFunctionCall, ProviderToolCall, ToolCallSnapshot, ToolOptionSnapshot
+from ...schemas import (
+    ProviderFunctionCall,
+    ProviderToolCall,
+    ToolCallSnapshot,
+    ToolOptionSnapshot,
+)
 from ..common.tools import normalize_tool_arguments_value, resolve_tool_call_id
 
 

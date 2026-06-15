@@ -14,6 +14,8 @@ async def collect_openai_response_stream(
     headers: Mapping[str, str],
     query: Mapping[str, object],
     model: str,
+    max_retries: int,
+    retry_interval: float,
 ) -> Mapping:
     return await collect_responses_stream(
         client,
@@ -24,4 +26,6 @@ async def collect_openai_response_stream(
         model=model,
         provider_label=OPENAI_PROVIDER_LABEL,
         tool_fallback_prefix="openai_tool",
+        max_retries=max_retries,
+        retry_interval=retry_interval,
     )

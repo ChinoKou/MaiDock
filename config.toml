@@ -9,6 +9,10 @@ log_payload_debug = false
 
 [openai_responses]
 user_agent = ""
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 
 [openai_responses.response]
 accept_model_extra_params = true
@@ -160,6 +164,10 @@ unknown_extra_params = "forward"
 
 [anthropic_messages]
 user_agent = ""
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 
 [anthropic_messages.chat_completion]
 accept_model_extra_params = true
@@ -217,6 +225,10 @@ unknown_extra_params = "forward"
 [dashscope]
 user_agent = ""
 force_official_endpoint = true
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 
 [dashscope.chat_completion]
 accept_model_extra_params = true
@@ -375,6 +387,10 @@ unknown_extra_params = "forward"
 [siliconflow]
 user_agent = ""
 force_official_endpoint = true
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 
 [siliconflow.chat_completion]
 accept_model_extra_params = true
@@ -494,6 +510,10 @@ unknown_extra_params = "forward"
 [volcengine_ark]
 user_agent = ""
 force_official_endpoint = true
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 
 [volcengine_ark.response]
 accept_model_extra_params = true
@@ -610,6 +630,10 @@ unknown_extra_params = "forward"
 user_agent = ""
 force_disable_thinking = true
 audio_transcription_prompt = "请转写这段音频"
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 
 [xiaomi_mimo.chat_completion]
 accept_model_extra_params = true

@@ -3,9 +3,17 @@ import logging
 import httpx
 from maibot_sdk import LLMProviderBase
 
-from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
+from ...core.common import (
+    ProviderRuntimeOptions,
+    log_request_summary,
+    log_response_summary,
+)
 from ...core.parameter_policy import apply_transport_parameter_policy
-from ...schemas import AudioTranscriptionRequestSnapshot, EmbeddingRequestSnapshot, ResponseRequestSnapshot
+from ...schemas import (
+    AudioTranscriptionRequestSnapshot,
+    EmbeddingRequestSnapshot,
+    ResponseRequestSnapshot,
+)
 from ..common.httpx import create_async_client, post_json, resolve_endpoint_path
 from .embeddings import build_ark_embedding_response, build_embedding_request
 from .responses import (
@@ -68,10 +76,15 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.volcengine_user_agent,
             force_official_endpoint=self.options.volcengine_force_official_endpoint,
-            default_max_retries=self.options.default_max_retries,
+            default_max_retries=self.options.volcengine_max_retries,
+            force_max_retries=self.options.volcengine_force_max_retries,
+            default_retry_interval=self.options.volcengine_retry_interval,
+            force_retry_interval=self.options.volcengine_force_retry_interval,
         )
         path = resolve_endpoint_path(
-            config.base_url, api_prefix=VOLCENGINE_API_PREFIX, endpoint_path=ARK_RESPONSES_ENDPOINT
+            config.base_url,
+            api_prefix=VOLCENGINE_API_PREFIX,
+            endpoint_path=ARK_RESPONSES_ENDPOINT,
         )
         async with create_async_client(config, transport=self._transport) as client:
             if stream:
@@ -83,6 +96,7 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
                     query=upstream_request.extra_query,
                     model=upstream_request.model,
                     max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
             else:
                 payload = await post_json(
@@ -93,6 +107,7 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
                     query=upstream_request.extra_query,
                     provider_label=VOLCENGINE_PROVIDER_LABEL,
                     max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
 
         result = self._responses_mapper.convert_response(payload)
@@ -126,7 +141,10 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.volcengine_user_agent,
             force_official_endpoint=self.options.volcengine_force_official_endpoint,
-            default_max_retries=self.options.default_max_retries,
+            default_max_retries=self.options.volcengine_max_retries,
+            force_max_retries=self.options.volcengine_force_max_retries,
+            default_retry_interval=self.options.volcengine_retry_interval,
+            force_retry_interval=self.options.volcengine_force_retry_interval,
         )
         path = resolve_endpoint_path(
             config.base_url,
@@ -142,6 +160,7 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
                 query=extra_query,
                 provider_label="Volcengine Ark Embeddings",
                 max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
 
         return build_ark_embedding_response(

@@ -4,7 +4,12 @@ from typing import Literal
 
 from ..schemas.base import ObjectFields
 from ..schemas.host_snapshots import BaseProviderRequestSnapshot
-from .json_types import JsonValue, is_json_list, json_mapping_or_none, mapping_to_json_object
+from .json_types import (
+    JsonValue,
+    is_json_list,
+    json_mapping_or_none,
+    mapping_to_json_object,
+)
 
 type ProviderPolicyKey = Literal[
     "openai_responses",
@@ -145,7 +150,12 @@ def resolve_request_parameter_policy(
     if policy.accept_request_extra_params:
         _merge_shallow(host_params, request_params)
 
-    _raise_for_rejected_paths(host_params, policy.rejected_paths, provider_label=provider_label, capability=capability)
+    _raise_for_rejected_paths(
+        host_params,
+        policy.rejected_paths,
+        provider_label=provider_label,
+        capability=capability,
+    )
     _remove_paths(host_params, policy.disabled_paths)
     _apply_unknown_policy(
         host_params,
@@ -180,7 +190,12 @@ def apply_transport_parameter_policy(
         "query": mapping_to_json_object(query),
     }
     transport_rejected_paths = _transport_paths(policy.rejected_paths)
-    _raise_for_rejected_paths(envelope, transport_rejected_paths, provider_label=provider_label, capability=capability)
+    _raise_for_rejected_paths(
+        envelope,
+        transport_rejected_paths,
+        provider_label=provider_label,
+        capability=capability,
+    )
     _remove_paths(envelope, _transport_paths(policy.disabled_paths))
     _apply_transport_overrides(envelope, policy.override_params)
 

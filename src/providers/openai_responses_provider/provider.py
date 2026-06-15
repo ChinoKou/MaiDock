@@ -3,16 +3,32 @@ import logging
 import httpx
 from maibot_sdk import LLMProviderBase
 
-from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
+from ...core.common import (
+    ProviderRuntimeOptions,
+    log_request_summary,
+    log_response_summary,
+)
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
     ProviderResponse,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import create_async_client, post_json, post_multipart, resolve_endpoint_path
-from .audio_transcriptions import build_audio_transcription_request, parse_audio_transcription_response
-from .embeddings import build_embedding_request, build_openai_embedding_response, extract_openai_embedding
+from ..common.httpx import (
+    create_async_client,
+    post_json,
+    post_multipart,
+    resolve_endpoint_path,
+)
+from .audio_transcriptions import (
+    build_audio_transcription_request,
+    parse_audio_transcription_response,
+)
+from .embeddings import (
+    build_embedding_request,
+    build_openai_embedding_response,
+    extract_openai_embedding,
+)
 from .responses import (
     OPENAI_API_PREFIX,
     OPENAI_AUDIO_TRANSCRIPTIONS_ENDPOINT,
@@ -57,9 +73,18 @@ class OpenAIResponsesProvider(LLMProviderBase):
             options=self.options,
         )
 
-        config = build_client_config(request_model.api_provider, user_agent=self.options.openai_user_agent)
+        config = build_client_config(
+            request_model.api_provider,
+            user_agent=self.options.openai_user_agent,
+            default_max_retries=self.options.openai_max_retries,
+            force_max_retries=self.options.openai_force_max_retries,
+            default_retry_interval=self.options.openai_retry_interval,
+            force_retry_interval=self.options.openai_force_retry_interval,
+        )
         path = resolve_endpoint_path(
-            config.base_url, api_prefix=OPENAI_API_PREFIX, endpoint_path=OPENAI_RESPONSES_ENDPOINT
+            config.base_url,
+            api_prefix=OPENAI_API_PREFIX,
+            endpoint_path=OPENAI_RESPONSES_ENDPOINT,
         )
         async with create_async_client(config, transport=self._transport) as client:
             if stream:
@@ -70,6 +95,8 @@ class OpenAIResponsesProvider(LLMProviderBase):
                     headers=upstream_request.extra_headers,
                     query=upstream_request.extra_query,
                     model=upstream_request.model,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
             else:
                 payload = await post_json(
@@ -79,6 +106,8 @@ class OpenAIResponsesProvider(LLMProviderBase):
                     headers=upstream_request.extra_headers,
                     query=upstream_request.extra_query,
                     provider_label=OPENAI_PROVIDER_LABEL,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
 
         result = self._responses_mapper.convert_response(payload)
@@ -95,9 +124,18 @@ class OpenAIResponsesProvider(LLMProviderBase):
     async def get_embedding(self, request: dict) -> dict:
         request_model = EmbeddingRequestSnapshot.model_validate(request)
         body, extra_headers, extra_query, encoding_format = build_embedding_request(request_model, options=self.options)
-        config = build_client_config(request_model.api_provider, user_agent=self.options.openai_user_agent)
+        config = build_client_config(
+            request_model.api_provider,
+            user_agent=self.options.openai_user_agent,
+            default_max_retries=self.options.openai_max_retries,
+            force_max_retries=self.options.openai_force_max_retries,
+            default_retry_interval=self.options.openai_retry_interval,
+            force_retry_interval=self.options.openai_force_retry_interval,
+        )
         path = resolve_endpoint_path(
-            config.base_url, api_prefix=OPENAI_API_PREFIX, endpoint_path=OPENAI_EMBEDDINGS_ENDPOINT
+            config.base_url,
+            api_prefix=OPENAI_API_PREFIX,
+            endpoint_path=OPENAI_EMBEDDINGS_ENDPOINT,
         )
         async with create_async_client(config, transport=self._transport) as client:
             payload = await post_json(
@@ -107,6 +145,8 @@ class OpenAIResponsesProvider(LLMProviderBase):
                 headers=extra_headers,
                 query=extra_query,
                 provider_label="OpenAI Embeddings",
+                max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
 
         return build_openai_embedding_response(
@@ -119,7 +159,14 @@ class OpenAIResponsesProvider(LLMProviderBase):
             request_model,
             options=self.options,
         )
-        config = build_client_config(request_model.api_provider, user_agent=self.options.openai_user_agent)
+        config = build_client_config(
+            request_model.api_provider,
+            user_agent=self.options.openai_user_agent,
+            default_max_retries=self.options.openai_max_retries,
+            force_max_retries=self.options.openai_force_max_retries,
+            default_retry_interval=self.options.openai_retry_interval,
+            force_retry_interval=self.options.openai_force_retry_interval,
+        )
         path = resolve_endpoint_path(
             config.base_url,
             api_prefix=OPENAI_API_PREFIX,
@@ -134,6 +181,8 @@ class OpenAIResponsesProvider(LLMProviderBase):
                 headers=extra_headers,
                 query=extra_query,
                 provider_label="OpenAI Audio Transcriptions",
+                max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
 
         content, raw_data = parse_audio_transcription_response(response, options=self.options)

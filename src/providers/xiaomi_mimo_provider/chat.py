@@ -1,13 +1,24 @@
 import logging
 
-from ...core.common import ProviderRuntimeOptions, read_api_key, read_max_retries, read_timeout
+from ...core.common import (
+    ProviderRuntimeOptions,
+    read_api_key,
+    read_timeout,
+    resolve_max_retries,
+    resolve_retry_interval,
+)
 from ...schemas import (
     ApiProviderSnapshot,
     ProviderResponse,
     ResponseRequestSnapshot,
 )
 from ..chat_completions_family.chat import ChatCompletionsMapper
-from ..common.httpx import HttpxClientConfig, normalize_base_url, resolve_endpoint_path, with_default_user_agent
+from ..common.httpx import (
+    HttpxClientConfig,
+    normalize_base_url,
+    resolve_endpoint_path,
+    with_default_user_agent,
+)
 
 MIMO_PROVIDER_LABEL = "Xiaomi Mimo"
 MIMO_CHAT_COMPLETIONS_ENDPOINT = "chat/completions"
@@ -17,7 +28,10 @@ def build_client_config(
     api_provider: ApiProviderSnapshot,
     *,
     user_agent: str,
-    default_max_retries: int = 2,
+    default_max_retries: int = 3,
+    force_max_retries: bool = False,
+    default_retry_interval: float = 5.0,
+    force_retry_interval: bool = False,
 ) -> HttpxClientConfig:
     api_key = read_api_key(api_provider)
     default_headers = {}
@@ -39,7 +53,18 @@ def build_client_config(
         default_headers=default_headers,
         default_query=default_query,
         timeout=read_timeout(api_provider),
-        max_retries=read_max_retries(api_provider, default_max_retries),
+        max_retries=resolve_max_retries(
+            api_provider,
+            config_value=default_max_retries,
+            force=force_max_retries,
+            default=3,
+        ),
+        retry_interval=resolve_retry_interval(
+            api_provider,
+            config_value=default_retry_interval,
+            force=force_retry_interval,
+            default=5.0,
+        ),
     )
 
 

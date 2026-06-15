@@ -44,7 +44,7 @@
 
 每个 Provider 有两层配置：
 
-1. **Provider 级**字段：`user_agent`（所有 Provider），部分含 `force_official_endpoint`；Mimo 额外含 `force_disable_thinking`
+1. **Provider 级**字段：`user_agent` + 重试配置（所有 Provider），部分含 `force_official_endpoint`；Mimo 额外含 `force_disable_thinking`、`audio_transcription_prompt`
 2. **能力子段**：`[{provider}.{capability}]` — 控制该 Provider 某项能力的 `extra_params` 参数策略
 3. **字段开关子段**：`[{provider}.{capability}.fields]` — 由 WebUI 自动生成，控制单个 `extra_params` 字段的启用/禁用/覆写
 4. **默认参数 / 覆写参数**：`[{provider}.{capability}.default_params]` 和 `[{provider}.{capability}.override_params]` — 空的 inline table，可手动填入 JSON
@@ -56,11 +56,19 @@
 ```toml
 [openai_responses]
 user_agent = ""
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent，留空时使用 MaiDock 内置默认值 |
+| `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值（Host 未配置时使用），开启时强制覆写 Host 值 |
+| `force_max_retries` | bool | `false` | 关闭=回退模式（Host 提供值时优先），开启=始终使用上方的值 |
+| `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_retry_interval` | bool | `false` | 关闭=回退模式（Host 提供值时优先），开启=始终使用上方的值 |
 
 该 Provider 拥有以下能力子段：
 
@@ -76,11 +84,19 @@ user_agent = ""
 ```toml
 [anthropic_messages]
 user_agent = ""
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
+| `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
+| `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 
 | 子段 | 说明 |
 | --- | --- |
@@ -93,12 +109,20 @@ user_agent = ""
 [dashscope]
 user_agent = ""
 force_official_endpoint = true
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
 | `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用阿里云百炼 DashScope 官方 endpoint |
+| `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
+| `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 
 | 子段 | 说明 |
 | --- | --- |
@@ -113,12 +137,20 @@ force_official_endpoint = true
 [siliconflow]
 user_agent = ""
 force_official_endpoint = true
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
 | `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用 SiliconFlow 官方 endpoint |
+| `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
+| `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 
 | 子段 | 说明 |
 | --- | --- |
@@ -133,12 +165,20 @@ force_official_endpoint = true
 [volcengine_ark]
 user_agent = ""
 force_official_endpoint = true
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
 | `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用火山方舟官方 endpoint |
+| `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
+| `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 
 | 子段 | 说明 |
 | --- | --- |
@@ -153,6 +193,10 @@ force_official_endpoint = true
 user_agent = ""
 force_disable_thinking = true
 audio_transcription_prompt = "请转写这段音频"
+max_retries = 3
+force_max_retries = false
+retry_interval = 5.0
+force_retry_interval = false
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
@@ -160,11 +204,35 @@ audio_transcription_prompt = "请转写这段音频"
 | `user_agent` | str | `""` | 自定义 User-Agent |
 | `force_disable_thinking` | bool | `true` | 是否在最终请求体中强制写入 `thinking = { type = "disabled" }`。Mimo 要求 thinking + 工具调用历史必须回传思考内容，但 Host 不会向 MaiDock 提供历史 reasoning_content，因此默认关闭 |
 | `audio_transcription_prompt` | str | `"请转写这段音频"` | Mimo 伪语音转录请求中与 input_audio 一同发送的文本提示词。未配置时转录请求会报错 |
+| `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
+| `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 
 | 子段 | 说明 |
 | --- | --- |
 | `[xiaomi_mimo.chat_completion]` | 文本生成（Chat Completions API） |
 | `[xiaomi_mimo.audio_transcription]` | 语音转录伪造层（策略控制），实际使用 Chat Completions + `input_audio` |
+
+### 重试配置的 force/fallback 逻辑
+
+每个 Provider 的 4 个重试字段（`max_retries` / `force_max_retries` / `retry_interval` / `force_retry_interval`）遵循一致的解析逻辑：
+
+```
+if force == true:
+    effective = config_value          → 始终使用插件配置值，忽略 Host
+else:
+    if Host 提供了有效值:
+        effective = Host_value        → 回退模式，Host 优先
+    else:
+        effective = config_value      → Host 未配置时，使用插件配置值
+```
+
+**`retry_interval` 特殊行为：** 非 force 模式下，`0` 视为无效值（设计意图：避免意外启用零间隔重试）。若确实需要零间隔立刻重试，请将 `force_retry_interval = true` 并将 `retry_interval = 0.0`。
+
+这条链路在代码中由 `resolve_max_retries()` 和 `resolve_retry_interval()`（`src/core/common.py`）实现，所有 Provider 的重试值均通过此机制计算后传入底层 HTTP 函数。
+
+**Host 侧配置：** Host（MaiBot 核心）在 `model_config.toml` 的 `[[api_providers]]` 中提供了 `max_retry`（默认 3）和 `retry_interval`（默认 5）字段。当插件侧 `force_* = false` 时，这些 Host 值会被优先使用。
 
 ### User-Agent 生效优先级
 

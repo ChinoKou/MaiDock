@@ -63,7 +63,10 @@ class XiaomiMimoProvider(LLMProviderBase):
         config = build_client_config(
             request_model.api_provider,
             user_agent=self.options.mimo_user_agent,
-            default_max_retries=self.options.default_max_retries,
+            default_max_retries=self.options.mimo_max_retries,
+            force_max_retries=self.options.mimo_force_max_retries,
+            default_retry_interval=self.options.mimo_retry_interval,
+            force_retry_interval=self.options.mimo_force_retry_interval,
         )
         path = resolve_path(config, MIMO_CHAT_COMPLETIONS_ENDPOINT)
         async with create_async_client(config, transport=self._transport) as client:
@@ -75,7 +78,8 @@ class XiaomiMimoProvider(LLMProviderBase):
                     headers=extra_headers,
                     query=extra_query,
                     options=self.options,
-                    max_retries=self.options.default_max_retries,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
             else:
                 payload = await post_json(
@@ -85,7 +89,8 @@ class XiaomiMimoProvider(LLMProviderBase):
                     headers=extra_headers,
                     query=extra_query,
                     provider_label="Xiaomi Mimo",
-                    max_retries=self.options.default_max_retries,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
                 result = convert_response(payload, options=self.options)
 

@@ -3,7 +3,13 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from ..core.json_types import is_json_list
-from .base import HostDumpModel, IgnoreExtraModel, ObjectFields, OpenAITextVerbosity, default_tool_parameters
+from .base import (
+    HostDumpModel,
+    IgnoreExtraModel,
+    ObjectFields,
+    OpenAITextVerbosity,
+    default_tool_parameters,
+)
 from .usage import GenericUsageSnapshot
 
 
@@ -53,7 +59,10 @@ class OpenAIInputMessage(HostDumpModel):
     content: list[OpenAIUserContentBlock]
 
     def to_sdk_param(self) -> dict:
-        return {"role": self.role, "content": [part.to_sdk_param() for part in self.content]}
+        return {
+            "role": self.role,
+            "content": [part.to_sdk_param() for part in self.content],
+        }
 
 
 class OpenAIEasyInputMessage(HostDumpModel):

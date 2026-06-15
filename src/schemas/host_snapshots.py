@@ -3,7 +3,12 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from ..core.json_types import is_json_list, is_json_mapping, mapping_to_json_object
-from .base import IgnoreExtraModel, ObjectFields, default_tool_parameters, normalize_tool_parameters
+from .base import (
+    IgnoreExtraModel,
+    ObjectFields,
+    default_tool_parameters,
+    normalize_tool_parameters,
+)
 
 
 class ApiProviderSnapshot(IgnoreExtraModel):

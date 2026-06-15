@@ -15,6 +15,7 @@ async def collect_ark_response_stream(
     query: Mapping[str, object],
     model: str,
     max_retries: int,
+    retry_interval: float,
 ) -> Mapping:
     return await collect_responses_stream(
         client,
@@ -26,4 +27,5 @@ async def collect_ark_response_stream(
         provider_label=VOLCENGINE_PROVIDER_LABEL,
         tool_fallback_prefix="ark_tool",
         max_retries=max_retries,
+        retry_interval=retry_interval,
     )

@@ -6,12 +6,22 @@ import httpx
 
 from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
-from ...core.json_types import JsonValue, json_list_or_none, json_mapping_or_none, mapping_field, mapping_to_json_object
+from ...core.json_types import (
+    JsonValue,
+    json_list_or_none,
+    json_mapping_or_none,
+    mapping_field,
+    mapping_to_json_object,
+)
 from ...schemas import GenericUsageSnapshot, ProviderResponse
 from ..common.httpx import HttpxProviderError, HttpxProviderParseError, stream_sse_json
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
-from .chat import DASHSCOPE_PROVIDER_LABEL, extract_reasoning_from_mapping, first_choice_message
+from .chat import (
+    DASHSCOPE_PROVIDER_LABEL,
+    extract_reasoning_from_mapping,
+    first_choice_message,
+)
 from .tools import DashScopeToolCallChunk
 
 
@@ -91,7 +101,11 @@ class DashScopeStreamAccumulator:
             argument_mapping = json_mapping_or_none(arguments)
             if argument_mapping is not None:
                 chunk.merge_arguments(
-                    json.dumps(mapping_to_json_object(argument_mapping), ensure_ascii=False, separators=(",", ":"))
+                    json.dumps(
+                        mapping_to_json_object(argument_mapping),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
                 )
 
     def to_provider_response(self) -> ProviderResponse:
@@ -147,6 +161,7 @@ async def collect_stream_response(
     query: Mapping[str, object],
     options: ProviderRuntimeOptions,
     max_retries: int,
+    retry_interval: float,
 ) -> ProviderResponse:
     accumulator = DashScopeStreamAccumulator(options=options)
     async for event in stream_sse_json(
@@ -157,6 +172,7 @@ async def collect_stream_response(
         query=query,
         provider_label=DASHSCOPE_PROVIDER_LABEL,
         max_retries=max_retries,
+        retry_interval=retry_interval,
     ):
         error_message = _stream_error_message(event.data, event_name=event.event, status=event.status)
         if error_message is not None:

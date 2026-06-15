@@ -3,7 +3,11 @@ import logging
 import httpx
 from maibot_sdk import LLMProviderBase
 
-from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
+from ...core.common import (
+    ProviderRuntimeOptions,
+    log_request_summary,
+    log_response_summary,
+)
 from ...schemas import ResponseRequestSnapshot
 from ..common.httpx import create_async_client, post_json, resolve_endpoint_path
 from .messages import (
@@ -47,9 +51,18 @@ class AnthropicMessagesProvider(LLMProviderBase):
             options=self.options,
         )
 
-        config = build_client_config(request_model.api_provider, user_agent=self.options.anthropic_user_agent)
+        config = build_client_config(
+            request_model.api_provider,
+            user_agent=self.options.anthropic_user_agent,
+            default_max_retries=self.options.anthropic_max_retries,
+            force_max_retries=self.options.anthropic_force_max_retries,
+            default_retry_interval=self.options.anthropic_retry_interval,
+            force_retry_interval=self.options.anthropic_force_retry_interval,
+        )
         path = resolve_endpoint_path(
-            config.base_url, api_prefix=ANTHROPIC_API_PREFIX, endpoint_path=ANTHROPIC_MESSAGES_ENDPOINT
+            config.base_url,
+            api_prefix=ANTHROPIC_API_PREFIX,
+            endpoint_path=ANTHROPIC_MESSAGES_ENDPOINT,
         )
         async with create_async_client(config, transport=self._transport) as client:
             if stream:
@@ -62,6 +75,8 @@ class AnthropicMessagesProvider(LLMProviderBase):
                     headers=stream_headers,
                     query=upstream_request.extra_query,
                     parse_mode=self.options.tool_argument_parse_mode,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
             else:
                 payload = await post_json(
@@ -71,6 +86,8 @@ class AnthropicMessagesProvider(LLMProviderBase):
                     headers=upstream_request.extra_headers,
                     query=upstream_request.extra_query,
                     provider_label=ANTHROPIC_PROVIDER_LABEL,
+                    max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
 
         result = convert_response(payload, options=self.options)

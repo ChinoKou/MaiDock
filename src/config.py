@@ -5,8 +5,18 @@ from maibot_sdk import Field, PluginConfigBase
 from pydantic import field_validator
 from pydantic.config import JsonDict
 
-from .core.common import ImageProcessingLimits, InvalidImagePolicy, ProviderRuntimeOptions
-from .core.json_types import JsonValue, is_json_list, json_mapping_or_none, mapping_to_json_object, normalize_json_value
+from .core.common import (
+    ImageProcessingLimits,
+    InvalidImagePolicy,
+    ProviderRuntimeOptions,
+)
+from .core.json_types import (
+    JsonValue,
+    is_json_list,
+    json_mapping_or_none,
+    mapping_to_json_object,
+    normalize_json_value,
+)
 from .core.parameter_catalog import (
     CapabilityParameterCatalog,
     field_enabled_key,
@@ -23,13 +33,19 @@ from .core.parameter_policy import (
     normalize_policy_params,
     normalize_policy_paths,
 )
-from .core.parsing import normalize_reasoning_parse_mode, normalize_tool_argument_parse_mode
+from .core.parsing import (
+    normalize_reasoning_parse_mode,
+    normalize_tool_argument_parse_mode,
+)
 from .version import DEFAULT_USER_AGENT, __version__
 
 _UNKNOWN_POLICY_CHOICES: tuple[object, ...] = ("forward", "drop", "reject")
 _PATH_LIST_UI: JsonDict = {"ui_type": "list", "item_type": "string", "hidden": True}
 _JSON_OBJECT_UI: JsonDict = {"ui_type": "json", "rows": 8, "hidden": True}
-_UNKNOWN_POLICY_UI: JsonDict = {"ui_type": "select", "choices": list(_UNKNOWN_POLICY_CHOICES)}
+_UNKNOWN_POLICY_UI: JsonDict = {
+    "ui_type": "select",
+    "choices": list(_UNKNOWN_POLICY_CHOICES),
+}
 
 
 type FieldControlValue = bool | str
@@ -148,6 +164,16 @@ class OpenAIResponsesConfig(PluginConfigBase):
     __ui_order__ = 2
 
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_max_retries: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    retry_interval: float = Field(
+        default=5.0,
+        description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
     response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
@@ -162,6 +188,16 @@ class AnthropicMessagesConfig(PluginConfigBase):
     __ui_order__ = 3
 
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_max_retries: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    retry_interval: float = Field(
+        default=5.0,
+        description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
     chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
@@ -178,6 +214,16 @@ class DashScopeConfig(PluginConfigBase):
         default=True,
         description="是否忽略 Host 提供的 base_url，改用阿里云百炼 DashScope 原生 endpoint",
     )
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_max_retries: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    retry_interval: float = Field(
+        default=5.0,
+        description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
     chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
@@ -196,6 +242,16 @@ class SiliconFlowConfig(PluginConfigBase):
         default=True,
         description="是否忽略 Host 提供的 base_url，改用 SiliconFlow 官方 endpoint",
     )
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_max_retries: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    retry_interval: float = Field(
+        default=5.0,
+        description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
     chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
@@ -214,6 +270,16 @@ class VolcengineArkConfig(PluginConfigBase):
         default=True,
         description="是否忽略 Host 提供的 base_url，改用火山方舟原生 endpoint",
     )
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_max_retries: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    retry_interval: float = Field(
+        default=5.0,
+        description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
     response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
@@ -235,6 +301,16 @@ class XiaomiMimoConfig(PluginConfigBase):
         default="请转写这段音频",
         description="Mimo 伪语音转录请求中与 input_audio 一同发送的文本提示词",
     )
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_max_retries: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    retry_interval: float = Field(
+        default=5.0,
+        description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
+    )
+    force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
     chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
@@ -325,7 +401,10 @@ def build_parameter_policy(
         accept_model_extra_params=bool(config.accept_model_extra_params),
         accept_request_extra_params=bool(config.accept_request_extra_params),
         disabled_paths=_dedupe_paths(
-            (*normalize_policy_paths(config.disabled_paths), *_disabled_field_paths(config, catalog))
+            (
+                *normalize_policy_paths(config.disabled_paths),
+                *_disabled_field_paths(config, catalog),
+            )
         ),
         rejected_paths=normalize_policy_paths(config.rejected_paths),
         default_params=normalize_policy_params(config.default_params),
@@ -429,7 +508,9 @@ def build_parameter_policies(config: MaiDockConfig) -> ParameterPolicyRegistry:
     )
 
 
-def normalize_maidock_config_data(config_data: Mapping[str, JsonValue]) -> tuple[dict, bool]:
+def normalize_maidock_config_data(
+    config_data: Mapping[str, JsonValue],
+) -> tuple[dict, bool]:
     """为所有能力参数目录填充生成的目标字段控制默认值。"""
 
     current = mapping_to_json_object(config_data)
@@ -446,7 +527,9 @@ def normalize_maidock_config_data(config_data: Mapping[str, JsonValue]) -> tuple
     return normalized, changed or normalized != current
 
 
-def build_runtime_options(config: MaiDockConfig | None = None) -> ProviderRuntimeOptions:
+def build_runtime_options(
+    config: MaiDockConfig | None = None,
+) -> ProviderRuntimeOptions:
     """根据插件配置构造 Provider 运行时选项。"""
 
     if config is None:
@@ -470,6 +553,30 @@ def build_runtime_options(config: MaiDockConfig | None = None) -> ProviderRuntim
         siliconflow_force_official_endpoint=bool(config.siliconflow.force_official_endpoint),
         mimo_force_disable_thinking=bool(config.xiaomi_mimo.force_disable_thinking),
         mimo_audio_transcription_prompt=config.xiaomi_mimo.audio_transcription_prompt.strip(),
+        openai_max_retries=max(0, config.openai_responses.max_retries),
+        anthropic_max_retries=max(0, config.anthropic_messages.max_retries),
+        dashscope_max_retries=max(0, config.dashscope.max_retries),
+        siliconflow_max_retries=max(0, config.siliconflow.max_retries),
+        volcengine_max_retries=max(0, config.volcengine_ark.max_retries),
+        mimo_max_retries=max(0, config.xiaomi_mimo.max_retries),
+        openai_force_max_retries=bool(config.openai_responses.force_max_retries),
+        anthropic_force_max_retries=bool(config.anthropic_messages.force_max_retries),
+        dashscope_force_max_retries=bool(config.dashscope.force_max_retries),
+        siliconflow_force_max_retries=bool(config.siliconflow.force_max_retries),
+        volcengine_force_max_retries=bool(config.volcengine_ark.force_max_retries),
+        mimo_force_max_retries=bool(config.xiaomi_mimo.force_max_retries),
+        openai_retry_interval=max(0.0, float(config.openai_responses.retry_interval)),
+        anthropic_retry_interval=max(0.0, float(config.anthropic_messages.retry_interval)),
+        dashscope_retry_interval=max(0.0, float(config.dashscope.retry_interval)),
+        siliconflow_retry_interval=max(0.0, float(config.siliconflow.retry_interval)),
+        volcengine_retry_interval=max(0.0, float(config.volcengine_ark.retry_interval)),
+        mimo_retry_interval=max(0.0, float(config.xiaomi_mimo.retry_interval)),
+        openai_force_retry_interval=bool(config.openai_responses.force_retry_interval),
+        anthropic_force_retry_interval=bool(config.anthropic_messages.force_retry_interval),
+        dashscope_force_retry_interval=bool(config.dashscope.force_retry_interval),
+        siliconflow_force_retry_interval=bool(config.siliconflow.force_retry_interval),
+        volcengine_force_retry_interval=bool(config.volcengine_ark.force_retry_interval),
+        mimo_force_retry_interval=bool(config.xiaomi_mimo.force_retry_interval),
         image_limits=build_image_limits(config.compatibility),
         parameter_policies=build_parameter_policies(config),
     )

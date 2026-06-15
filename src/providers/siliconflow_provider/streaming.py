@@ -16,7 +16,8 @@ async def collect_stream_response(
     headers: Mapping[str, str],
     query: Mapping[str, object],
     options: ProviderRuntimeOptions,
-    max_retries: int = 0,
+    max_retries: int,
+    retry_interval: float,
 ) -> ProviderResponse:
     return await collect_chat_completions_stream(
         client,
@@ -27,4 +28,5 @@ async def collect_stream_response(
         options=options,
         provider_label=SILICONFLOW_PROVIDER_LABEL,
         max_retries=max_retries,
+        retry_interval=retry_interval,
     )

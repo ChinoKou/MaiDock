@@ -9,7 +9,13 @@ from ...core.common import (
     read_model_identifier,
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
-from ...core.json_types import JsonValue, json_mapping_or_none, list_field, mapping_field, mapping_to_json_object
+from ...core.json_types import (
+    JsonValue,
+    json_mapping_or_none,
+    list_field,
+    mapping_field,
+    mapping_to_json_object,
+)
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import (
@@ -22,8 +28,16 @@ from ...schemas import (
     ProviderToolCall,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import HttpxClientConfig, HttpxProviderParseError, build_httpx_client_config, resolve_endpoint_path
-from ..common.parameter_translation import TranslationEnvelope, build_translation_context
+from ..common.httpx import (
+    HttpxClientConfig,
+    HttpxProviderParseError,
+    build_httpx_client_config,
+    resolve_endpoint_path,
+)
+from ..common.parameter_translation import (
+    TranslationEnvelope,
+    build_translation_context,
+)
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .parameter_translation import apply_dashscope_chat_parameters
@@ -42,7 +56,10 @@ def build_client_config(
     *,
     user_agent: str,
     force_official_endpoint: bool,
-    default_max_retries: int = 2,
+    default_max_retries: int = 3,
+    force_max_retries: bool = False,
+    default_retry_interval: float = 5.0,
+    force_retry_interval: bool = False,
 ) -> HttpxClientConfig:
     return build_httpx_client_config(
         api_provider,
@@ -51,6 +68,9 @@ def build_client_config(
         force_default_base_url=force_official_endpoint,
         default_timeout=DASHSCOPE_DEFAULT_TIMEOUT,
         default_max_retries=default_max_retries,
+        force_max_retries=force_max_retries,
+        default_retry_interval=default_retry_interval,
+        force_retry_interval=force_retry_interval,
     )
 
 
@@ -68,7 +88,9 @@ def first_choice(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | 
     return json_mapping_or_none(choices[0])
 
 
-def first_choice_message(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+def first_choice_message(
+    payload: Mapping[str, JsonValue],
+) -> Mapping[str, JsonValue] | None:
     choice = first_choice(payload)
     if choice is None:
         return None
@@ -124,7 +146,11 @@ def build_generation_body(
             parameters["incremental_output"] = True
         parameters["stream"] = True
 
-    body: dict = {"model": model, "input": {"messages": messages}, "parameters": parameters}
+    body: dict = {
+        "model": model,
+        "input": {"messages": messages},
+        "parameters": parameters,
+    }
     envelope = TranslationEnvelope(body=body)
     apply_dashscope_chat_parameters(context, envelope)
 
@@ -220,7 +246,12 @@ def _payload_error_message(payload: dict) -> str | None:
     status_code = payload.get("status_code")
     if isinstance(code, str) and code.strip() and code.strip().lower() not in {"success", "ok"}:
         request_id = payload.get("request_id") or payload.get("requestId")
-        details = {"status_code": status_code, "request_id": request_id, "code": code, "message": message}
+        details = {
+            "status_code": status_code,
+            "request_id": request_id,
+            "code": code,
+            "message": message,
+        }
         return f"{DASHSCOPE_PROVIDER_LABEL} 上游接口返回错误: {sanitize_for_log(details)}"
     return None
 

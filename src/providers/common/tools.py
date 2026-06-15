@@ -1,5 +1,9 @@
 from ...core.json_types import json_mapping_or_none
-from ...core.parsing import ToolArgumentParseMode, fallback_tool_call_id, normalize_arguments
+from ...core.parsing import (
+    ToolArgumentParseMode,
+    fallback_tool_call_id,
+    normalize_arguments,
+)
 from ...schemas import ObjectFields
 
 

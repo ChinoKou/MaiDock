@@ -39,7 +39,12 @@ from .host_snapshots import (
     ToolFunctionSnapshot,
     ToolOptionSnapshot,
 )
-from .provider_contracts import ProviderFunctionCall, ProviderResponse, ProviderToolCall, ProviderUsage
+from .provider_contracts import (
+    ProviderFunctionCall,
+    ProviderResponse,
+    ProviderToolCall,
+    ProviderUsage,
+)
 from .responses_compat import (
     OpenAIEasyInputMessage,
     OpenAIFunctionCallInputItem,

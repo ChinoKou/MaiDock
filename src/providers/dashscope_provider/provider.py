@@ -3,7 +3,11 @@ import logging
 import httpx
 from maibot_sdk import LLMProviderBase
 
-from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
+from ...core.common import (
+    ProviderRuntimeOptions,
+    log_request_summary,
+    log_response_summary,
+)
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
@@ -63,7 +67,10 @@ class DashScopeProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.dashscope_user_agent,
             force_official_endpoint=self.options.dashscope_force_official_endpoint,
-            default_max_retries=self.options.default_max_retries,
+            default_max_retries=self.options.dashscope_max_retries,
+            force_max_retries=self.options.dashscope_force_max_retries,
+            default_retry_interval=self.options.dashscope_retry_interval,
+            force_retry_interval=self.options.dashscope_force_retry_interval,
         )
         path = resolve_path(config, DASHSCOPE_GENERATION_ENDPOINT)
         async with create_async_client(config, transport=self._transport) as client:
@@ -81,6 +88,7 @@ class DashScopeProvider(LLMProviderBase):
                     query=extra_query,
                     options=self.options,
                     max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
             else:
                 payload = await post_json(
@@ -91,6 +99,7 @@ class DashScopeProvider(LLMProviderBase):
                     query=extra_query,
                     provider_label=DASHSCOPE_PROVIDER_LABEL,
                     max_retries=config.max_retries,
+                    retry_interval=config.retry_interval,
                 )
                 result = convert_response(payload, options=self.options)
 
@@ -113,7 +122,10 @@ class DashScopeProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.dashscope_user_agent,
             force_official_endpoint=self.options.dashscope_force_official_endpoint,
-            default_max_retries=self.options.default_max_retries,
+            default_max_retries=self.options.dashscope_max_retries,
+            force_max_retries=self.options.dashscope_force_max_retries,
+            default_retry_interval=self.options.dashscope_retry_interval,
+            force_retry_interval=self.options.dashscope_force_retry_interval,
         )
         path = resolve_path(config, endpoint)
         async with create_async_client(config, transport=self._transport) as client:
@@ -125,6 +137,7 @@ class DashScopeProvider(LLMProviderBase):
                 query=extra_query,
                 provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Embeddings",
                 max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
         return build_dashscope_embedding_response(
             payload, options=self.options, encoding_format=encoding_format
@@ -137,7 +150,10 @@ class DashScopeProvider(LLMProviderBase):
             request_model.api_provider,
             user_agent=self.options.dashscope_user_agent,
             force_official_endpoint=self.options.dashscope_force_official_endpoint,
-            default_max_retries=self.options.default_max_retries,
+            default_max_retries=self.options.dashscope_max_retries,
+            force_max_retries=self.options.dashscope_force_max_retries,
+            default_retry_interval=self.options.dashscope_retry_interval,
+            force_retry_interval=self.options.dashscope_force_retry_interval,
         )
         path = resolve_path(config, DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT)
         async with create_async_client(config, transport=self._transport) as client:
@@ -149,6 +165,7 @@ class DashScopeProvider(LLMProviderBase):
                 query=extra_query,
                 provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions",
                 max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
             )
 
         content, raw_data = parse_audio_transcription_response(payload, options=self.options)

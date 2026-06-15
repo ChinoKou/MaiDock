@@ -29,7 +29,11 @@ def translate_response_max_output_tokens(
     value: object,
 ) -> None:
     del context
-    set_target_value(envelope, ("body", "max_output_tokens"), normalize_positive_int(value, field_name="max_tokens"))
+    set_target_value(
+        envelope,
+        ("body", "max_output_tokens"),
+        normalize_positive_int(value, field_name="max_tokens"),
+    )
 
 
 def translate_response_text_format(
