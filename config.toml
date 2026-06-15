@@ -227,6 +227,7 @@ unknown_extra_params = "forward"
 [dashscope]
 user_agent = ""
 force_official_endpoint = true
+auto_detect_endpoint = true
 max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
@@ -258,9 +259,6 @@ body_parameters_top_p_override_value = ""
 body_parameters_top_k_enabled = true
 body_parameters_top_k_override_enabled = false
 body_parameters_top_k_override_value = ""
-body_parameters_max_length_enabled = true
-body_parameters_max_length_override_enabled = false
-body_parameters_max_length_override_value = ""
 body_parameters_enable_thinking_enabled = true
 body_parameters_enable_thinking_override_enabled = false
 body_parameters_enable_thinking_override_value = false
@@ -319,9 +317,6 @@ unknown_extra_params = "forward"
 body_parameters_dimension_enabled = true
 body_parameters_dimension_override_enabled = false
 body_parameters_dimension_override_value = ""
-body_parameters_encoding_format_enabled = true
-body_parameters_encoding_format_override_enabled = false
-body_parameters_encoding_format_override_value = ""
 body_parameters_output_type_enabled = true
 body_parameters_output_type_override_enabled = false
 body_parameters_output_type_override_value = ""
@@ -365,9 +360,6 @@ body_parameters_asr_options_language_override_value = ""
 body_parameters_asr_options_enable_itn_enabled = true
 body_parameters_asr_options_enable_itn_override_enabled = false
 body_parameters_asr_options_enable_itn_override_value = false
-body_parameters_result_format_enabled = true
-body_parameters_result_format_override_enabled = false
-body_parameters_result_format_override_value = ""
 
 [dashscope.audio_transcription.default_params]
 

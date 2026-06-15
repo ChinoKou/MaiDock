@@ -45,7 +45,7 @@ def translate_embedding_sparse_embedding(
     del context
     if not isinstance(value, bool):
         raise TypeError(f"sparse_embedding 必须是 boolean，实际为 {type(value).__name__}")
-    set_target_value(envelope, ("body", "sparse_embedding"), {"enable": value})
+    set_target_value(envelope, ("body", "sparse_embedding"), {"type": "enabled" if value else "disabled"})
 
 
 EMBEDDING_TRANSLATORS: dict[str, FieldTranslator] = {

@@ -1,3 +1,5 @@
+import logging
+
 from ..common.parameter_translation import (
     FieldTranslator,
     TranslationContext,
@@ -62,6 +64,35 @@ def translate_dashscope_parameters_identity(target_name: str, *, field_name: str
     return _translator
 
 
+_logger = logging.getLogger("maibot_plugin.maidock.dashscope")
+
+
+def translate_dashscope_tool_choice(
+    context: TranslationContext,
+    envelope: TranslationEnvelope,
+    value: object,
+) -> None:
+    del context
+    if isinstance(value, str) and value == "required":
+        _logger.warning("[dashscope] tool_choice='required' 不是有效值，已降级为 'auto'")
+        set_target_value(envelope, ("body", "parameters", "tool_choice"), "auto")
+        return
+    set_target_value(envelope, ("body", "parameters", "tool_choice"), value)
+
+
+def translate_dashscope_res_level(
+    context: TranslationContext,
+    envelope: TranslationEnvelope,
+    value: object,
+) -> None:
+    del context
+    set_target_value(
+        envelope,
+        ("body", "parameters", "res_level"),
+        normalize_positive_int(value, field_name="res_level"),
+    )
+
+
 def translate_dashscope_customized_model_id(
     context: TranslationContext,
     envelope: TranslationEnvelope,
@@ -96,7 +127,6 @@ DASHSCOPE_CHAT_TRANSLATORS: dict[str, FieldTranslator] = {
     "result_format": translate_dashscope_parameters_identity("result_format", field_name="result_format"),
     "top_p": translate_dashscope_parameters_identity("top_p", field_name="top_p"),
     "top_k": translate_dashscope_parameters_identity("top_k", field_name="top_k"),
-    "max_length": translate_dashscope_parameters_identity("max_length", field_name="max_length"),
     "enable_thinking": translate_dashscope_parameters_identity("enable_thinking", field_name="enable_thinking"),
     "enable_search": translate_dashscope_parameters_identity("enable_search", field_name="enable_search"),
     "incremental_output": translate_dashscope_parameters_identity(
@@ -113,7 +143,7 @@ DASHSCOPE_CHAT_TRANSLATORS: dict[str, FieldTranslator] = {
     "repetition_penalty": translate_dashscope_parameters_identity(
         "repetition_penalty", field_name="repetition_penalty"
     ),
-    "tool_choice": translate_dashscope_parameters_identity("tool_choice", field_name="tool_choice"),
+    "tool_choice": translate_dashscope_tool_choice,
     "tools": translate_dashscope_parameters_identity("tools", field_name="tools"),
     "plugins": translate_dashscope_plugins,
     "customized_model_id": translate_dashscope_customized_model_id,
@@ -121,7 +151,6 @@ DASHSCOPE_CHAT_TRANSLATORS: dict[str, FieldTranslator] = {
 
 DASHSCOPE_EMBEDDING_TRANSLATORS: dict[str, FieldTranslator] = {
     "dimensions": translate_dashscope_embedding_dimensions,
-    "encoding_format": translate_dashscope_parameters_identity("encoding_format", field_name="encoding_format"),
     "output_type": translate_dashscope_parameters_identity("output_type", field_name="output_type"),
     "instruct": translate_dashscope_parameters_identity("instruct", field_name="instruct"),
     "text_type": translate_dashscope_parameters_identity("text_type", field_name="text_type"),
@@ -129,7 +158,7 @@ DASHSCOPE_EMBEDDING_TRANSLATORS: dict[str, FieldTranslator] = {
     "enable_fusion": translate_dashscope_parameters_identity("enable_fusion", field_name="enable_fusion"),
     "fps": translate_dashscope_parameters_identity("fps", field_name="fps"),
     "max_video_frames": translate_dashscope_parameters_identity("max_video_frames", field_name="max_video_frames"),
-    "res_level": translate_dashscope_parameters_identity("res_level", field_name="res_level"),
+    "res_level": translate_dashscope_res_level,
 }
 
 
@@ -149,7 +178,6 @@ def translate_dashscope_asr_option(target_name: str, *, field_name: str) -> Fiel
 DASHSCOPE_AUDIO_TRANSLATORS: dict[str, FieldTranslator] = {
     "language": translate_dashscope_asr_option("language", field_name="language"),
     "enable_itn": translate_dashscope_asr_option("enable_itn", field_name="enable_itn"),
-    "result_format": translate_dashscope_parameters_identity("result_format", field_name="result_format"),
 }
 
 

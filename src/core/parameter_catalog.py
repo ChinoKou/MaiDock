@@ -293,7 +293,6 @@ _DASHSCOPE_CHAT_FIELDS = _fields(
     _field("result_format", "body.parameters.result_format", value_kind="string", order=40),
     _field("top_p", "body.parameters.top_p", value_kind="number", order=50),
     _field("top_k", "body.parameters.top_k", value_kind="integer", order=60),
-    _field("max_length", "body.parameters.max_length", value_kind="integer", order=70),
     _field(
         "enable_thinking",
         "body.parameters.enable_thinking",
@@ -365,12 +364,6 @@ _DASHSCOPE_EMBEDDING_FIELDS = _fields(
         source_aliases=("dimension",),
         order=10,
     ),
-    _field(
-        "encoding_format",
-        "body.parameters.encoding_format",
-        value_kind="string",
-        order=20,
-    ),
     _field("output_type", "body.parameters.output_type", value_kind="string", order=30),
     _field("instruct", "body.parameters.instruct", value_kind="string", order=40),
     _field("text_type", "body.parameters.text_type", value_kind="string", order=50),
@@ -395,7 +388,7 @@ _DASHSCOPE_EMBEDDING_FIELDS = _fields(
         value_kind="integer",
         order=100,
     ),
-    _field("res_level", "body.parameters.res_level", value_kind="string", order=110),
+    _field("res_level", "body.parameters.res_level", value_kind="integer", order=110),
 )
 _DASHSCOPE_EMBEDDING_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_EMBEDDING_FIELDS)
 _DASHSCOPE_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
@@ -414,7 +407,6 @@ _DASHSCOPE_AUDIO_FIELDS = _fields(
         ui_label="逆文本正则化",
         order=20,
     ),
-    _field("result_format", "body.parameters.result_format", value_kind="string", order=30),
 )
 _DASHSCOPE_AUDIO_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_AUDIO_FIELDS)
 _DASHSCOPE_AUDIO_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
@@ -470,8 +462,8 @@ _ARK_EMBEDDING_FIELDS = _fields(
         "sparse_embedding",
         "body.sparse_embedding",
         value_kind="boolean",
-        description='对象字段，开启 → {"enable": true}，关闭 → {"enable": false}',
-        ui_label="稀疏向量 (enable)",
+        description='对象字段，开启 → {"type": "enabled"}，关闭 → {"type": "disabled"}',
+        ui_label="稀疏向量 (type)",
         order=20,
     ),
     _field("encoding_format", "body.encoding_format", value_kind="string", order=30),
