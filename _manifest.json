@@ -90,12 +90,5 @@
       "zh-CN"
     ]
   },
-  "plugin_type": "provider",
-  "display": {
-    "icon": {
-      "type": "lucide",
-      "value": "dock",
-      "fallback": "plug"
-    }
-  }
+  "plugin_type": "provider"
 }
