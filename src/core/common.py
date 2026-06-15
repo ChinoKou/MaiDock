@@ -65,6 +65,7 @@ class ProviderRuntimeOptions:
     siliconflow_user_agent: str = MAIDOCK_USER_AGENT
     volcengine_user_agent: str = MAIDOCK_USER_AGENT
     dashscope_force_official_endpoint: bool = True
+    dashscope_auto_detect_endpoint: bool = True
     siliconflow_force_official_endpoint: bool = True
     volcengine_force_official_endpoint: bool = True
     mimo_user_agent: str = MAIDOCK_USER_AGENT

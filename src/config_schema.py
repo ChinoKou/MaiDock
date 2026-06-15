@@ -38,6 +38,7 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     "dashscope": (
         "user_agent",
         "force_official_endpoint",
+        "auto_detect_endpoint",
         "max_retries",
         "force_max_retries",
         "retry_interval",
@@ -275,6 +276,17 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
             default="请转写这段音频",
             ui_type="text",
             hint="Mimo 无独立转录 API，实际使用文本生成端点 + input_audio；此处 prompt 会作为 text content part 与音频一同发送。",
+            order=current_order,
+        )
+        current_order += 1
+    if "auto_detect_endpoint" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["auto_detect_endpoint"] = _field(
+            name="auto_detect_endpoint",
+            field_type="boolean",
+            label="自动探测模型端点",
+            default=True,
+            ui_type="switch",
+            hint="阿里云百炼多模态模型与纯文本模型使用不同 API 端点。开启后，文本端点返回 url error 时自动切换多模态端点并在内存中记录。",
             order=current_order,
         )
         current_order += 1

@@ -214,6 +214,10 @@ class DashScopeConfig(PluginConfigBase):
         default=True,
         description="是否忽略 Host 提供的 base_url，改用阿里云百炼 DashScope 原生 endpoint",
     )
+    auto_detect_endpoint: bool = Field(
+        default=True,
+        description="是否自动探测模型端点：文本端点返回 url error 时自动切换多模态端点",
+    )
     max_retries: int = Field(
         default=3,
         description="最大重试次数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
@@ -550,6 +554,7 @@ def build_runtime_options(
         mimo_user_agent=normalize_user_agent(config.xiaomi_mimo.user_agent),
         volcengine_force_official_endpoint=bool(config.volcengine_ark.force_official_endpoint),
         dashscope_force_official_endpoint=bool(config.dashscope.force_official_endpoint),
+        dashscope_auto_detect_endpoint=bool(config.dashscope.auto_detect_endpoint),
         siliconflow_force_official_endpoint=bool(config.siliconflow.force_official_endpoint),
         mimo_force_disable_thinking=bool(config.xiaomi_mimo.force_disable_thinking),
         mimo_audio_transcription_prompt=config.xiaomi_mimo.audio_transcription_prompt.strip(),

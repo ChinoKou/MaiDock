@@ -109,6 +109,7 @@ force_retry_interval = false
 [dashscope]
 user_agent = ""
 force_official_endpoint = true
+auto_detect_endpoint = true
 max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
@@ -119,6 +120,7 @@ force_retry_interval = false
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
 | `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用阿里云百炼 DashScope 官方 endpoint |
+| `auto_detect_endpoint` | bool | `true` | 是否自动探测模型端点：文本端点返回 url error 时自动切换多模态端点并在内存中记录 |
 | `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
 | `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 | `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |

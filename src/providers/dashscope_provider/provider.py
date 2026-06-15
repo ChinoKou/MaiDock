@@ -14,7 +14,7 @@ from ...schemas import (
     ProviderResponse,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import create_async_client, post_json
+from ..common.httpx import HttpxClientConfig, HttpxProviderError, create_async_client, post_json
 from .audio_transcriptions import (
     build_audio_transcription_request,
     parse_audio_transcription_response,
@@ -46,6 +46,18 @@ class DashScopeProvider(LLMProviderBase):
     ) -> None:
         self.options = options
         self._transport = transport
+        self._endpoint_cache: dict[str, str] = {}
+
+    def _resolve_chat_endpoint(self, config: HttpxClientConfig, model: str) -> str:
+        cached = self._endpoint_cache.get(model)
+        if cached is not None:
+            return cached
+        return resolve_path(config, DASHSCOPE_GENERATION_ENDPOINT)
+
+    @staticmethod
+    def _is_dashscope_endpoint_error(exc: HttpxProviderError) -> bool:
+        message = str(exc)
+        return "InvalidParameter" in message and "url" in message
 
     async def get_response(self, request: dict) -> dict:
         request_model = ResponseRequestSnapshot.model_validate(request)
@@ -72,36 +84,76 @@ class DashScopeProvider(LLMProviderBase):
             default_retry_interval=self.options.dashscope_retry_interval,
             force_retry_interval=self.options.dashscope_force_retry_interval,
         )
-        path = resolve_path(config, DASHSCOPE_GENERATION_ENDPOINT)
+        model = str(body["model"])
+        path = self._resolve_chat_endpoint(config, model)
         async with create_async_client(config, transport=self._transport) as client:
-            if stream:
-                result = await collect_stream_response(
-                    client,
-                    path,
-                    body,
-                    headers={
-                        **extra_headers,
-                        "Accept": "text/event-stream",
-                        "X-Accel-Buffering": "no",
-                        "X-DashScope-SSE": "enable",
-                    },
-                    query=extra_query,
-                    options=self.options,
-                    max_retries=config.max_retries,
-                    retry_interval=config.retry_interval,
-                )
-            else:
-                payload = await post_json(
-                    client,
-                    path,
-                    json_body=body,
-                    headers=extra_headers,
-                    query=extra_query,
-                    provider_label=DASHSCOPE_PROVIDER_LABEL,
-                    max_retries=config.max_retries,
-                    retry_interval=config.retry_interval,
-                )
-                result = convert_response(payload, options=self.options)
+            try:
+                if stream:
+                    result = await collect_stream_response(
+                        client,
+                        path,
+                        body,
+                        headers={
+                            **extra_headers,
+                            "Accept": "text/event-stream",
+                            "X-Accel-Buffering": "no",
+                            "X-DashScope-SSE": "enable",
+                        },
+                        query=extra_query,
+                        options=self.options,
+                        max_retries=config.max_retries,
+                        retry_interval=config.retry_interval,
+                    )
+                else:
+                    payload = await post_json(
+                        client,
+                        path,
+                        json_body=body,
+                        headers=extra_headers,
+                        query=extra_query,
+                        provider_label=DASHSCOPE_PROVIDER_LABEL,
+                        max_retries=config.max_retries,
+                        retry_interval=config.retry_interval,
+                    )
+                    result = convert_response(payload, options=self.options)
+            except HttpxProviderError as exc:
+                if not (
+                    self.options.dashscope_auto_detect_endpoint
+                    and self._is_dashscope_endpoint_error(exc)
+                    and path == resolve_path(config, DASHSCOPE_GENERATION_ENDPOINT)
+                ):
+                    raise
+                alt_path = resolve_path(config, DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT)
+                logger.info("[dashscope] 模型 %s 在文本端点返回 url error，切换多模态端点", model)
+                if stream:
+                    result = await collect_stream_response(
+                        client,
+                        alt_path,
+                        body,
+                        headers={
+                            **extra_headers,
+                            "Accept": "text/event-stream",
+                            "X-Accel-Buffering": "no",
+                            "X-DashScope-SSE": "enable",
+                        },
+                        query=extra_query,
+                        options=self.options,
+                        max_retries=config.max_retries,
+                        retry_interval=config.retry_interval,
+                    )
+                else:
+                    payload = await post_json(
+                        client,
+                        alt_path,
+                        json_body=body,
+                        headers=extra_headers,
+                        query=extra_query,
+                        provider_label=DASHSCOPE_PROVIDER_LABEL,
+                        max_retries=config.max_retries,
+                        retry_interval=config.retry_interval,
+                    )
+                    result = convert_response(payload, options=self.options)
+                self._endpoint_cache[model] = alt_path
 
         log_response_summary(
             logger,
