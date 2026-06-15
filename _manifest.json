@@ -3,7 +3,7 @@
   "id": "chinokou.maidock",
   "version": "1.0.3",
   "name": "MaiDock",
-  "description": "为 MaiBot 提供额外的 OpenAI Responses API 与 Anthropic Messages API 端点支持。",
+  "description": "为 MaiBot 提供额外的 OpenAI Responses、Anthropic Messages、百炼 DashScope、硅基流动 与 火山方舟 Responses 等端点支持与高级参数控制功能。",
   "author": {
     "name": "ChinoKou",
     "url": "https://github.com/ChinoKou"
@@ -26,13 +26,8 @@
   "dependencies": [
     {
       "type": "python_package",
-      "name": "openai",
-      "version_spec": ">=1.95.0"
-    },
-    {
-      "type": "python_package",
-      "name": "anthropic",
-      "version_spec": ">=0.105.2"
+      "name": "httpx",
+      "version_spec": ">=0.27.0"
     },
     {
       "type": "python_package",
@@ -61,6 +56,30 @@
       "client_type": "maidock-anthropic-messages",
       "name": "MaiDock Anthropic Messages",
       "description": "基于 Anthropic Messages API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-volcengine-ark-responses",
+      "name": "MaiDock Volcengine Ark Responses",
+      "description": "基于火山方舟 Responses API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-dashscope",
+      "name": "MaiDock DashScope",
+      "description": "基于百炼 DashScope API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-siliconflow",
+      "name": "MaiDock SiliconFlow",
+      "description": "基于硅基流动 SiliconFlow API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-xiaomi-mimo",
+      "name": "MaiDock Xiaomi Mimo",
+      "description": "基于小米 Mimo Chat Completions API 的 LLM Provider。",
       "version": "1.0.0"
     }
   ],

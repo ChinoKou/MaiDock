@@ -6,13 +6,12 @@ from uuid import uuid4
 from json_repair import repair_json
 from pydantic import TypeAdapter
 
-from .json_types import JsonObject, JsonValue
-from .schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
+from ..schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
 
 ToolArgumentParseMode = Literal["auto", "strict", "repair", "double_decode"]
 ReasoningParseMode = Literal["auto", "native", "think_tag", "none"]
 
-_DICT_ADAPTER = TypeAdapter(JsonObject)
+_DICT_ADAPTER: TypeAdapter[dict] = TypeAdapter(dict)
 
 THINK_CONTENT_PATTERN = re.compile(
     r"<think>(?P<think>.*?)</think>(?P<content>.*)|<think>(?P<think_unclosed>.*)|(?P<content_only>.+)",
@@ -53,7 +52,7 @@ def normalize_reasoning_parse_mode(parse_mode: str | None) -> ReasoningParseMode
     return "auto"
 
 
-def normalize_arguments(value: ObjectFields | str | None, parse_mode: ToolArgumentParseMode = "auto") -> JsonObject:
+def normalize_arguments(value: ObjectFields | str | None, parse_mode: ToolArgumentParseMode = "auto") -> dict:
     """解析 Host 快照或上游响应中的工具参数。"""
 
     if isinstance(value, ObjectFields):
@@ -71,7 +70,7 @@ def _tool_argument_error(raw_arguments: str, reason: str) -> ValueError:
     return ValueError(f"无法解析工具调用参数: {reason}。参数预览: {_argument_preview(raw_arguments)}")
 
 
-def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> JsonObject:
+def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> dict:
     """解析工具调用参数字符串，空字符串按无参函数处理。"""
 
     if not raw_arguments.strip():
@@ -152,7 +151,7 @@ def merge_native_or_text_reasoning(
     return None, content
 
 
-def _coerce_xml_parameter_value(raw_value: str) -> JsonValue:
+def _coerce_xml_parameter_value(raw_value: str) -> object:
     normalized_value = raw_value.strip()
     if not normalized_value:
         return ""
@@ -171,8 +170,8 @@ def _coerce_xml_parameter_value(raw_value: str) -> JsonValue:
     return normalized_value
 
 
-def _parse_xml_parameters(raw_arguments: str) -> JsonObject | None:
-    parameters: JsonObject = {}
+def _parse_xml_parameters(raw_arguments: str) -> dict | None:
+    parameters: dict = {}
     for match in XML_PARAMETER_PATTERN.finditer(raw_arguments):
         parameters[match.group("name").strip()] = _coerce_xml_parameter_value(match.group("value"))
     return parameters or None

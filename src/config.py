@@ -1,8 +1,39 @@
+import json
+from collections.abc import Mapping
+
 from maibot_sdk import Field, PluginConfigBase
+from pydantic import field_validator
+from pydantic.config import JsonDict
 
 from .core.common import ImageProcessingLimits, InvalidImagePolicy, ProviderRuntimeOptions
+from .core.json_types import JsonValue, is_json_list, json_mapping_or_none, mapping_to_json_object, normalize_json_value
+from .core.parameter_catalog import (
+    CapabilityParameterCatalog,
+    field_enabled_key,
+    field_override_enabled_key,
+    field_override_value_key,
+    get_parameter_catalog,
+    iter_parameter_catalogs,
+)
+from .core.parameter_policy import (
+    ParameterPolicy,
+    ParameterPolicyRegistry,
+    ProviderCapabilityPolicies,
+    UnknownExtraParamsPolicy,
+    normalize_policy_params,
+    normalize_policy_paths,
+)
 from .core.parsing import normalize_reasoning_parse_mode, normalize_tool_argument_parse_mode
 from .version import DEFAULT_USER_AGENT, __version__
+
+_UNKNOWN_POLICY_CHOICES: tuple[object, ...] = ("forward", "drop", "reject")
+_PATH_LIST_UI: JsonDict = {"ui_type": "list", "item_type": "string", "hidden": True}
+_JSON_OBJECT_UI: JsonDict = {"ui_type": "json", "rows": 8, "hidden": True}
+_UNKNOWN_POLICY_UI: JsonDict = {"ui_type": "select", "choices": list(_UNKNOWN_POLICY_CHOICES)}
+
+
+type FieldControlValue = bool | str
+type FieldControlMap = dict[str, FieldControlValue]
 
 
 class PluginSectionConfig(PluginConfigBase):
@@ -23,12 +54,90 @@ class DiagnosticsConfig(PluginConfigBase):
     __ui_icon__ = "bug"
     __ui_order__ = 1
 
-    include_raw_data: bool = Field(default=False, description="是否把上游响应摘要放入 raw_data")
+    include_raw_data: bool = Field(default=False, description="是否把 Provider API 响应摘要放入 raw_data")
     log_payload_summary: bool = Field(default=True, description="是否记录脱敏后的请求/响应摘要日志")
     log_payload_debug: bool = Field(default=False, description="是否记录脱敏后的详细请求载荷")
-    anthropic_sdk_log_level: str = Field(
-        default="INFO", description="Anthropic SDK 日志级别：inherit/DEBUG/INFO/WARNING/ERROR/CRITICAL"
+
+
+class CapabilityParameterPolicyConfig(PluginConfigBase):
+    """Provider 能力级 extra_params 策略。"""
+
+    accept_model_extra_params: bool = Field(default=True, description="是否接受模型级 extra_params")
+    accept_request_extra_params: bool = Field(default=True, description="是否接受请求级 extra_params")
+    fields: FieldControlMap = Field(default_factory=dict, description="文档参数字段开关与覆写控制")
+    disabled_paths: list[str] = Field(
+        default_factory=list,
+        description="高级：静默移除的参数路径，例如 temperature、body.temperature、headers.X-Test",
+        json_schema_extra=_PATH_LIST_UI,
     )
+    rejected_paths: list[str] = Field(
+        default_factory=list,
+        description="高级：出现时直接拒绝请求的参数路径，例如 headers.Authorization",
+        json_schema_extra=_PATH_LIST_UI,
+    )
+    default_params: dict = Field(
+        default_factory=dict,
+        description="高级：低优先级默认参数，会被 Host/model extra_params 覆盖",
+        json_schema_extra=_JSON_OBJECT_UI,
+    )
+    override_params: dict = Field(
+        default_factory=dict,
+        description="高级：最高优先级强制覆写参数，可包含 body/headers/query 子对象",
+        json_schema_extra=_JSON_OBJECT_UI,
+    )
+    unknown_extra_params: UnknownExtraParamsPolicy | str = Field(
+        default="forward",
+        description="未知 top-level extra_params 处理策略：forward/drop/reject",
+        json_schema_extra=_UNKNOWN_POLICY_UI,
+    )
+
+    @field_validator("fields", mode="before")
+    @classmethod
+    def validate_field_controls(cls, value: object) -> FieldControlMap:
+        if value is None:
+            return {}
+        mapping = json_mapping_or_none(value)
+        if mapping is None:
+            raise TypeError(f"字段控制必须是 object，实际为 {type(value).__name__}")
+        normalized: FieldControlMap = {}
+        for key, item in mapping.items():
+            normalized_key = str(key).strip()
+            if not normalized_key:
+                continue
+            if isinstance(item, bool):
+                normalized[normalized_key] = item
+                continue
+            if isinstance(item, str):
+                normalized[normalized_key] = item
+                continue
+            raise TypeError(f"字段控制 {normalized_key} 必须是 bool 或 str，实际为 {type(item).__name__}")
+        return normalized
+
+    @field_validator("disabled_paths", "rejected_paths", mode="before")
+    @classmethod
+    def validate_paths(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not is_json_list(value):
+            raise TypeError(f"参数路径列表必须是 list，实际为 {type(value).__name__}")
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise TypeError(f"参数路径必须是字符串，实际为 {type(item).__name__}")
+            normalized.append(item.strip())
+        return [item for item in normalized if item]
+
+    @field_validator("default_params", "override_params", mode="before")
+    @classmethod
+    def validate_param_object(cls, value: object) -> dict:
+        return normalize_policy_params(value)
+
+    @field_validator("unknown_extra_params")
+    @classmethod
+    def validate_unknown_extra_params(cls, value: object) -> UnknownExtraParamsPolicy:
+        if value in ("forward", "drop", "reject"):
+            return value
+        raise ValueError("unknown_extra_params 必须是 forward/drop/reject")
 
 
 class OpenAIResponsesConfig(PluginConfigBase):
@@ -39,6 +148,10 @@ class OpenAIResponsesConfig(PluginConfigBase):
     __ui_order__ = 2
 
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
 
 class AnthropicMessagesConfig(PluginConfigBase):
@@ -49,6 +162,81 @@ class AnthropicMessagesConfig(PluginConfigBase):
     __ui_order__ = 3
 
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+
+
+class VolcengineArkConfig(PluginConfigBase):
+    """Volcengine Ark Provider 配置。"""
+
+    __ui_label__ = "Volcengine Ark"
+    __ui_icon__ = "bot"
+    __ui_order__ = 4
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    force_official_endpoint: bool = Field(
+        default=True,
+        description="是否忽略 Host 提供的 base_url，改用火山方舟原生 endpoint",
+    )
+    response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+
+
+class DashScopeConfig(PluginConfigBase):
+    """DashScope Provider 配置。"""
+
+    __ui_label__ = "DashScope"
+    __ui_icon__ = "bot"
+    __ui_order__ = 5
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    force_official_endpoint: bool = Field(
+        default=True,
+        description="是否忽略 Host 提供的 base_url，改用 DashScope 原生 endpoint",
+    )
+    chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+
+
+class SiliconFlowConfig(PluginConfigBase):
+    """SiliconFlow Provider 配置。"""
+
+    __ui_label__ = "SiliconFlow"
+    __ui_icon__ = "bot"
+    __ui_order__ = 6
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    force_official_endpoint: bool = Field(
+        default=True,
+        description="是否忽略 Host 提供的 base_url，改用 SiliconFlow 官方 endpoint",
+    )
+    chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+
+
+class XiaomiMimoConfig(PluginConfigBase):
+    """Xiaomi Mimo Provider 配置。"""
+
+    __ui_label__ = "Xiaomi Mimo"
+    __ui_icon__ = "bot"
+    __ui_order__ = 7
+
+    user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
+    force_disable_thinking: bool = Field(
+        default=True,
+        description="是否强制关闭深度思考/推理。Mimo 启用 thinking 并发生工具调用时要求后续历史消息回传对应思考内容，但 Host 不会向 MaiDock 提供历史 reasoning_content，因此默认关闭",
+    )
+    audio_transcription_prompt: str = Field(
+        default="请转写这段音频",
+        description="Mimo 伪语音转录请求中与 input_audio 一同发送的文本提示词",
+    )
+    chat_completion: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
 
 class CompatibilityConfig(PluginConfigBase):
@@ -56,13 +244,12 @@ class CompatibilityConfig(PluginConfigBase):
 
     __ui_label__ = "兼容性"
     __ui_icon__ = "settings-2"
-    __ui_order__ = 4
+    __ui_order__ = 8
 
     tool_argument_parse_mode: str = Field(
         default="auto", description="工具参数解析模式：auto/strict/repair/double_decode"
     )
     reasoning_parse_mode: str = Field(default="auto", description="推理内容解析模式：auto/native/think_tag/none")
-    strict_extra_params: bool = Field(default=False, description="是否拒绝未知 extra_params 字段")
     invalid_image_policy: str = Field(default="placeholder", description="无效图片处理策略：placeholder/skip/error")
     max_image_bytes_mb: int = Field(default=30, description="单张图片解码后最大字节数（MB）")
     max_image_pixels: int = Field(default=25_000_000, description="单张图片最大像素数量")
@@ -77,6 +264,10 @@ class MaiDockConfig(PluginConfigBase):
     diagnostics: DiagnosticsConfig = Field(default_factory=DiagnosticsConfig)
     openai_responses: OpenAIResponsesConfig = Field(default_factory=OpenAIResponsesConfig)
     anthropic_messages: AnthropicMessagesConfig = Field(default_factory=AnthropicMessagesConfig)
+    volcengine_ark: VolcengineArkConfig = Field(default_factory=VolcengineArkConfig)
+    dashscope: DashScopeConfig = Field(default_factory=DashScopeConfig)
+    siliconflow: SiliconFlowConfig = Field(default_factory=SiliconFlowConfig)
+    xiaomi_mimo: XiaomiMimoConfig = Field(default_factory=XiaomiMimoConfig)
     compatibility: CompatibilityConfig = Field(default_factory=CompatibilityConfig)
 
 
@@ -95,17 +286,6 @@ def normalize_user_agent(raw_user_agent: str | None) -> str:
 
     normalized = (raw_user_agent or "").strip()
     return normalized or DEFAULT_USER_AGENT
-
-
-def normalize_anthropic_sdk_log_level(raw_level: str | None) -> str | None:
-    """规范化 Anthropic SDK 日志级别。"""
-
-    normalized = (raw_level or "INFO").strip().upper()
-    if normalized in {"", "INHERIT"}:
-        return "inherit"
-    if normalized in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-        return normalized
-    return "INFO"
 
 
 def positive_int(value: object, default: int) -> int:
@@ -130,6 +310,140 @@ def build_image_limits(config: CompatibilityConfig) -> ImageProcessingLimits:
     )
 
 
+def build_parameter_policy(
+    config: CapabilityParameterPolicyConfig,
+    catalog: CapabilityParameterCatalog,
+) -> ParameterPolicy:
+    """构造能力级参数策略。"""
+
+    advanced_override_params = normalize_policy_params(config.override_params)
+    field_override_params = _build_field_override_params(config, catalog)
+    _deep_merge_json_object(field_override_params, advanced_override_params)
+    return ParameterPolicy(
+        accept_model_extra_params=bool(config.accept_model_extra_params),
+        accept_request_extra_params=bool(config.accept_request_extra_params),
+        disabled_paths=_dedupe_paths(
+            (*normalize_policy_paths(config.disabled_paths), *_disabled_field_paths(config, catalog))
+        ),
+        rejected_paths=normalize_policy_paths(config.rejected_paths),
+        default_params=normalize_policy_params(config.default_params),
+        override_params=field_override_params,
+        unknown_extra_params=CapabilityParameterPolicyConfig.validate_unknown_extra_params(config.unknown_extra_params),
+    )
+
+
+def build_parameter_policies(config: MaiDockConfig) -> ParameterPolicyRegistry:
+    """根据插件配置构造 provider/capability 参数策略。"""
+
+    return ParameterPolicyRegistry(
+        openai_responses=ProviderCapabilityPolicies(
+            response=build_parameter_policy(
+                config.openai_responses.response,
+                get_parameter_catalog("openai_responses", "response"),
+            ),
+            embeddings=build_parameter_policy(
+                config.openai_responses.embeddings,
+                get_parameter_catalog("openai_responses", "embeddings"),
+            ),
+            audio_transcription=build_parameter_policy(
+                config.openai_responses.audio_transcription,
+                get_parameter_catalog("openai_responses", "audio_transcription"),
+            ),
+            image_generation=build_parameter_policy(
+                config.openai_responses.image_generation,
+                get_parameter_catalog("openai_responses", "image_generation"),
+            ),
+        ),
+        anthropic_messages=ProviderCapabilityPolicies(
+            chat_completion=build_parameter_policy(
+                config.anthropic_messages.chat_completion,
+                get_parameter_catalog("anthropic_messages", "chat_completion"),
+            ),
+            image_generation=build_parameter_policy(
+                config.anthropic_messages.image_generation,
+                get_parameter_catalog("anthropic_messages", "image_generation"),
+            ),
+        ),
+        volcengine_ark=ProviderCapabilityPolicies(
+            response=build_parameter_policy(
+                config.volcengine_ark.response,
+                get_parameter_catalog("volcengine_ark", "response"),
+            ),
+            embeddings=build_parameter_policy(
+                config.volcengine_ark.embeddings,
+                get_parameter_catalog("volcengine_ark", "embeddings"),
+            ),
+            image_generation=build_parameter_policy(
+                config.volcengine_ark.image_generation,
+                get_parameter_catalog("volcengine_ark", "image_generation"),
+            ),
+        ),
+        dashscope=ProviderCapabilityPolicies(
+            chat_completion=build_parameter_policy(
+                config.dashscope.chat_completion,
+                get_parameter_catalog("dashscope", "chat_completion"),
+            ),
+            embeddings=build_parameter_policy(
+                config.dashscope.embeddings,
+                get_parameter_catalog("dashscope", "embeddings"),
+            ),
+            audio_transcription=build_parameter_policy(
+                config.dashscope.audio_transcription,
+                get_parameter_catalog("dashscope", "audio_transcription"),
+            ),
+            image_generation=build_parameter_policy(
+                config.dashscope.image_generation,
+                get_parameter_catalog("dashscope", "image_generation"),
+            ),
+        ),
+        siliconflow=ProviderCapabilityPolicies(
+            chat_completion=build_parameter_policy(
+                config.siliconflow.chat_completion,
+                get_parameter_catalog("siliconflow", "chat_completion"),
+            ),
+            embeddings=build_parameter_policy(
+                config.siliconflow.embeddings,
+                get_parameter_catalog("siliconflow", "embeddings"),
+            ),
+            audio_transcription=build_parameter_policy(
+                config.siliconflow.audio_transcription,
+                get_parameter_catalog("siliconflow", "audio_transcription"),
+            ),
+            image_generation=build_parameter_policy(
+                config.siliconflow.image_generation,
+                get_parameter_catalog("siliconflow", "image_generation"),
+            ),
+        ),
+        xiaomi_mimo=ProviderCapabilityPolicies(
+            chat_completion=build_parameter_policy(
+                config.xiaomi_mimo.chat_completion,
+                get_parameter_catalog("xiaomi_mimo", "chat_completion"),
+            ),
+            audio_transcription=build_parameter_policy(
+                config.xiaomi_mimo.audio_transcription,
+                get_parameter_catalog("xiaomi_mimo", "audio_transcription"),
+            ),
+        ),
+    )
+
+
+def normalize_maidock_config_data(config_data: Mapping[str, JsonValue]) -> tuple[dict, bool]:
+    """为所有能力参数目录填充生成的目标字段控制默认值。"""
+
+    current = mapping_to_json_object(config_data)
+    changed = False
+    for catalog in iter_parameter_catalogs():
+        provider_section, provider_changed = _ensure_object_section(current, catalog.provider)
+        capability_section, capability_changed = _ensure_object_section(provider_section, catalog.capability)
+        fields_section, fields_changed = _ensure_object_section(capability_section, "fields")
+        changed = changed or provider_changed or capability_changed or fields_changed
+        changed = _fill_field_control_defaults(fields_section, catalog) or changed
+
+    validated = MaiDockConfig.model_validate(current)
+    normalized = mapping_to_json_object(validated.model_dump(mode="python"))
+    return normalized, changed or normalized != current
+
+
 def build_runtime_options(config: MaiDockConfig | None = None) -> ProviderRuntimeOptions:
     """根据插件配置构造 Provider 运行时选项。"""
 
@@ -140,12 +454,177 @@ def build_runtime_options(config: MaiDockConfig | None = None) -> ProviderRuntim
         include_raw_data=bool(config.diagnostics.include_raw_data),
         log_payload_summary=bool(config.diagnostics.log_payload_summary),
         log_payload_debug=bool(config.diagnostics.log_payload_debug),
-        anthropic_sdk_log_level=normalize_anthropic_sdk_log_level(config.diagnostics.anthropic_sdk_log_level),
         tool_argument_parse_mode=normalize_tool_argument_parse_mode(config.compatibility.tool_argument_parse_mode),
         reasoning_parse_mode=normalize_reasoning_parse_mode(config.compatibility.reasoning_parse_mode),
-        strict_extra_params=bool(config.compatibility.strict_extra_params),
         invalid_image_policy=invalid_image_policy,
         openai_user_agent=normalize_user_agent(config.openai_responses.user_agent),
         anthropic_user_agent=normalize_user_agent(config.anthropic_messages.user_agent),
+        volcengine_user_agent=normalize_user_agent(config.volcengine_ark.user_agent),
+        dashscope_user_agent=normalize_user_agent(config.dashscope.user_agent),
+        siliconflow_user_agent=normalize_user_agent(config.siliconflow.user_agent),
+        mimo_user_agent=normalize_user_agent(config.xiaomi_mimo.user_agent),
+        volcengine_force_official_endpoint=bool(config.volcengine_ark.force_official_endpoint),
+        dashscope_force_official_endpoint=bool(config.dashscope.force_official_endpoint),
+        siliconflow_force_official_endpoint=bool(config.siliconflow.force_official_endpoint),
+        mimo_force_disable_thinking=bool(config.xiaomi_mimo.force_disable_thinking),
+        mimo_audio_transcription_prompt=config.xiaomi_mimo.audio_transcription_prompt.strip(),
         image_limits=build_image_limits(config.compatibility),
+        parameter_policies=build_parameter_policies(config),
     )
+
+
+def _disabled_field_paths(
+    config: CapabilityParameterPolicyConfig,
+    catalog: CapabilityParameterCatalog,
+) -> tuple[str, ...]:
+    paths: list[str] = []
+    for field in catalog.fields:
+        if not _field_control_bool(config.fields, field_enabled_key(field), default=True):
+            paths.extend(field.disable_paths)
+    return tuple(paths)
+
+
+def _build_field_override_params(
+    config: CapabilityParameterPolicyConfig,
+    catalog: CapabilityParameterCatalog,
+) -> dict:
+    override_params: dict = {}
+    for field in catalog.fields:
+        if not _field_control_bool(config.fields, field_override_enabled_key(field), default=False):
+            continue
+        if field.value_kind == "boolean":
+            raw_value = _field_control_bool(config.fields, field_override_value_key(field), default=False)
+        else:
+            raw_value = _field_control_str(config.fields, field_override_value_key(field))
+        value = parse_field_override_value(
+            raw_value=raw_value,
+            value_kind=field.value_kind,
+            field_label=f"{catalog.title}.{field.label}",
+        )
+        _set_path_value(override_params, field.override_path, value)
+    return override_params
+
+
+def parse_field_override_value(*, raw_value: str | bool, value_kind: str, field_label: str) -> object:
+    """将覆写值（来自开关、文本框等）解析为 JSON 兼容的值。"""
+
+    if isinstance(raw_value, bool):
+        if value_kind == "boolean":
+            return raw_value
+        raw = "true" if raw_value else "false"
+    else:
+        raw = raw_value.strip()
+        if not raw:
+            raise ValueError(f"{field_label} 已启用覆写，但覆写值为空")
+    if value_kind == "string":
+        return raw
+    if value_kind == "boolean":
+        if isinstance(raw_value, bool):
+            return raw_value
+        raise TypeError(f"{field_label} 覆写值必须是布尔值")
+    parsed = _loads_json_value(raw, field_label=field_label)
+    if value_kind == "integer":
+        if isinstance(parsed, int) and not isinstance(parsed, bool):
+            return parsed
+        raise ValueError(f"{field_label} 覆写值必须是整数")
+    if value_kind == "number":
+        if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
+            return parsed
+        raise ValueError(f"{field_label} 覆写值必须是数字")
+    if value_kind == "string_list":
+        if is_json_list(parsed) and all(isinstance(item, str) for item in parsed):
+            return [str(item) for item in parsed]
+        raise ValueError(f"{field_label} 覆写值必须是字符串数组 JSON")
+    return normalize_json_value(parsed)
+
+
+def _loads_json_value(raw: str, *, field_label: str) -> object:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{field_label} 覆写值必须是合法 JSON: {exc.msg}") from exc
+
+
+def _field_control_bool(fields: Mapping[str, FieldControlValue], key: str, *, default: bool) -> bool:
+    value = fields.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return default
+
+
+def _field_control_str(fields: Mapping[str, FieldControlValue], key: str) -> str:
+    value = fields.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _dedupe_paths(paths: tuple[str, ...]) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        normalized = path.strip()
+        if normalized and normalized not in seen:
+            result.append(normalized)
+            seen.add(normalized)
+    return tuple(result)
+
+
+def _ensure_object_section(parent: dict, key: str) -> tuple[dict, bool]:
+    value = parent.get(key)
+    mapping = json_mapping_or_none(value)
+    if mapping is None:
+        section: dict = {}
+        parent[key] = section
+        return section, True
+    section = mapping_to_json_object(mapping)
+    if value != section:
+        parent[key] = section
+        return section, True
+    parent[key] = section
+    return section, False
+
+
+def _fill_field_control_defaults(fields_section: dict, catalog: CapabilityParameterCatalog) -> bool:
+    changed = False
+    for field in catalog.fields:
+        override_default: FieldControlValue = False if field.value_kind == "boolean" else ""
+        defaults: tuple[tuple[str, FieldControlValue], ...] = (
+            (field_enabled_key(field), True),
+            (field_override_enabled_key(field), False),
+            (field_override_value_key(field), override_default),
+        )
+        for key, default in defaults:
+            if key not in fields_section:
+                fields_section[key] = default
+                changed = True
+    return changed
+
+
+def _set_path_value(target: dict, path: tuple[str, ...], value: object) -> None:
+    if not path:
+        return
+    current = target
+    for part in path[:-1]:
+        child = json_mapping_or_none(current.get(part))
+        child_object = mapping_to_json_object(child) if child is not None else {}
+        current[part] = child_object
+        current = child_object
+    current[path[-1]] = normalize_json_value(value)
+
+
+def _deep_merge_json_object(target: dict, source: Mapping[str, JsonValue]) -> None:
+    for key, value in source.items():
+        normalized_key = str(key)
+        source_mapping = json_mapping_or_none(value)
+        target_mapping = json_mapping_or_none(target.get(normalized_key))
+        if source_mapping is not None and target_mapping is not None:
+            merged = mapping_to_json_object(target_mapping)
+            _deep_merge_json_object(merged, mapping_to_json_object(source_mapping))
+            target[normalized_key] = merged
+            continue
+        target[normalized_key] = normalize_json_value(value)

@@ -1,5 +1,13 @@
-from collections.abc import Iterable, Mapping
-from typing import cast
+from collections.abc import Mapping
+
+from .json_types import (
+    JsonValue,
+    is_json_iterable,
+    is_json_mapping,
+    json_mapping_or_none,
+    mapping_to_json_object,
+    normalize_json_value,
+)
 
 SECRET_KEY_PARTS = ("api_key", "apikey", "authorization", "token", "secret", "password")
 IMAGE_DATA_PREFIX = "data:image/"
@@ -10,17 +18,16 @@ def _sanitize_bytes(value: bytes | bytearray, *, max_text_length: int) -> str:
     return f"<bytes:{len(value)}>"
 
 
-def sanitize_for_log(value: object, *, max_text_length: int = 300) -> object:
+def sanitize_for_log(value: object, *, max_text_length: int = 300):
     """递归脱敏用于日志或 raw_data 的对象。"""
 
     if isinstance(value, (bytes, bytearray)):
         return _sanitize_bytes(value, max_text_length=max_text_length)
     if isinstance(value, memoryview):
         return f"<bytes:{value.nbytes}>"
-    if isinstance(value, Mapping):
+    if is_json_mapping(value):
         sanitized: dict[str, object] = {}
-        mapping = cast(Mapping[object, object], value)
-        for key, item in mapping.items():
+        for key, item in value.items():
             normalized_key = str(key)
             lowered_key = normalized_key.lower()
             if any(secret_key in lowered_key for secret_key in SECRET_KEY_PARTS):
@@ -28,9 +35,8 @@ def sanitize_for_log(value: object, *, max_text_length: int = 300) -> object:
                 continue
             sanitized[normalized_key] = sanitize_for_log(item, max_text_length=max_text_length)
         return sanitized
-    if isinstance(value, (list, tuple, set)):
-        iterable = cast(Iterable[object], value)
-        return [sanitize_for_log(item, max_text_length=max_text_length) for item in iterable]
+    if is_json_iterable(value):
+        return [sanitize_for_log(item, max_text_length=max_text_length) for item in value]
     if isinstance(value, str):
         if value.startswith(IMAGE_DATA_PREFIX):
             return f"{value[:48]}...<base64:{len(value)}>"
@@ -39,8 +45,20 @@ def sanitize_for_log(value: object, *, max_text_length: int = 300) -> object:
     return value
 
 
+def sanitize_json_value(value: object, *, max_text_length: int = 300) -> object:
+    return normalize_json_value(sanitize_for_log(value, max_text_length=max_text_length))
+
+
+def sanitize_json_object(value: Mapping[str, JsonValue] | dict, *, max_text_length: int = 300) -> dict:
+    sanitized = sanitize_for_log(value, max_text_length=max_text_length)
+    sanitized_mapping = json_mapping_or_none(sanitized)
+    if sanitized_mapping is None:
+        raise TypeError(f"期望 mapping，实际为 {type(sanitized).__name__}")
+    return mapping_to_json_object(sanitized_mapping)
+
+
 def extract_error_body(error: BaseException) -> object | None:
-    """尽量从 SDK 异常中提取上游响应体。"""
+    """尽量从上游异常中提取响应体。"""
 
     candidates = [error, getattr(error, "__cause__", None)]
     for candidate in candidates:
@@ -96,7 +114,7 @@ def build_parse_error_message(provider_label: str, message: str) -> str:
     return f"{provider_label} 响应解析失败: {message}"
 
 
-def compact_mapping(value: Mapping[str, object]) -> dict[str, object]:
+def compact_mapping(value: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     """复制非 None 字段，便于生成 raw_data 摘要。"""
 
     return {str(key): item for key, item in value.items() if item is not None}

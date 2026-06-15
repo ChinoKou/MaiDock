@@ -8,14 +8,15 @@ import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import urlsplit
 
 from PIL import Image as PILImage
 
 from ..version import DEFAULT_USER_AGENT
 from .diagnostics import sanitize_for_log
+from .parameter_policy import ParameterPolicyRegistry
 from .parsing import ReasoningParseMode, ToolArgumentParseMode, arguments_to_json
-from .json_types import JsonObject, empty_json_object, empty_str_dict
-from .schemas import (
+from ..schemas import (
     ApiProviderSnapshot,
     AudioTranscriptionRequestSnapshot,
     BaseProviderRequestSnapshot,
@@ -25,11 +26,7 @@ from .schemas import (
     MessageSnapshot,
     ModelInfoSnapshot,
     ObjectFields,
-    OpenAITextConfig,
-    OpenAITextFormatConfig,
     ProviderUsage,
-    ResponseFormatSchemaSnapshot,
-    ResponseRequestSnapshot,
 )
 
 SUPPORTED_IMAGE_FORMATS = {"jpeg", "png", "webp"}
@@ -59,34 +56,43 @@ class ProviderRuntimeOptions:
     include_raw_data: bool = False
     log_payload_summary: bool = True
     log_payload_debug: bool = False
-    anthropic_sdk_log_level: str | None = "INFO"
     tool_argument_parse_mode: ToolArgumentParseMode = "auto"
     reasoning_parse_mode: ReasoningParseMode = "auto"
-    strict_extra_params: bool = False
     invalid_image_policy: InvalidImagePolicy = "placeholder"
     openai_user_agent: str = MAIDOCK_USER_AGENT
     anthropic_user_agent: str = MAIDOCK_USER_AGENT
+    volcengine_user_agent: str = MAIDOCK_USER_AGENT
+    dashscope_user_agent: str = MAIDOCK_USER_AGENT
+    siliconflow_user_agent: str = MAIDOCK_USER_AGENT
+    volcengine_force_official_endpoint: bool = True
+    dashscope_force_official_endpoint: bool = True
+    siliconflow_force_official_endpoint: bool = True
+    mimo_user_agent: str = MAIDOCK_USER_AGENT
+    mimo_force_disable_thinking: bool = True
+    mimo_audio_transcription_prompt: str = "请转写这段音频"
+    default_max_retries: int = 2
     image_limits: ImageProcessingLimits = field(default_factory=ImageProcessingLimits)
+    parameter_policies: ParameterPolicyRegistry = field(default_factory=ParameterPolicyRegistry)
 
 
 @dataclass(slots=True)
 class OpenAICompatibleClientConfig:
-    """OpenAI SDK 初始化配置。"""
+    """OpenAI 兼容的原生 HTTP 客户端配置。"""
 
     api_key: str
-    base_url: str | None
-    default_headers: dict[str, str] = field(default_factory=empty_str_dict)
-    default_query: JsonObject = field(default_factory=empty_json_object)
+    base_url: str
+    default_headers: dict[str, str] = field(default_factory=dict)
+    default_query: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)
 class RequestOverrides:
-    """SDK 单次请求覆盖参数。"""
+    """单次上游 HTTP 请求覆盖参数。"""
 
-    extra_headers: dict[str, str] = field(default_factory=empty_str_dict)
-    extra_query: JsonObject = field(default_factory=empty_json_object)
-    extra_body: JsonObject = field(default_factory=empty_json_object)
-    direct_params: JsonObject = field(default_factory=empty_json_object)
+    extra_headers: dict[str, str] = field(default_factory=dict)
+    extra_query: dict = field(default_factory=dict)
+    extra_body: dict = field(default_factory=dict)
+    direct_params: dict = field(default_factory=dict)
 
 
 def read_model_identifier(model_info: ModelInfoSnapshot) -> str:
@@ -117,17 +123,17 @@ def read_timeout(api_provider: ApiProviderSnapshot) -> float | None:
 
 
 def read_max_retries(api_provider: ApiProviderSnapshot, default: int) -> int:
-    """读取 SDK 最大重试次数。"""
+    """读取原生 HTTP 最大重试次数。"""
 
     if isinstance(api_provider.max_retry, int) and api_provider.max_retry >= 0:
         return api_provider.max_retry
     return default
 
 
-def merge_extra_params(request: BaseProviderRequestSnapshot) -> JsonObject:
+def merge_extra_params(request: BaseProviderRequestSnapshot) -> dict:
     """合并模型级和请求级 extra_params，请求级覆盖模型级。"""
 
-    merged: JsonObject = {}
+    merged: dict = {}
     for source in (request.model_info.extra_params, request.extra_params):
         for key, value in source.fields.items():
             if value is not None:
@@ -135,7 +141,7 @@ def merge_extra_params(request: BaseProviderRequestSnapshot) -> JsonObject:
     return merged
 
 
-def pop_json_object(payload: JsonObject, key: str) -> JsonObject:
+def pop_json_object(payload: dict, key: str) -> dict:
     """从 payload 取出 object 字段。"""
 
     value = payload.pop(key, None)
@@ -159,28 +165,20 @@ def require_string_mapping(value: ObjectFields, *, field_name: str) -> dict[str,
     return require_string_dict(value.fields, field_name=field_name)
 
 
-def normalize_base_url(base_url: str | None) -> str | None:
+def normalize_base_url(base_url: str | None) -> str:
     """规范化 base_url。"""
 
-    if base_url is None:
-        return None
+    if not base_url or not base_url.strip():
+        raise ValueError("api_provider.base_url 为空，无法构建 HTTP 客户端配置")
     normalized = base_url.strip()
-    if not normalized:
-        return None
-    if "://" not in normalized:
-        normalized = "http://" + normalized
+    if not normalized.startswith(("http://", "https://")):
+        normalized = "https://" + normalized
+    parsed = urlsplit(normalized)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"base_url 仅支持 http/https（{base_url!r}）")
+    if not parsed.netloc:
+        raise ValueError(f"base_url 缺少主机名（{base_url!r}）")
     return normalized.rstrip("/")
-
-
-def normalize_anthropic_base_url(base_url: str | None) -> str | None:
-    """规范化 Anthropic SDK base_url，避免重复拼接 /v1。"""
-
-    normalized = normalize_base_url(base_url)
-    if normalized is None:
-        return None
-    if normalized.lower().endswith("/v1"):
-        return normalized[:-3]
-    return normalized
 
 
 def _build_auth_header_value(prefix: str, api_key: str) -> str:
@@ -203,7 +201,7 @@ def build_openai_compatible_client_config(
     *,
     user_agent: str | None = MAIDOCK_USER_AGENT,
 ) -> OpenAICompatibleClientConfig:
-    """按 OpenAI 兼容规则构造 SDK 鉴权配置。"""
+    """按 OpenAI-compatible 规则构造原生 HTTP 鉴权配置。"""
 
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
     default_query = api_provider.default_query.to_plain_dict()
@@ -242,54 +240,11 @@ def build_openai_compatible_client_config(
     )
 
 
-def build_anthropic_client_config(
-    api_provider: ApiProviderSnapshot,
-    *,
-    user_agent: str | None = MAIDOCK_USER_AGENT,
-) -> OpenAICompatibleClientConfig:
-    """构造 Anthropic SDK 初始化配置。"""
-
-    default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
-    default_query = api_provider.default_query.to_plain_dict()
-    auth_type = (api_provider.auth_type or "bearer").strip().lower()
-    api_key = api_provider.api_key.strip()
-    client_api_key = api_key
-
-    if auth_type == "bearer":
-        client_api_key = api_key
-    elif auth_type == "header":
-        if api_provider.auth_header_name.lower() == "x-api-key":
-            client_api_key = _build_auth_header_value(api_provider.auth_header_prefix, api_key)
-        else:
-            client_api_key = ""
-            default_headers[api_provider.auth_header_name] = _build_auth_header_value(
-                api_provider.auth_header_prefix, api_key
-            )
-    elif auth_type == "query":
-        client_api_key = ""
-        default_query[api_provider.auth_query_name] = api_key
-    elif auth_type == "none":
-        client_api_key = ""
-    else:
-        raise ValueError(f"不支持的 auth_type: {api_provider.auth_type}")
-
-    if auth_type != "none" and not api_key:
-        raise ValueError("api_provider.api_key 为空，无法构建鉴权配置")
-
-    return OpenAICompatibleClientConfig(
-        api_key=client_api_key,
-        base_url=normalize_anthropic_base_url(api_provider.base_url),
-        default_headers=with_default_user_agent(default_headers, user_agent),
-        default_query=default_query,
-    )
-
-
 def split_request_overrides(
     extra_params: Mapping[str, object] | None,
     *,
     direct_body_keys: set[str] | None = None,
     reserved_body_keys: set[str] | None = None,
-    strict_extra_params: bool = False,
 ) -> RequestOverrides:
     """拆分 headers/query/body/direct params。"""
 
@@ -297,24 +252,17 @@ def split_request_overrides(
     extra_headers = require_string_dict(pop_json_object(raw_params, "headers"), field_name="extra_params.headers")
     extra_query = pop_json_object(raw_params, "query")
     extra_body = pop_json_object(raw_params, "body")
-    direct_params: JsonObject = {}
+    direct_params: dict = {}
     direct_keys = direct_body_keys or set()
     blocked_keys = reserved_body_keys or set()
 
-    unknown_keys: list[str] = []
     for key, value in raw_params.items():
         if key in direct_keys:
             direct_params[key] = value
             continue
         if key in blocked_keys:
             continue
-        if strict_extra_params:
-            unknown_keys.append(key)
-            continue
         extra_body[key] = value
-
-    if unknown_keys:
-        raise ValueError(f"不支持这些 extra_params 字段: {', '.join(sorted(unknown_keys))}")
 
     return RequestOverrides(
         extra_headers=extra_headers,
@@ -477,40 +425,6 @@ def tool_arguments_to_json(value: ObjectFields | str | None, parse_mode: ToolArg
     return arguments_to_json(value, parse_mode)
 
 
-def extract_response_format(request: ResponseRequestSnapshot) -> OpenAITextConfig | None:
-    """将 Host response_format 转换为 OpenAI Responses text 配置。"""
-
-    response_format = request.response_format
-    if response_format is None or response_format.format_type in {None, "text"}:
-        return None
-    if response_format.format_type in {"json_object", "json_obj"}:
-        return OpenAITextConfig(format=OpenAITextFormatConfig(type="json_object"))
-    if response_format.format_type != "json_schema" or response_format.schema_ is None:
-        return None
-
-    schema_payload = response_format.schema_
-    if isinstance(schema_payload, ResponseFormatSchemaSnapshot):
-        schema = schema_payload.schema_ if schema_payload.schema_ is not None else ObjectFields()
-        return OpenAITextConfig(
-            format=OpenAITextFormatConfig(
-                type="json_schema",
-                name=schema_payload.name or "maibot_response",
-                description=schema_payload.description or "Maibot structured response",
-                schema=schema,
-                strict=schema_payload.strict,
-            )
-        )
-    return OpenAITextConfig(
-        format=OpenAITextFormatConfig(
-            type="json_schema",
-            name="maibot_response",
-            description="Maibot structured response",
-            schema=schema_payload,
-            strict=False,
-        )
-    )
-
-
 def build_usage(
     *,
     prompt_tokens: int = 0,
@@ -569,7 +483,7 @@ def build_usage_from_snapshot(usage: GenericUsageSnapshot) -> ProviderUsage:
 
 
 def build_audio_file(audio_request: AudioTranscriptionRequestSnapshot) -> tuple[str, io.BytesIO]:
-    """把 Host 的音频 base64 转为 SDK 文件对象。"""
+    """把 Host 的音频 base64 转为上游 multipart 文件对象。"""
 
     if not audio_request.audio_base64:
         raise ValueError("音频转写请求缺少 audio_base64")
