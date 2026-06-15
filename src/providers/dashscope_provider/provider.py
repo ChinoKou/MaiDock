@@ -27,6 +27,7 @@ from .chat import (
     build_generation_body,
     convert_response,
     count_tools,
+    is_multimodal_endpoint,
     resolve_path,
 )
 from .embeddings import build_dashscope_embedding_response, build_embedding_request
@@ -115,7 +116,7 @@ class DashScopeProvider(LLMProviderBase):
                         max_retries=config.max_retries,
                         retry_interval=config.retry_interval,
                     )
-                    result = convert_response(payload, options=self.options)
+                    result = convert_response(payload, options=self.options, is_multimodal=is_multimodal_endpoint(path))
             except HttpxProviderError as exc:
                 if not (
                     self.options.dashscope_auto_detect_endpoint
@@ -152,7 +153,7 @@ class DashScopeProvider(LLMProviderBase):
                         max_retries=config.max_retries,
                         retry_interval=config.retry_interval,
                     )
-                    result = convert_response(payload, options=self.options)
+                    result = convert_response(payload, options=self.options, is_multimodal=is_multimodal_endpoint(alt_path))
                 self._endpoint_cache[model] = alt_path
 
         log_response_summary(

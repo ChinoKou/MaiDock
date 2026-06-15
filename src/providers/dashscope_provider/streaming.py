@@ -19,8 +19,10 @@ from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .chat import (
     DASHSCOPE_PROVIDER_LABEL,
+    extract_content_text,
     extract_reasoning_from_mapping,
     first_choice_message,
+    is_multimodal_endpoint,
 )
 from .tools import DashScopeToolCallChunk
 
@@ -32,6 +34,7 @@ def _empty_dashscope_tool_dict() -> dict[str, DashScopeToolCallChunk]:
 @dataclass(slots=True)
 class DashScopeStreamAccumulator:
     options: ProviderRuntimeOptions
+    is_multimodal: bool = False
     content: str = ""
     reasoning_content: str = ""
     tools: dict[str, DashScopeToolCallChunk] = field(default_factory=_empty_dashscope_tool_dict)
@@ -52,8 +55,8 @@ class DashScopeStreamAccumulator:
                     self._merge_content(text)
                 self._merge_reasoning(extract_reasoning_from_mapping(output))
             return
-        content = message.get("content")
-        if isinstance(content, str):
+        content = extract_content_text(message.get("content"), is_multimodal=self.is_multimodal)
+        if content:
             self._merge_content(content)
         self._merge_reasoning(extract_reasoning_from_mapping(message))
         self._merge_tool_calls(message.get("tool_calls"))
@@ -163,7 +166,7 @@ async def collect_stream_response(
     max_retries: int,
     retry_interval: float,
 ) -> ProviderResponse:
-    accumulator = DashScopeStreamAccumulator(options=options)
+    accumulator = DashScopeStreamAccumulator(options=options, is_multimodal=is_multimodal_endpoint(path))
     async for event in stream_sse_json(
         client,
         path,

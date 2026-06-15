@@ -102,6 +102,24 @@ def string_value(mapping: Mapping[str, JsonValue], key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def is_multimodal_endpoint(path: str) -> bool:
+    return DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT.rstrip("/") in path
+
+
+def extract_content_text(content: object, *, is_multimodal: bool) -> str | None:
+    """从 message.content 中提取文本，兼容多模态端点与文本端点的不同格式。"""
+    if is_multimodal:
+        if isinstance(content, list):
+            parts = [
+                item["text"]
+                for item in content
+                if isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"]
+            ]
+            return "\n".join(parts) if parts else None
+        return None
+    return content if isinstance(content, str) and content else None
+
+
 def extract_reasoning_from_mapping(mapping: Mapping[str, JsonValue]) -> str | None:
     for key in ("reasoning_content", "reasoning", "reasoning_text"):
         value = mapping.get(key)
@@ -256,7 +274,9 @@ def _payload_error_message(payload: dict) -> str | None:
     return None
 
 
-def convert_response(payload: dict, *, options: ProviderRuntimeOptions) -> ProviderResponse:
+def convert_response(
+    payload: dict, *, options: ProviderRuntimeOptions, is_multimodal: bool = False
+) -> ProviderResponse:
     error_message = _payload_error_message(payload)
     if error_message is not None:
         raise ValueError(error_message)
@@ -266,7 +286,7 @@ def convert_response(payload: dict, *, options: ProviderRuntimeOptions) -> Provi
     native_reasoning: str | None = None
     tool_calls: list[ProviderToolCall] = []
     if message is not None:
-        content = string_value(message, "content")
+        content = extract_content_text(message.get("content"), is_multimodal=is_multimodal)
         native_reasoning = extract_reasoning_from_mapping(message)
         tool_calls = extract_tool_calls(message.get("tool_calls"), options=options)
     if content is None:
