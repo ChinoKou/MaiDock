@@ -51,7 +51,7 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 ### Embedding / 嵌入维度
 
-示例报错信息为：**embedding 真实输出维度与当前向量存储不一致: expected=存储的维度值, encoded=xxx**
+示例报错信息为：**"embedding 真实输出维度与当前向量存储不一致: expected=存储的维度值, encoded=xxx"**
 
 当前由于长期记忆模块未对插件注册的客户端适配，即不会向第三方客户端注入维度参数，会让模型以默认维度输出向量。
 
@@ -87,7 +87,7 @@ max_image_size_mb = 5 # 视情况而定
 
 ### 超时
 
-报错信息为：**插件 LLM Provider RPC 调用失败: [E_TIMEOUT] 请求 plugin.invoke_llm_provider 超时 (30000ms)**
+报错信息为：**"插件 LLM Provider RPC 调用失败: [E_TIMEOUT] 请求 plugin.invoke_llm_provider 超时 (30000ms)"**
 
 建议操作：
 
