@@ -99,7 +99,18 @@ def parse_audio_transcription_response(
     first_choice = json_mapping_or_none(choices[0]) if choices else None
     message = mapping_field(first_choice, "message") if first_choice is not None else None
     content = message.get("content") if message is not None else None
+    text: str | None = None
     if isinstance(content, str) and content:
+        text = content
+    elif isinstance(content, list):
+        # 多模态端点的 content 可能是 [{"text": "..."}] 列表格式
+        parts = [
+            item["text"]
+            for item in content
+            if isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"]
+        ]
+        text = "\n".join(parts) if parts else None
+    if text:
         raw_data = sanitize_json_object(payload) if options.include_raw_data else None
-        return content, raw_data
+        return text, raw_data
     raise ValueError(build_parse_error_message(f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions", "响应缺少文本内容"))
