@@ -1,6 +1,6 @@
 [plugin]
 enabled = true
-config_version = "1.0.8"
+config_version = "1.0.9"
 
 [diagnostics]
 include_raw_data = false
