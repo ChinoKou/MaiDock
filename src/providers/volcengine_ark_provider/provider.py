@@ -148,8 +148,12 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             if response_id:
                 expire_at = payload.get("expire_at") if isinstance(payload, dict) else None
                 await cache_mgr.confirm(model=upstream_request.model, response_id=response_id, expire_at=expire_at)
-            # 前缀缓存创建响应无 content/output，不走正常解析
-            usage = build_usage_from_snapshot(payload.get("usage")) if isinstance(payload, dict) else None
+            # 前缀缓存响应无 content/output，不走正常解析，手动构建 usage
+            _usage_dict = payload.get("usage") if isinstance(payload, dict) else None
+            usage = None
+            if _usage_dict:
+                from ...schemas.usage import GenericUsageSnapshot
+                usage = build_usage_from_snapshot(GenericUsageSnapshot.model_validate(_usage_dict))
             result = ProviderResponse(content=None, reasoning_content=None, tool_calls=[], usage=usage, raw_data=payload)
         else:
             result = self._responses_mapper.convert_response(payload)
