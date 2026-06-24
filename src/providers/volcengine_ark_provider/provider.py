@@ -106,6 +106,7 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
                 body["previous_response_id"] = cache_params["previous_response_id"]
                 body.pop("caching", None)
                 body.pop("tools", None)  # 工具已在缓存中，不能重复设置
+                prefix_cache_applied = True  # 复用也标记，统一走空容忍解析
                 logger.info(f"前缀缓存: 复用模式 model={upstream_request.model} id={cache_params['previous_response_id'][:24]}...")
 
         path = resolve_endpoint_path(
