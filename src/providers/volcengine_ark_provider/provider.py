@@ -101,12 +101,14 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
                 messages=request_model.message_list,
                 config_params=_cfg,
             )
+            prefix_cache_is_create = False
             if cache_params.get("caching"):
                 # 需要创建前缀缓存 — 替换 body 中已有的 caching override
                 body["caching"] = cache_params["caching"]
                 body.pop("previous_response_id", None)
                 body.pop("max_output_tokens", None)  # prefix cache 不支持该参数
                 prefix_cache_applied = True
+                prefix_cache_is_create = True
                 logger.info(f"前缀缓存: 创建模式 model={upstream_request.model}")
             elif cache_params.get("previous_response_id"):
                 # 复用已有缓存 — 替换 body，移除不能同时使用的参数
@@ -155,13 +157,32 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             if response_id:
                 expire_at = payload.get("expire_at") if isinstance(payload, dict) else None
                 await cache_mgr.confirm(model=upstream_request.model, response_id=response_id, expire_at=expire_at)
-            # 前缀缓存响应无 content/output，不走正常解析，手动构建 usage
-            _usage_dict = payload.get("usage") if isinstance(payload, dict) else None
-            usage = None
-            if _usage_dict:
-                from ...schemas.usage import GenericUsageSnapshot
-                usage = build_usage_from_snapshot(GenericUsageSnapshot.model_validate(_usage_dict))
-            result = ProviderResponse(content=None, reasoning_content=None, tool_calls=[], usage=usage, raw_data=payload)
+
+            # CREATE 响应无内容 — 透明接 REUSE 获取真实输出
+            if prefix_cache_is_create and response_id:
+                body.pop("caching", None)
+                body["previous_response_id"] = response_id
+                body.pop("tools", None)
+                logger.info(f"前缀缓存: 创建后透明REUSE model={upstream_request.model}")
+                async with create_async_client(config, transport=self._transport) as client2:
+                    payload = await post_json(
+                        client2, path,
+                        json_body=body, headers=request_headers,
+                        query=upstream_request.extra_query,
+                        provider_label=VOLCENGINE_PROVIDER_LABEL,
+                        max_retries=config.max_retries,
+                        retry_interval=config.retry_interval,
+                    )
+                # REUSE 有真实内容，正常解析
+                result = self._responses_mapper.convert_response(payload)
+            else:
+                # REUSE 响应，走空容忍
+                _usage_dict = payload.get("usage") if isinstance(payload, dict) else None
+                usage = None
+                if _usage_dict:
+                    from ...schemas.usage import GenericUsageSnapshot
+                    usage = build_usage_from_snapshot(GenericUsageSnapshot.model_validate(_usage_dict))
+                result = ProviderResponse(content=None, reasoning_content=None, tool_calls=[], usage=usage, raw_data=payload)
         else:
             result = self._responses_mapper.convert_response(payload)
         log_response_summary(
