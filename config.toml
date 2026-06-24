@@ -162,7 +162,6 @@ unknown_extra_params = "forward"
 
 [openai_responses.image_generation.override_params]
 
-
 [anthropic_messages]
 user_agent = ""
 max_retries = 3
@@ -222,7 +221,6 @@ unknown_extra_params = "forward"
 [anthropic_messages.image_generation.default_params]
 
 [anthropic_messages.image_generation.override_params]
-
 
 [dashscope]
 user_agent = ""
@@ -378,7 +376,6 @@ unknown_extra_params = "forward"
 
 [dashscope.image_generation.override_params]
 
-
 [siliconflow]
 user_agent = ""
 force_official_endpoint = true
@@ -502,7 +499,6 @@ unknown_extra_params = "forward"
 
 [siliconflow.image_generation.override_params]
 
-
 [volcengine_ark]
 user_agent = ""
 force_official_endpoint = true
@@ -510,6 +506,8 @@ max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
 force_retry_interval = false
+prefix_cache_enabled = true
+prefix_cache_path = "data/volcengine_prefix_cache.json"
 
 [volcengine_ark.response]
 accept_model_extra_params = true
@@ -622,10 +620,9 @@ unknown_extra_params = "forward"
 
 [volcengine_ark.image_generation.override_params]
 
-
 [xiaomi_mimo]
 user_agent = ""
-force_disable_thinking = true
+force_disable_thinking = false
 audio_transcription_prompt = "请转写这段音频"
 max_retries = 3
 force_max_retries = false
@@ -690,7 +687,6 @@ unknown_extra_params = "forward"
 [xiaomi_mimo.audio_transcription.default_params]
 
 [xiaomi_mimo.audio_transcription.override_params]
-
 
 [compatibility]
 tool_argument_parse_mode = "auto"
