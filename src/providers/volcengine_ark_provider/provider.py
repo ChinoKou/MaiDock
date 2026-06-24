@@ -90,9 +90,16 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             cache_mgr = PrefixCacheManager.get_instance(
                 cache_id_path=self.options.volcengine_prefix_cache_path
             )
+            # 提取需保持一致的配置参数，纳入缓存指纹
+            _cfg = {}
+            if isinstance(body.get("thinking"), dict):
+                _cfg["thinking"] = body["thinking"]
+            if isinstance(body.get("reasoning"), dict):
+                _cfg["reasoning"] = body["reasoning"]
             cache_params = await cache_mgr.resolve(
                 model=upstream_request.model,
                 messages=request_model.message_list,
+                config_params=_cfg,
             )
             if cache_params.get("caching"):
                 # 需要创建前缀缓存 — 替换 body 中已有的 caching override

@@ -70,8 +70,8 @@ class PrefixCacheManager:
         except Exception as e:
             logger.warning(f"保存前缀缓存状态失败: {e}")
 
-    def _make_prefix_hash(self, messages: list) -> str:
-        """计算消息列表的 system prompt 前缀哈希。"""
+    def _make_prefix_hash(self, messages: list, config_params: dict | None = None) -> str:
+        """计算消息列表的 system prompt + 配置指纹哈希。包含 thinking 等必须保持一致的参数。"""
         system_text = ""
         for msg in messages:
             if hasattr(msg, "role") and getattr(msg, "role", "") == "system":
@@ -80,10 +80,13 @@ class PrefixCacheManager:
                     system_text += json.dumps(content, sort_keys=True)
                 else:
                     system_text += str(content)
-                break  # 只取第一个 system 消息
-        return hashlib.sha256(system_text.encode()).hexdigest()[:16]
+                break
+        # 混入配置指纹 — thinking 等参数变化时自动淘汰旧缓存
+        config_fingerprint = json.dumps(config_params or {}, sort_keys=True)
+        combined = f"{system_text}|{config_fingerprint}"
+        return hashlib.sha256(combined.encode()).hexdigest()[:16]
 
-    async def resolve(self, model: str, messages: list) -> dict:
+    async def resolve(self, model: str, messages: list, config_params: dict | None = None) -> dict:
         """为当前请求解析缓存参数。
 
         Returns:
@@ -94,7 +97,7 @@ class PrefixCacheManager:
         """
         self._load()
 
-        prefix_hash = self._make_prefix_hash(messages)
+        prefix_hash = self._make_prefix_hash(messages, config_params)
         cached = self._state.get(model)
 
         async with self._lock:
