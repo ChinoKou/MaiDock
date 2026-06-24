@@ -176,13 +176,16 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
                 # REUSE 有真实内容，正常解析
                 result = self._responses_mapper.convert_response(payload)
             else:
-                # REUSE 响应，走空容忍
-                _usage_dict = payload.get("usage") if isinstance(payload, dict) else None
-                usage = None
-                if _usage_dict:
-                    from ...schemas.usage import GenericUsageSnapshot
-                    usage = build_usage_from_snapshot(GenericUsageSnapshot.model_validate(_usage_dict))
-                result = ProviderResponse(content=None, reasoning_content=None, tool_calls=[], usage=usage, raw_data=payload)
+                # 纯 REUSE（非 CREATE 链），尝试正常解析，失败走空容忍
+                try:
+                    result = self._responses_mapper.convert_response(payload)
+                except ValueError:
+                    _usage_dict = payload.get("usage") if isinstance(payload, dict) else None
+                    usage = None
+                    if _usage_dict:
+                        from ...schemas.usage import GenericUsageSnapshot
+                        usage = build_usage_from_snapshot(GenericUsageSnapshot.model_validate(_usage_dict))
+                    result = ProviderResponse(content=None, reasoning_content=None, tool_calls=[], usage=usage, raw_data=payload)
         else:
             result = self._responses_mapper.convert_response(payload)
         log_response_summary(
