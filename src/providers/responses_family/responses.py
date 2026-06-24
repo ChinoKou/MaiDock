@@ -209,6 +209,15 @@ class ResponsesMapper:
     def _raise_for_terminal_error(self, response_model: OpenAIResponseSnapshot, raw_payload: dict) -> None:
         if response_model.status not in {"failed", "incomplete"}:
             return
+        # "incomplete" with reason "length" 等同于 Chat API 的 finish_reason=length
+        # 是正常截断，内容仍可用，不应抛异常
+        if response_model.status == "incomplete":
+            incomplete = raw_payload.get("incomplete_details") or {}
+            if isinstance(incomplete, dict) and incomplete.get("reason") == "length":
+                self.logger.warning(
+                    "Volcengine Ark 响应因达到 max_output_tokens 被截断 (status=incomplete, reason=length)"
+                )
+                return
         error = raw_payload.get("error") or raw_payload.get("incomplete_details") or response_model.status
         raise ValueError(build_parse_error_message(self.provider_label, f"响应状态为 {response_model.status}: {error}"))
 
