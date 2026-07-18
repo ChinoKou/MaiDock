@@ -1,17 +1,27 @@
 from collections.abc import Callable, Mapping
-from typing import Literal
-
+from pathlib import Path
+from typing import Literal, Protocol, cast
 from maibot_sdk import LLMProvider, LLMProviderBase, MaiBotPlugin
 
 from .config import MaiDockConfig, build_runtime_options, normalize_maidock_config_data
 from .config_schema import build_maidock_config_schema
 from .core.common import ProviderRuntimeOptions
 from .core.json_types import value_to_json_object
+from .core.state_store import PluginStateStore
 from .version import __version__
 
 
 type _ProviderKey = Literal["openai", "anthropic", "volcengine", "dashscope", "siliconflow", "xiaomi_mimo"]
 type _ProviderFactory = Callable[[ProviderRuntimeOptions], LLMProviderBase]
+
+
+class _PluginPaths(Protocol):
+    data_dir: Path
+    runtime_dir: Path
+
+
+class _PluginContextWithPaths(Protocol):
+    paths: _PluginPaths
 
 
 def _create_openai_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
@@ -28,12 +38,15 @@ def _create_anthropic_provider(options: ProviderRuntimeOptions) -> LLMProviderBa
     return AnthropicMessagesProvider(options=options)
 
 
-def _create_volcengine_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
+def _create_volcengine_provider(
+    options: ProviderRuntimeOptions,
+    state_store: PluginStateStore | None = None,
+) -> LLMProviderBase:
     from .providers.volcengine_ark_provider.provider import (
         VolcengineArkResponsesProvider,
     )
 
-    return VolcengineArkResponsesProvider(options=options)
+    return VolcengineArkResponsesProvider(options=options, state_store=state_store)
 
 
 def _create_dashscope_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
@@ -63,6 +76,7 @@ class MaiDockPlugin(MaiBotPlugin):
         super().__init__()
         self._runtime_options: ProviderRuntimeOptions | None = None
         self._openai_provider: LLMProviderBase | None = None
+        self._state_store: PluginStateStore | None = None
         self._anthropic_provider: LLMProviderBase | None = None
         self._volcengine_provider: LLMProviderBase | None = None
         self._dashscope_provider: LLMProviderBase | None = None
@@ -71,13 +85,30 @@ class MaiDockPlugin(MaiBotPlugin):
 
     async def on_load(self) -> None:
         self._invalidate_runtime_state()
+        if self._get_runtime_options().volcengine_prefix_cache_enabled:
+            self._initialize_state_store()
 
     async def on_unload(self) -> None:
         self._invalidate_runtime_state()
+        if self._state_store is not None:
+            await self._state_store.close()
+            self._state_store = None
 
     async def on_config_update(self, scope: str, config_data: dict, version: str) -> None:
         del scope, config_data, version
         self._invalidate_runtime_state()
+        if self._get_runtime_options().volcengine_prefix_cache_enabled:
+            self._initialize_state_store()
+
+    def _initialize_state_store(self) -> None:
+        if self._state_store is not None:
+            return
+        try:
+            paths = cast(_PluginContextWithPaths, self.ctx).paths
+        except AttributeError as exc:
+            raise RuntimeError("ARK 前缀缓存已启用，但当前 Core 未提供插件标准持久化路径") from exc
+        self._state_store = PluginStateStore(paths.data_dir / "maidock_state.sqlite3")
+
 
     def normalize_plugin_config(self, config_data: Mapping[str, object] | None) -> tuple[dict[str, object], bool]:
         normalized_config, changed = super().normalize_plugin_config(config_data)
@@ -172,7 +203,16 @@ class MaiDockPlugin(MaiBotPlugin):
         return self._get_or_create_provider("anthropic", _create_anthropic_provider)
 
     def _require_volcengine_provider(self) -> LLMProviderBase:
-        return self._get_or_create_provider("volcengine", _create_volcengine_provider)
+        provider = self._get_provider_slot("volcengine")
+        if provider is not None:
+            return provider
+        options = self._get_runtime_options()
+        state_store = self._state_store if options.volcengine_prefix_cache_enabled else None
+        if options.volcengine_prefix_cache_enabled and state_store is None:
+            raise RuntimeError("ARK 前缀缓存已启用，但 MaiDock 持久化存储尚未初始化")
+        provider = _create_volcengine_provider(options, state_store)
+        self._set_provider_slot("volcengine", provider)
+        return provider
 
     def _require_dashscope_provider(self) -> LLMProviderBase:
         return self._get_or_create_provider("dashscope", _create_dashscope_provider)

@@ -171,6 +171,8 @@ max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
 force_retry_interval = false
+prefix_cache_enabled = false
+prefix_cache_ttl_seconds = 259200
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
@@ -178,6 +180,8 @@ force_retry_interval = false
 | `user_agent` | str | `""` | 自定义 User-Agent |
 | `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用火山方舟官方 endpoint |
 | `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
+| `prefix_cache_enabled` | bool | `false` | 是否自动管理 ARK Responses 显式前缀缓存。需要 Core 1.0.9，并需先开启方舟“推理（缓存）”计价 |
+| `prefix_cache_ttl_seconds` | int | `259200` | 缓存有效期秒数，范围 `3600..604800`；使用缓存不会延长有效期 |
 | `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 | `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
 | `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |

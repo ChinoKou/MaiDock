@@ -1,23 +1,31 @@
-import logging
-
-import httpx
 from maibot_sdk import LLMProviderBase
+import httpx
+import logging
 
 from ...core.common import (
     ProviderRuntimeOptions,
-    build_usage_from_snapshot,
     log_request_summary,
     log_response_summary,
 )
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...core.state_store import PluginStateStore
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
     ResponseRequestSnapshot,
 )
-from ...schemas.provider_contracts import ProviderResponse
-from ..common.httpx import create_async_client, post_json, resolve_endpoint_path
+from ..common.httpx import (
+    HttpxProviderError,
+    create_async_client,
+    post_json,
+    resolve_endpoint_path,
+)
 from .embeddings import build_ark_embedding_response, build_embedding_request
+from .prefix_cache import (
+    ARK_TOKENIZATION_ENDPOINT,
+    PrefixCacheManager,
+    PrefixCacheResolution,
+)
 from .responses import (
     ARK_MULTIMODAL_EMBEDDINGS_ENDPOINT,
     ARK_RESPONSES_ENDPOINT,
@@ -40,10 +48,21 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
         *,
         options: ProviderRuntimeOptions,
         transport: httpx.AsyncBaseTransport | None = None,
+        state_store: PluginStateStore | None = None,
     ) -> None:
         self.options = options
         self._transport = transport
         self._responses_mapper = create_responses_mapper(options=options, logger=logger)
+        if options.volcengine_prefix_cache_enabled and state_store is None:
+            raise RuntimeError("ARK 前缀缓存已启用，但未注入 MaiDock 持久化存储")
+        self._prefix_cache_manager = (
+            PrefixCacheManager(
+                state_store,
+                ttl_seconds=options.volcengine_prefix_cache_ttl_seconds,
+            )
+            if state_store is not None and options.volcengine_prefix_cache_enabled
+            else None
+        )
 
     async def get_response(self, request: dict) -> dict:
         request_model = ResponseRequestSnapshot.model_validate(request)
@@ -61,7 +80,7 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             capability="response",
         )
         body = transport.body
-        request_headers = transport.headers
+        request_headers = build_ark_request_headers(transport.headers, body)
         upstream_request.extra_query.clear()
         upstream_request.extra_query.update(transport.query)
         log_request_summary(
@@ -83,111 +102,65 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
             default_retry_interval=self.options.volcengine_retry_interval,
             force_retry_interval=self.options.volcengine_force_retry_interval,
         )
-        # VolcEngine 前缀缓存：检查是否需要创建/复用缓存
-        prefix_cache_applied = False
-        if self.options.volcengine_prefix_cache_enabled:
-            from .prefix_cache import PrefixCacheManager
-            cache_mgr = PrefixCacheManager.get_instance(
-                cache_id_path=self.options.volcengine_prefix_cache_path
-            )
-            # 提取需保持一致的配置参数，纳入缓存指纹
-            _cfg = {}
-            if isinstance(body.get("thinking"), dict):
-                _cfg["thinking"] = body["thinking"]
-            if isinstance(body.get("reasoning"), dict):
-                _cfg["reasoning"] = body["reasoning"]
-            cache_params = await cache_mgr.resolve(
-                model=upstream_request.model,
-                messages=request_model.message_list,
-                config_params=_cfg,
-            )
-            prefix_cache_is_create = False
-            if cache_params.get("caching"):
-                # 需要创建前缀缓存 — 替换 body 中已有的 caching override
-                body["caching"] = cache_params["caching"]
-                body.pop("previous_response_id", None)
-                body.pop("max_output_tokens", None)  # prefix cache 不支持该参数
-                prefix_cache_applied = True
-                prefix_cache_is_create = True
-                logger.info(f"前缀缓存: 创建模式 model={upstream_request.model}")
-            elif cache_params.get("previous_response_id"):
-                # 复用已有缓存 — 替换 body，移除不能同时使用的参数
-                body["previous_response_id"] = cache_params["previous_response_id"]
-                body.pop("caching", None)
-                body.pop("tools", None)  # 工具已在缓存中，不能重复设置
-                prefix_cache_applied = True  # 复用也标记，统一走空容忍解析
-                logger.info(f"前缀缓存: 复用模式 model={upstream_request.model} id={cache_params['previous_response_id'][:24]}...")
-
         path = resolve_endpoint_path(
             config.base_url,
             api_prefix=VOLCENGINE_API_PREFIX,
             endpoint_path=ARK_RESPONSES_ENDPOINT,
         )
+        tokenization_path = resolve_endpoint_path(
+            config.base_url,
+            api_prefix=VOLCENGINE_API_PREFIX,
+            endpoint_path=ARK_TOKENIZATION_ENDPOINT,
+        )
+        resolution = PrefixCacheResolution(body=body)
         async with create_async_client(config, transport=self._transport) as client:
-            if stream:
-                payload = await collect_ark_response_stream(
+            if self._prefix_cache_manager is not None:
+                resolution = await self._prefix_cache_manager.resolve(
                     client,
-                    path,
-                    body,
+                    responses_path=path,
+                    tokenization_path=tokenization_path,
+                    body=body,
                     headers=request_headers,
                     query=upstream_request.extra_query,
-                    model=upstream_request.model,
+                    client_config=config,
                     max_retries=config.max_retries,
                     retry_interval=config.retry_interval,
                 )
-            else:
-                payload = await post_json(
-                    client,
-                    path,
-                    json_body=body,
-                    headers=request_headers,
-                    query=upstream_request.extra_query,
-                    provider_label=VOLCENGINE_PROVIDER_LABEL,
-                    max_retries=config.max_retries,
-                    retry_interval=config.retry_interval,
-                )
-
-        # 确认缓存创建（必须在 convert_response 之前，因为缓存创建响应无内容）
-        if prefix_cache_applied and self.options.volcengine_prefix_cache_enabled:
-            from .prefix_cache import PrefixCacheManager
-            cache_mgr = PrefixCacheManager.get_instance(
-                cache_id_path=self.options.volcengine_prefix_cache_path
-            )
-            response_id = payload.get("id") if isinstance(payload, dict) else None
-            if response_id:
-                expire_at = payload.get("expire_at") if isinstance(payload, dict) else None
-                await cache_mgr.confirm(model=upstream_request.model, response_id=response_id, expire_at=expire_at)
-
-            # CREATE 响应无内容 — 透明接 REUSE 获取真实输出
-            if prefix_cache_is_create and response_id:
-                body.pop("caching", None)
-                body["previous_response_id"] = response_id
-                body.pop("tools", None)
-                logger.info(f"前缀缓存: 创建后透明REUSE model={upstream_request.model}")
-                async with create_async_client(config, transport=self._transport) as client2:
+                body = resolution.body
+            try:
+                if stream:
+                    payload = await collect_ark_response_stream(
+                        client,
+                        path,
+                        body,
+                        headers=request_headers,
+                        query=upstream_request.extra_query,
+                        model=upstream_request.model,
+                        max_retries=config.max_retries,
+                        retry_interval=config.retry_interval,
+                    )
+                else:
                     payload = await post_json(
-                        client2, path,
-                        json_body=body, headers=request_headers,
+                        client,
+                        path,
+                        json_body=body,
+                        headers=request_headers,
                         query=upstream_request.extra_query,
                         provider_label=VOLCENGINE_PROVIDER_LABEL,
                         max_retries=config.max_retries,
                         retry_interval=config.retry_interval,
                     )
-                # REUSE 有真实内容，正常解析
-                result = self._responses_mapper.convert_response(payload)
-            else:
-                # 纯 REUSE（非 CREATE 链），尝试正常解析，失败走空容忍
-                try:
-                    result = self._responses_mapper.convert_response(payload)
-                except ValueError:
-                    _usage_dict = payload.get("usage") if isinstance(payload, dict) else None
-                    usage = None
-                    if _usage_dict:
-                        from ...schemas.usage import GenericUsageSnapshot
-                        usage = build_usage_from_snapshot(GenericUsageSnapshot.model_validate(_usage_dict))
-                    result = ProviderResponse(content=None, reasoning_content=None, tool_calls=[], usage=usage, raw_data=payload)
-        else:
-            result = self._responses_mapper.convert_response(payload)
+            except HttpxProviderError as exc:
+                if (
+                    resolution.cache_key is not None
+                    and exc.status_code is not None
+                    and 400 <= exc.status_code < 500
+                    and self._prefix_cache_manager is not None
+                ):
+                    await self._prefix_cache_manager.invalidate(resolution.cache_key)
+                raise
+
+        result = self._responses_mapper.convert_response(payload)
         log_response_summary(
             logger,
             provider_label="volcengine-ark-responses",

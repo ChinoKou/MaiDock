@@ -62,6 +62,8 @@ extra_params = {
 - `max_output_tokens` 如果写在 `extra_params` 顶层，会覆盖 MaiBot 的 `max_tokens` / 模型 `max_tokens` 换算结果。
 - `text` 会和 MaiBot 的 `response_format` 合并；如果两边同时设置了冲突的格式字段，会直接报错。
 - Ark Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并额外支持顶层 `encoding_format`、`dimensions`、`sparse_embedding`；`encoding_format = "base64"` 会直接报错，因为 MaiBot Host 当前只接受 float 向量。
+- 启用 ARK 自动前缀缓存后，显式 `caching` 或 `previous_response_id` 仍优先，MaiDock 不会覆盖手动缓存链。
+- 自动缓存只处理至少 256 tokens 的开头 system 前缀；`instructions`、`json_schema`、`store=false` 或非 function tools 会让当前请求直接按普通 Responses 请求发送。
 
 OpenAI Embeddings 和 Audio Transcriptions 也会使用同一套 `headers` / `query` / `body` 拆分规则；除这些分组外，其他顶层字段默认进入 `extra_body`。如需严格模式，在对应能力的 `[{provider}.{capability}]` 子段设置 `unknown_extra_params = "reject"`。
 
