@@ -20,6 +20,10 @@ from ..common.httpx import (
     post_json,
     resolve_endpoint_path,
 )
+from .audio_transcriptions import (
+    build_ark_audio_transcription_request,
+    parse_ark_audio_transcription_response,
+)
 from .embeddings import build_ark_embedding_response, build_embedding_request
 from .prefix_cache import (
     ARK_TOKENIZATION_ENDPOINT,
@@ -218,5 +222,34 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
         ).to_host_dict()
 
     async def get_audio_transcriptions(self, request: dict) -> dict:
-        AudioTranscriptionRequestSnapshot.model_validate(request)
-        raise NotImplementedError("Volcengine Ark Provider 当前不提供 audio_transcription 端点")
+        request_model = AudioTranscriptionRequestSnapshot.model_validate(request)
+        body, extra_headers, extra_query = build_ark_audio_transcription_request(
+            request_model,
+            options=self.options,
+        )
+        config = build_client_config(
+            request_model.api_provider,
+            user_agent=self.options.volcengine_user_agent,
+            force_official_endpoint=self.options.volcengine_force_official_endpoint,
+            default_max_retries=self.options.volcengine_max_retries,
+            force_max_retries=self.options.volcengine_force_max_retries,
+            default_retry_interval=self.options.volcengine_retry_interval,
+            force_retry_interval=self.options.volcengine_force_retry_interval,
+        )
+        path = resolve_endpoint_path(
+            config.base_url,
+            api_prefix=VOLCENGINE_API_PREFIX,
+            endpoint_path=ARK_RESPONSES_ENDPOINT,
+        )
+        async with create_async_client(config, transport=self._transport) as client:
+            payload = await post_json(
+                client,
+                path,
+                json_body=body,
+                headers=extra_headers,
+                query=extra_query,
+                provider_label="Volcengine Ark Audio Transcription",
+                max_retries=config.max_retries,
+                retry_interval=config.retry_interval,
+            )
+        return parse_ark_audio_transcription_response(payload, options=self.options).to_host_dict()

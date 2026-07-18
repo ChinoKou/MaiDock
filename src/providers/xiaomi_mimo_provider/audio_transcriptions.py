@@ -1,31 +1,45 @@
-import base64
-import binascii
 from typing import Annotated, Literal
-
-import httpx
 from pydantic import BaseModel, Field
 
-from ...core.common import (
-    ProviderRuntimeOptions,
-    build_usage_from_snapshot,
-    read_model_identifier,
-)
-from ...core.diagnostics import sanitize_json_object
-from ...core.json_types import json_mapping_or_none, mapping_field
-from ...schemas import (
-    AudioTranscriptionRequestSnapshot,
-    GenericUsageSnapshot,
-    ProviderResponse,
-)
-from ..common.httpx import create_async_client, post_json
-from .chat import (
-    MIMO_CHAT_COMPLETIONS_ENDPOINT,
-    build_client_config,
-    resolve_path,
-)
+import httpx
 
-SUPPORTED_AUDIO_FORMATS = {"wav", "mp3", "mpeg"}
+from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot, read_model_identifier
+from ...core.diagnostics import sanitize_json_object
+from ...core.json_types import json_mapping_or_none, mapping_field, mapping_to_json_object
+from ...core.parameter_catalog import get_parameter_catalog
+from ...core.parameter_policy import apply_transport_parameter_policy
+from ...schemas import AudioTranscriptionRequestSnapshot, GenericUsageSnapshot, ProviderResponse
+from ..common.audio import AudioFormat, prepare_base64_audio
+from ..common.httpx import create_async_client, post_json
+from ..common.parameter_translation import TranslationEnvelope, build_translation_context
+from .chat import MIMO_CHAT_COMPLETIONS_ENDPOINT, build_client_config, resolve_path
+from .parameter_translation import apply_mimo_audio_parameters, normalize_mimo_chat_body
+
+MIMO_ASR_MODEL = "mimo-v2.5-asr"
 MIMO_AUDIO_TRANSCRIPTION_LABEL = "Xiaomi Mimo Audio Transcription"
+_MIMO_ASR_FORMATS: frozenset[AudioFormat] = frozenset({"mp3", "wav"})
+_MIMO_GENERIC_AUDIO_FORMATS: frozenset[AudioFormat] = frozenset({"mp3", "wav", "flac", "m4a", "ogg"})
+_MIMO_ASR_MAX_BASE64_CHARS = 10 * 1024 * 1024
+_MIMO_GENERIC_MAX_BASE64_CHARS = 50 * 1024 * 1024
+_MIMO_ASR_UNSUPPORTED_BODY_FIELDS = frozenset(
+    {
+        "frequency_penalty",
+        "max_completion_tokens",
+        "max_tokens",
+        "n",
+        "parallel_tool_calls",
+        "presence_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "stream_options",
+        "temperature",
+        "thinking",
+        "tool_choice",
+        "tools",
+        "top_p",
+    }
+)
 
 
 class _AudioMessage(BaseModel):
@@ -35,6 +49,7 @@ class _AudioMessage(BaseModel):
 
     class InputData(BaseModel):
         data: str
+        format: str | None = None
 
     class InputPart(BaseModel):
         type: Literal["input_audio"] = "input_audio"
@@ -44,28 +59,103 @@ class _AudioMessage(BaseModel):
     content: list[Annotated[TextPart | InputPart, Field(discriminator="type")]]
 
 
-class _AudioTranscriptionBody(BaseModel):
-    model: str
-    messages: list[_AudioMessage]
-    stream: bool = False
+def build_mimo_audio_transcription_request(
+    request: AudioTranscriptionRequestSnapshot,
+    *,
+    options: ProviderRuntimeOptions,
+) -> tuple[dict, dict[str, str], dict]:
+    """按模型构建 Mimo 专用 ASR 或通用音频理解请求。"""
 
+    model = read_model_identifier(request.model_info)
+    policy = options.parameter_policies.get("xiaomi_mimo", "audio_transcription")
+    catalog = get_parameter_catalog("xiaomi_mimo", "audio_transcription")
+    context = build_translation_context(
+        request,
+        policy=policy,
+        catalog=catalog,
+        provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+        provider="xiaomi_mimo",
+        capability="audio_transcription",
+        model=model,
+    )
+    envelope = TranslationEnvelope(body={"model": model, "stream": False})
+    apply_mimo_audio_parameters(context, envelope)
+    transport = apply_transport_parameter_policy(
+        body=envelope.body,
+        headers=envelope.headers,
+        query=envelope.query,
+        policy=policy,
+        provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+        capability="audio_transcription",
+    )
+    body = dict(transport.body)
+    normalize_mimo_chat_body(body)
+    format_hints = {
+        "format": body.pop("format", None),
+        "audio_format": body.pop("audio_format", None),
+    }
+    configured_prompt = body.pop("prompt", None)
 
-def _infer_audio_format(request: AudioTranscriptionRequestSnapshot) -> str | None:
-    extra = request.extra_params.fields
-    fmt = extra.get("format") or extra.get("audio_format")
-    if isinstance(fmt, str) and fmt.strip().lower() in SUPPORTED_AUDIO_FORMATS:
-        normalized = fmt.strip().lower()
-        return "mpeg" if normalized == "mp3" else normalized
-    return None
+    if model == MIMO_ASR_MODEL:
+        audio = prepare_base64_audio(
+            request.audio_base64,
+            format_hints,
+            provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+            allowed_formats=_MIMO_ASR_FORMATS,
+            max_base64_chars=_MIMO_ASR_MAX_BASE64_CHARS,
+        )
+        raw_asr_options_value = body.pop("asr_options", None)
+        raw_asr_options = json_mapping_or_none(raw_asr_options_value)
+        if raw_asr_options_value is not None and raw_asr_options is None:
+            raise TypeError("Mimo asr_options 必须是 object")
+        asr_options = mapping_to_json_object(raw_asr_options) if raw_asr_options is not None else {}
+        language = options.mimo_audio_transcription_language
+        if "language" in asr_options:
+            language = asr_options["language"]
+        if language not in {"auto", "zh", "en"}:
+            raise ValueError("Mimo asr_options.language 仅支持 auto、zh 或 en")
+        asr_options["language"] = language
+        for field_name in _MIMO_ASR_UNSUPPORTED_BODY_FIELDS:
+            body.pop(field_name, None)
+        body["asr_options"] = asr_options
+        body["messages"] = [
+            _AudioMessage(
+                content=[
+                    _AudioMessage.InputPart(
+                        input_audio=_AudioMessage.InputData(
+                            data=audio.data_url,
+                            format=audio.audio_format,
+                        )
+                    )
+                ]
+            ).model_dump(exclude_none=True)
+        ]
+    else:
+        prompt = configured_prompt if configured_prompt is not None else options.mimo_audio_transcription_prompt
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("未配置转录提示词，请在 Mimo 设置中填写 audio_transcription_prompt")
+        audio = prepare_base64_audio(
+            request.audio_base64,
+            format_hints,
+            provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+            allowed_formats=_MIMO_GENERIC_AUDIO_FORMATS,
+            max_base64_chars=_MIMO_GENERIC_MAX_BASE64_CHARS,
+        )
+        body.pop("asr_options", None)
+        body["messages"] = [
+            _AudioMessage(
+                content=[
+                    _AudioMessage.InputPart(input_audio=_AudioMessage.InputData(data=audio.data_url)),
+                    _AudioMessage.TextPart(text=prompt.strip()),
+                ]
+            ).model_dump(exclude_none=True)
+        ]
+        if options.mimo_force_disable_thinking:
+            body["thinking"] = {"type": "disabled"}
 
-
-def _build_audio_data_url(audio_base64: str, audio_format: str | None) -> str:
-    try:
-        base64.b64decode(audio_base64, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise ValueError("audio_base64 不是有效的 Base64 数据") from exc
-    fmt = audio_format or "wav"
-    return f"data:audio/{fmt};base64,{audio_base64}"
+    body["model"] = model
+    body["stream"] = False
+    return body, transport.headers, transport.query
 
 
 async def build_mimo_audio_transcription(
@@ -74,27 +164,7 @@ async def build_mimo_audio_transcription(
     options: ProviderRuntimeOptions,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> ProviderResponse:
-    if not request.audio_base64:
-        raise ValueError("音频转写请求缺少 audio_base64")
-    prompt: str = options.mimo_audio_transcription_prompt.strip()
-    if not prompt:
-        raise ValueError("未配置转录提示词，请在 Mimo 设置中填写 audio_transcription_prompt")
-    audio_format: str | None = _infer_audio_format(request)
-    data_url: str = _build_audio_data_url(request.audio_base64, audio_format)
-    model: str = read_model_identifier(request.model_info)
-
-    body = _AudioTranscriptionBody(
-        model=model,
-        messages=[
-            _AudioMessage(
-                content=[
-                    _AudioMessage.TextPart(text=prompt),
-                    _AudioMessage.InputPart(input_audio=_AudioMessage.InputData(data=data_url)),
-                ],
-            )
-        ],
-    ).model_dump()
-
+    body, extra_headers, extra_query = build_mimo_audio_transcription_request(request, options=options)
     config = build_client_config(
         request.api_provider,
         user_agent=options.mimo_user_agent,
@@ -104,17 +174,17 @@ async def build_mimo_audio_transcription(
         force_retry_interval=options.mimo_force_retry_interval,
     )
     path = resolve_path(config, MIMO_CHAT_COMPLETIONS_ENDPOINT)
-
     async with create_async_client(config, transport=transport) as client:
         payload = await post_json(
             client,
             path,
             json_body=body,
+            headers=extra_headers,
+            query=extra_query,
             provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
             max_retries=config.max_retries,
             retry_interval=config.retry_interval,
         )
-
     return _parse_audio_transcription_response(payload, options=options)
 
 
@@ -140,7 +210,7 @@ def _parse_audio_transcription_response(payload: dict, *, options: ProviderRunti
                     if isinstance(text, str) and text:
                         parts.append(text)
             content = "".join(parts) or None
-    if content is None:
+    if not content:
         raise ValueError(f"{MIMO_AUDIO_TRANSCRIPTION_LABEL} 响应中无法提取转录文本")
     return ProviderResponse(
         content=content,

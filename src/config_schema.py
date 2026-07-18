@@ -57,6 +57,7 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
         "force_official_endpoint",
         "prefix_cache_enabled",
         "prefix_cache_ttl_seconds",
+        "audio_transcription_prompt",
         "max_retries",
         "force_max_retries",
         "retry_interval",
@@ -65,7 +66,9 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     "xiaomi_mimo": (
         "user_agent",
         "force_disable_thinking",
+        "reasoning_retention_days",
         "audio_transcription_prompt",
+        "audio_transcription_language",
         "max_retries",
         "force_max_retries",
         "retry_interval",
@@ -266,18 +269,52 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
             label="强制关闭 Mimo 深度思考",
             default=True,
             ui_type="switch",
-            hint='开启后强制写入 thinking={"type":"disabled"}。Mimo 要求 thinking + 工具调用历史必须回传思考内容，但 Host 不会向 MaiDock 提供历史 reasoning_content，因此默认关闭。',
+            hint='开启后强制写入 thinking={"type":"disabled"}。关闭后 MaiDock 会通过工具调用 extra_content 和 SQLite 完整回传历史 reasoning_content。',
+            order=current_order,
+        )
+        current_order += 1
+    if "reasoning_retention_days" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["reasoning_retention_days"] = _field(
+            name="reasoning_retention_days",
+            field_type="integer",
+            label="工具调用思考保留天数",
+            default=30,
+            ui_type="number",
+            min_value=1,
+            max_value=365,
+            step=1,
+            hint="完整 reasoning_content 会以明文保存在插件数据目录的 SQLite 中；成功使用时刷新过期时间。",
             order=current_order,
         )
         current_order += 1
     if "audio_transcription_prompt" in _PROVIDER_BASE_FIELDS[provider]:
+        prompt_default = (
+            "请识别音频中的内容，以文字形式返回识别结果。"
+            if provider == "volcengine_ark"
+            else "请转写这段音频"
+        )
+        prompt_hint = (
+            "ARK 使用 Responses input_audio + input_text 完成语音转录。"
+            if provider == "volcengine_ark"
+            else "仅通用音频理解路径使用；mimo-v2.5-asr 专用协议不会发送文本提示词。"
+        )
         fields["audio_transcription_prompt"] = _field(
             name="audio_transcription_prompt",
             field_type="string",
             label="转录提示词",
-            default="请转写这段音频",
+            default=prompt_default,
             ui_type="text",
-            hint="Mimo 无独立转录 API，实际使用文本生成端点 + input_audio；此处 prompt 会作为 text content part 与音频一同发送。",
+            hint=prompt_hint,
+            order=current_order,
+        )
+        current_order += 1
+    if "audio_transcription_language" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["audio_transcription_language"] = _select_field(
+            name="audio_transcription_language",
+            label="专用 ASR 识别语言",
+            default="auto",
+            choices=("auto", "zh", "en"),
+            hint="仅 mimo-v2.5-asr 使用；auto=自动检测，zh=中文，en=英文。",
             order=current_order,
         )
         current_order += 1
@@ -414,7 +451,9 @@ def _capability_policy_section(catalog: CapabilityParameterCatalog, *, order: in
 def _capability_policy_description(catalog: CapabilityParameterCatalog) -> str:
     """生成能力参数策略说明。"""
     if catalog.provider == "xiaomi_mimo" and catalog.capability == "audio_transcription":
-        return "实际使用文本生成端点，Mimo 无独立转录 API；这里控制伪语音转录请求的 extra_params。"
+        return "控制 Mimo 专用 ASR 与通用音频理解转录请求的 extra_params。"
+    if catalog.provider == "volcengine_ark" and catalog.capability == "audio_transcription":
+        return "控制 ARK Responses input_audio 转录请求的 extra_params。"
     return "控制模型配置与单次请求传入的 extra_params 是否被 MaiDock 接收，以及未知字段如何处理。"
 
 
@@ -479,7 +518,9 @@ def _capability_fields_section(catalog: CapabilityParameterCatalog, *, order: in
 def _capability_fields_description(catalog: CapabilityParameterCatalog) -> str:
     """生成能力字段开关说明。"""
     if catalog.provider == "xiaomi_mimo" and catalog.capability == "audio_transcription":
-        return "实际使用文本生成端点，Mimo 无独立转录 API；prompt 会作为 text content part 与 input_audio 一同发送。"
+        return "mimo-v2.5-asr 使用 asr_options；其他模型使用 input_audio + prompt。格式字段只用于内部构造 data URL。"
+    if catalog.provider == "volcengine_ark" and catalog.capability == "audio_transcription":
+        return "使用 Responses input_audio + input_text；格式字段只用于内部构造 data URL。"
     return "每个文档字段默认发送到 Provider API；关闭开关会丢弃 Host 传入值，开启覆写会强制替换发送给 Provider API 的参数。"
 
 

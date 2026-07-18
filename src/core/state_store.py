@@ -14,6 +14,7 @@ class PluginStateStore:
         self.database_path = database_path
         self._connection: sqlite3.Connection | None = None
         self._lock = asyncio.Lock()
+        self._closed = False
 
     async def open(self) -> None:
         """按需打开数据库并初始化表结构。"""
@@ -27,6 +28,7 @@ class PluginStateStore:
         async with self._lock:
             connection = self._connection
             self._connection = None
+            self._closed = True
             if connection is not None:
                 await asyncio.to_thread(connection.close)
 
@@ -123,6 +125,8 @@ class PluginStateStore:
             )
 
     async def _ensure_open_locked(self) -> sqlite3.Connection:
+        if self._closed:
+            raise RuntimeError("MaiDock 状态存储已关闭")
         if self._connection is None:
             self._connection = await asyncio.to_thread(self._open_sync)
         return self._connection

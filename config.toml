@@ -162,7 +162,6 @@ unknown_extra_params = "forward"
 
 [openai_responses.image_generation.override_params]
 
-
 [anthropic_messages]
 user_agent = ""
 max_retries = 3
@@ -222,7 +221,6 @@ unknown_extra_params = "forward"
 [anthropic_messages.image_generation.default_params]
 
 [anthropic_messages.image_generation.override_params]
-
 
 [dashscope]
 user_agent = ""
@@ -378,7 +376,6 @@ unknown_extra_params = "forward"
 
 [dashscope.image_generation.override_params]
 
-
 [siliconflow]
 user_agent = ""
 force_official_endpoint = true
@@ -502,7 +499,6 @@ unknown_extra_params = "forward"
 
 [siliconflow.image_generation.override_params]
 
-
 [volcengine_ark]
 user_agent = ""
 force_official_endpoint = true
@@ -512,6 +508,7 @@ retry_interval = 5.0
 force_retry_interval = false
 prefix_cache_enabled = false
 prefix_cache_ttl_seconds = 259200
+audio_transcription_prompt = "请识别音频中的内容，以文字形式返回识别结果。"
 
 [volcengine_ark.response]
 accept_model_extra_params = true
@@ -611,6 +608,31 @@ body_encoding_format_override_value = ""
 
 [volcengine_ark.embeddings.override_params]
 
+[volcengine_ark.audio_transcription]
+accept_model_extra_params = true
+accept_request_extra_params = true
+disabled_paths = []
+rejected_paths = []
+unknown_extra_params = "forward"
+
+[volcengine_ark.audio_transcription.fields]
+body_max_output_tokens_enabled = true
+body_max_output_tokens_override_enabled = false
+body_max_output_tokens_override_value = ""
+body_prompt_enabled = true
+body_prompt_override_enabled = false
+body_prompt_override_value = ""
+body_format_enabled = true
+body_format_override_enabled = false
+body_format_override_value = ""
+body_audio_format_enabled = true
+body_audio_format_override_enabled = false
+body_audio_format_override_value = ""
+
+[volcengine_ark.audio_transcription.default_params]
+
+[volcengine_ark.audio_transcription.override_params]
+
 [volcengine_ark.image_generation]
 accept_model_extra_params = true
 accept_request_extra_params = true
@@ -624,11 +646,12 @@ unknown_extra_params = "forward"
 
 [volcengine_ark.image_generation.override_params]
 
-
 [xiaomi_mimo]
 user_agent = ""
 force_disable_thinking = true
+reasoning_retention_days = 30
 audio_transcription_prompt = "请转写这段音频"
+audio_transcription_language = "auto"
 max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
@@ -675,6 +698,9 @@ body_stop_override_value = ""
 body_n_enabled = true
 body_n_override_enabled = false
 body_n_override_value = ""
+body_thinking_enabled = true
+body_thinking_override_enabled = false
+body_thinking_override_value = ""
 
 [xiaomi_mimo.chat_completion.default_params]
 
@@ -688,11 +714,25 @@ rejected_paths = []
 unknown_extra_params = "forward"
 
 [xiaomi_mimo.audio_transcription.fields]
+body_max_tokens_enabled = true
+body_max_tokens_override_enabled = false
+body_max_tokens_override_value = ""
+body_asr_options_language_enabled = true
+body_asr_options_language_override_enabled = false
+body_asr_options_language_override_value = ""
+body_prompt_enabled = true
+body_prompt_override_enabled = false
+body_prompt_override_value = ""
+body_format_enabled = true
+body_format_override_enabled = false
+body_format_override_value = ""
+body_audio_format_enabled = true
+body_audio_format_override_enabled = false
+body_audio_format_override_value = ""
 
 [xiaomi_mimo.audio_transcription.default_params]
 
 [xiaomi_mimo.audio_transcription.override_params]
-
 
 [compatibility]
 tool_argument_parse_mode = "auto"

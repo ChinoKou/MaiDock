@@ -67,6 +67,16 @@ extra_params = {
 
 OpenAI Embeddings 和 Audio Transcriptions 也会使用同一套 `headers` / `query` / `body` 拆分规则；除这些分组外，其他顶层字段默认进入 `extra_body`。如需严格模式，在对应能力的 `[{provider}.{capability}]` 子段设置 `unknown_extra_params = "reject"`。
 
+### Volcengine Ark Audio Transcription
+
+ARK 语音转录使用 Responses `input_audio.audio_url` + `input_text`，固定非流式且不进入自动前缀缓存。
+
+- `max_tokens` / `max_output_tokens`：发送为 `max_output_tokens`。
+- `prompt`：覆盖 Provider 基础设置中的转录提示词。
+- `format` / `audio_format`：仅用于校验音频并构造 data URL，不会作为顶层字段发送。
+
+支持 MP3、WAV、AAC、M4A，Base64 解码后的音频文件上限为 25 MiB。
+
 ## Anthropic Messages
 
 响应请求中，以下 `extra_params` 顶层字段会作为 Anthropic Messages HTTP body 字段传入：
@@ -146,18 +156,25 @@ extra_params = {
 特殊规则：
 
 - `messages`、`model`、`stream` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
-- Xiaomi Mimo 的 `thinking` 不再作为文本生成能力字段暴露；默认由插件配置 `[xiaomi_mimo].force_disable_thinking = true` 在最终请求体中强制写入 `{ "type": "disabled" }`。如需自行实验原生 thinking，请先关闭该 Provider 级开关。
+- Xiaomi Mimo 会把 Host `max_tokens`、顶层 `max_completion_tokens` 和旧的 `body.max_tokens` 统一发送为官方 `max_completion_tokens`；多个来源值不一致时直接报错。
+- Xiaomi Mimo 默认由 `[xiaomi_mimo].force_disable_thinking = true` 强制关闭思考。关闭后，带工具调用轮次的 `reasoning_content` 会通过 `extra_content` 和 SQLite 完整回传。
 - SiliconFlow 和 Mimo 的工具调用、多模态图片均通过各自 Provider 入口委托 Chat Completions family 标准实现。
 
 ## Xiaomi Mimo Audio Transcription
 
-Mimo 没有独立的语音转录 API。MaiDock 会把 Host 的音频转录请求转换为 Chat Completions + `input_audio` 请求。
+Mimo 语音转录按模型使用两种 Chat Completions 请求结构：
+
+- `mimo-v2.5-asr`：专用单音频 ASR，仅发送 `input_audio`，支持 MP3/WAV 和 `asr_options.language`。
+- 其他模型：保持通用音频理解结构，发送 `input_audio` + 文本提示词；官方仅确认 `mimo-v2.5` 支持该能力。
 
 支持的 `extra_params` 顶层字段：
 
-- `prompt`：作为 text content part 与 `input_audio` 一同发送，默认 `"请转写这段音频"`。
+- `prompt`：覆盖通用音频理解路径的文本提示词；专用 ASR 不发送。
+- `language`：专用 ASR 识别语言，可选 `auto`、`zh`、`en`。
+- `max_tokens` / `max_completion_tokens`：仅通用路径使用，发送为 `max_completion_tokens`。
 
 特殊规则：
 
-- `format` / `audio_format` 只用于推断 `data:audio/...;base64,...` 的 MIME 格式，不会作为顶层 body 字段透传。
+- `format` / `audio_format` 只用于校验文件签名并构造 MIME data URL，不会作为顶层 body 字段透传；冲突或未知格式会直接报错。
 - `model`、`messages`、`stream` 是 MaiDock 自己构造的保留字段。
+- 专用 ASR 的 Base64 字符串上限为 10 MiB；通用路径上限为 50 MiB，并额外支持 FLAC、M4A、OGG。

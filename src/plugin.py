@@ -61,10 +61,13 @@ def _create_siliconflow_provider(options: ProviderRuntimeOptions) -> LLMProvider
     return SiliconFlowProvider(options=options)
 
 
-def _create_mimo_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
+def _create_mimo_provider(
+    options: ProviderRuntimeOptions,
+    state_store: PluginStateStore | None = None,
+) -> LLMProviderBase:
     from .providers.xiaomi_mimo_provider.provider import XiaomiMimoProvider
 
-    return XiaomiMimoProvider(options=options)
+    return XiaomiMimoProvider(options=options, state_store=state_store)
 
 
 class MaiDockPlugin(MaiBotPlugin):
@@ -85,8 +88,7 @@ class MaiDockPlugin(MaiBotPlugin):
 
     async def on_load(self) -> None:
         self._invalidate_runtime_state()
-        if self._get_runtime_options().volcengine_prefix_cache_enabled:
-            self._initialize_state_store()
+        self._initialize_state_store()
 
     async def on_unload(self) -> None:
         self._invalidate_runtime_state()
@@ -97,8 +99,6 @@ class MaiDockPlugin(MaiBotPlugin):
     async def on_config_update(self, scope: str, config_data: dict, version: str) -> None:
         del scope, config_data, version
         self._invalidate_runtime_state()
-        if self._get_runtime_options().volcengine_prefix_cache_enabled:
-            self._initialize_state_store()
 
     def _initialize_state_store(self) -> None:
         if self._state_store is not None:
@@ -106,7 +106,7 @@ class MaiDockPlugin(MaiBotPlugin):
         try:
             paths = cast(_PluginContextWithPaths, self.ctx).paths
         except AttributeError as exc:
-            raise RuntimeError("ARK 前缀缓存已启用，但当前 Core 未提供插件标准持久化路径") from exc
+            raise RuntimeError("当前 Core 未提供 MaiDock 所需的插件标准持久化路径") from exc
         self._state_store = PluginStateStore(paths.data_dir / "maidock_state.sqlite3")
 
 
@@ -207,7 +207,7 @@ class MaiDockPlugin(MaiBotPlugin):
         if provider is not None:
             return provider
         options = self._get_runtime_options()
-        state_store = self._state_store if options.volcengine_prefix_cache_enabled else None
+        state_store = self._state_store
         if options.volcengine_prefix_cache_enabled and state_store is None:
             raise RuntimeError("ARK 前缀缓存已启用，但 MaiDock 持久化存储尚未初始化")
         provider = _create_volcengine_provider(options, state_store)
@@ -221,7 +221,14 @@ class MaiDockPlugin(MaiBotPlugin):
         return self._get_or_create_provider("siliconflow", _create_siliconflow_provider)
 
     def _require_mimo_provider(self) -> LLMProviderBase:
-        return self._get_or_create_provider("xiaomi_mimo", _create_mimo_provider)
+        provider = self._get_provider_slot("xiaomi_mimo")
+        if provider is not None:
+            return provider
+        if self._state_store is None:
+            raise RuntimeError("MaiDock 持久化存储尚未初始化")
+        provider = _create_mimo_provider(self._get_runtime_options(), self._state_store)
+        self._set_provider_slot("xiaomi_mimo", provider)
+        return provider
 
     def _ensure_enabled(self) -> None:
         config = self._read_config()

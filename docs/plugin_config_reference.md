@@ -44,7 +44,7 @@
 
 每个 Provider 有两层配置：
 
-1. **Provider 级**字段：`user_agent` + 重试配置（所有 Provider），部分含 `force_official_endpoint`；Mimo 额外含 `force_disable_thinking`、`audio_transcription_prompt`
+1. **Provider 级**字段：`user_agent` + 重试配置（所有 Provider），部分含 `force_official_endpoint`；ARK/Mimo 额外提供各自的 ASR 与持久化配置
 2. **能力子段**：`[{provider}.{capability}]` — 控制该 Provider 某项能力的 `extra_params` 参数策略
 3. **字段开关子段**：`[{provider}.{capability}.fields]` — 由 WebUI 自动生成，控制单个 `extra_params` 字段的启用/禁用/覆写
 4. **默认参数 / 覆写参数**：`[{provider}.{capability}.default_params]` 和 `[{provider}.{capability}.override_params]` — 空的 inline table，可手动填入 JSON
@@ -173,6 +173,7 @@ retry_interval = 5.0
 force_retry_interval = false
 prefix_cache_enabled = false
 prefix_cache_ttl_seconds = 259200
+audio_transcription_prompt = "请识别音频中的内容，以文字形式返回识别结果。"
 ```
 
 | 配置项 | 类型 | 默认值 | 说明 |
@@ -182,6 +183,7 @@ prefix_cache_ttl_seconds = 259200
 | `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
 | `prefix_cache_enabled` | bool | `false` | 是否自动管理 ARK Responses 显式前缀缓存。需要 Core 1.0.9，并需先开启方舟“推理（缓存）”计价 |
 | `prefix_cache_ttl_seconds` | int | `259200` | 缓存有效期秒数，范围 `3600..604800`；使用缓存不会延长有效期 |
+| `audio_transcription_prompt` | str | `"请识别音频中的内容，以文字形式返回识别结果。"` | ARK Responses 音频转录时随 `input_audio` 发送的文本提示词 |
 | `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 | `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
 | `force_retry_interval` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
@@ -190,6 +192,7 @@ prefix_cache_ttl_seconds = 259200
 | --- | --- |
 | `[volcengine_ark.response]` | 文本生成（Responses API） |
 | `[volcengine_ark.embeddings]` | Embeddings |
+| `[volcengine_ark.audio_transcription]` | 语音转录（Responses `input_audio`） |
 | `[volcengine_ark.image_generation]` | 图像生成（**占位**） |
 
 ### `[xiaomi_mimo]`
@@ -198,7 +201,9 @@ prefix_cache_ttl_seconds = 259200
 [xiaomi_mimo]
 user_agent = ""
 force_disable_thinking = true
+reasoning_retention_days = 30
 audio_transcription_prompt = "请转写这段音频"
+audio_transcription_language = "auto"
 max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
@@ -208,8 +213,10 @@ force_retry_interval = false
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
-| `force_disable_thinking` | bool | `true` | 是否在最终请求体中强制写入 `thinking = { type = "disabled" }`。Mimo 要求 thinking + 工具调用历史必须回传思考内容，但 Host 不会向 MaiDock 提供历史 reasoning_content，因此默认关闭 |
-| `audio_transcription_prompt` | str | `"请转写这段音频"` | Mimo 伪语音转录请求中与 input_audio 一同发送的文本提示词。未配置时转录请求会报错 |
+| `force_disable_thinking` | bool | `true` | 是否强制写入 `thinking = { type = "disabled" }`。关闭后 MaiDock 使用工具调用元数据与 SQLite 回传历史 `reasoning_content` |
+| `reasoning_retention_days` | int | `30` | 带工具调用轮次的完整 reasoning 本地保留天数，范围 `1..365`；成功使用时续期 |
+| `audio_transcription_prompt` | str | `"请转写这段音频"` | 通用音频理解转录路径的文本提示词；专用 ASR 不发送该字段 |
+| `audio_transcription_language` | str | `"auto"` | `mimo-v2.5-asr` 识别语言，可选 `auto`、`zh`、`en` |
 | `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
 | `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 | `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
@@ -218,7 +225,9 @@ force_retry_interval = false
 | 子段 | 说明 |
 | --- | --- |
 | `[xiaomi_mimo.chat_completion]` | 文本生成（Chat Completions API） |
-| `[xiaomi_mimo.audio_transcription]` | 语音转录伪造层（策略控制），实际使用 Chat Completions + `input_audio` |
+| `[xiaomi_mimo.audio_transcription]` | 语音转录；按模型分流专用 ASR 与通用音频理解协议 |
+
+Mimo reasoning 只保存带工具调用的 assistant 轮次，因为 Core 目前仅为工具调用提供可稳定往返的 `extra_content` 和 call ID。完整内容以明文保存在 `maidock_state.sqlite3` 的独立 namespace 中；API Key、提示词和工具定义不会写入数据库。
 
 ### 重试配置的 force/fallback 逻辑
 

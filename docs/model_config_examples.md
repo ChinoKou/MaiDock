@@ -104,11 +104,12 @@ name = "MIMO-2.5-PRO"
 model_identifier = "mimo-v2.5-pro"
 api_provider = "mimo"
 # thinking 默认由插件配置"强制关闭 Mimo 深度思考"控制
-# 不建议放在模型 extra_params 中。
+# 关闭该开关后，MaiDock 会自动回传工具调用历史中的 reasoning_content。
 
 [[models]]
 name = "MIMO-2.5-ASR"
 model_identifier = "mimo-v2.5-asr"
 api_provider = "mimo"
-extra_params = { prompt = "请准确转写这段音频，只返回转写文本" }
+extra_params = { language = "auto" }
+# 专用 ASR 不发送文本 prompt；通用 mimo-v2.5 音频理解才使用 prompt。
 ```

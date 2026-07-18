@@ -19,11 +19,12 @@ class ParameterFieldDefinition:
     target_path: tuple[str, ...]
     value_kind: ParameterValueKind = "json"
     source_aliases: tuple[str, ...] = ()
+    config_key_name: str = ""
     order: int = 0
 
     @property
     def config_key(self) -> str:
-        return safe_parameter_key(".".join(self.target_path))
+        return safe_parameter_key(self.config_key_name or ".".join(self.target_path))
 
     @property
     def safe_key(self) -> str:
@@ -160,6 +161,7 @@ def _field(
     value_kind: ParameterValueKind = "json",
     description: str = "",
     source_aliases: tuple[str, ...] = (),
+    config_key_name: str = "",
     order: int = 0,
     ui_label: str = "",
 ) -> ParameterFieldDefinition:
@@ -177,6 +179,7 @@ def _field(
         target_path=path,
         value_kind=value_kind,
         source_aliases=source_aliases,
+        config_key_name=config_key_name,
         order=order,
     )
 
@@ -471,11 +474,33 @@ _ARK_EMBEDDING_FIELDS = _fields(
 _ARK_EMBEDDING_DIRECT_KEYS = _accepted_keys(_ARK_EMBEDDING_FIELDS)
 _ARK_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model"})
 
+_ARK_AUDIO_FIELDS = _fields(
+    _field(
+        "max_tokens",
+        "body.max_output_tokens",
+        value_kind="integer",
+        source_aliases=("max_output_tokens",),
+        order=10,
+    ),
+    _field("prompt", "body.prompt", value_kind="string", order=20),
+    _field("format", "body.format", value_kind="string", order=30),
+    _field("audio_format", "body.audio_format", value_kind="string", order=40),
+)
+_ARK_AUDIO_DIRECT_KEYS = _accepted_keys(_ARK_AUDIO_FIELDS)
+_ARK_AUDIO_RESERVED_KEYS = frozenset({"input", "model", "stream"})
+
 # ── Xiaomi Mimo ──────────────────────────────────────────────
 
 _MIMO_CHAT_FIELDS = _fields(
     _field("temperature", "body.temperature", value_kind="number", order=10),
-    _field("max_tokens", "body.max_tokens", value_kind="integer", order=20),
+    _field(
+        "max_tokens",
+        "body.max_completion_tokens",
+        value_kind="integer",
+        source_aliases=("max_completion_tokens",),
+        config_key_name="body_max_tokens",
+        order=20,
+    ),
     _field("response_format", "body.response_format", order=30),
     _field("top_p", "body.top_p", value_kind="number", order=40),
     _field("tool_choice", "body.tool_choice", order=50),
@@ -485,9 +510,27 @@ _MIMO_CHAT_FIELDS = _fields(
     _field("seed", "body.seed", value_kind="integer", order=90),
     _field("stop", "body.stop", order=100),
     _field("n", "body.n", value_kind="integer", order=110),
+    _field("thinking", "body.thinking", order=120),
 )
 _MIMO_CHAT_DIRECT_KEYS = _accepted_keys(_MIMO_CHAT_FIELDS)
 _MIMO_CHAT_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
+
+_MIMO_AUDIO_FIELDS = _fields(
+    _field(
+        "max_tokens",
+        "body.max_completion_tokens",
+        value_kind="integer",
+        source_aliases=("max_completion_tokens",),
+        config_key_name="body_max_tokens",
+        order=10,
+    ),
+    _field("language", "body.asr_options.language", value_kind="string", order=20),
+    _field("prompt", "body.prompt", value_kind="string", order=30),
+    _field("format", "body.format", value_kind="string", order=40),
+    _field("audio_format", "body.audio_format", value_kind="string", order=50),
+)
+_MIMO_AUDIO_DIRECT_KEYS = _accepted_keys(_MIMO_AUDIO_FIELDS)
+_MIMO_AUDIO_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
 
 
 _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCatalog] = {
@@ -592,6 +635,14 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         direct_body_keys=_ARK_EMBEDDING_DIRECT_KEYS,
         reserved_body_keys=_ARK_EMBEDDING_RESERVED_KEYS,
     ),
+    ("volcengine_ark", "audio_transcription"): CapabilityParameterCatalog(
+        provider="volcengine_ark",
+        capability="audio_transcription",
+        title="Volcengine Ark 语音转录参数",
+        fields=_ARK_AUDIO_FIELDS,
+        direct_body_keys=_ARK_AUDIO_DIRECT_KEYS,
+        reserved_body_keys=_ARK_AUDIO_RESERVED_KEYS,
+    ),
     # ── Xiaomi Mimo ──
     ("xiaomi_mimo", "chat_completion"): CapabilityParameterCatalog(
         provider="xiaomi_mimo",
@@ -600,6 +651,14 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         fields=_MIMO_CHAT_FIELDS,
         direct_body_keys=_MIMO_CHAT_DIRECT_KEYS,
         reserved_body_keys=_MIMO_CHAT_RESERVED_KEYS,
+    ),
+    ("xiaomi_mimo", "audio_transcription"): CapabilityParameterCatalog(
+        provider="xiaomi_mimo",
+        capability="audio_transcription",
+        title="Xiaomi Mimo 语音转录参数",
+        fields=_MIMO_AUDIO_FIELDS,
+        direct_body_keys=_MIMO_AUDIO_DIRECT_KEYS,
+        reserved_body_keys=_MIMO_AUDIO_RESERVED_KEYS,
     ),
 }
 

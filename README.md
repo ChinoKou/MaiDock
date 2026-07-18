@@ -2,7 +2,7 @@
 
 MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的端点，并且提供了高级参数控制功能。
 
-**最低支持的 MaiBot 版本: 1.0.0-rc.3**
+**最低支持的 MaiBot 版本: 1.0.9**
 
 目前已实现：
 - `maidock-openai-responses` — OpenAI Responses API
@@ -22,12 +22,12 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 | `maidock-anthropic-messages` | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `maidock-dashscope` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ |
 | `maidock-siliconflow` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `maidock-volcengine-ark-responses` | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `maidock-xiaomi-mimo` | ✅ | ❌ | ⚠️ | ✅ | ✅ | ✅ | ⚠️ | ✅ |
+| `maidock-volcengine-ark-responses` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `maidock-xiaomi-mimo` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 > - 阿里云百炼 DashScope 不支持 `json_schema`。
-> - 小米 Mimo 在开启深度思考且历史会话存在工具调用时要求回传思考内容，本插件无法满足该协议要求，因此默认强制关闭思考。
-> - 小米 Mimo 无独立音频转录 API，实际通过文本生成端点 + 音频文件 实现转录。可在插件管理 → MaiDock 中修改默认转录提示词。
+> - 小米 Mimo 仍默认强制关闭思考；关闭该开关后，MaiDock 会通过工具调用 `extra_content` 与 SQLite 恢复并回传历史 `reasoning_content`。
+> - `mimo-v2.5-asr` 使用专用单音频 ASR 协议；其他模型保持“音频 + 自定义提示词”的通用音频理解路径，官方仅确认 `mimo-v2.5` 支持该能力。
 
 ---
 
@@ -60,6 +60,13 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 ARK 会收取缓存存储费用和缓存命中输入费用。`instructions`、`json_schema`、`store=false`、非 function 工具不参与自动缓存；模型额外参数中显式设置 `caching` 或 `previous_response_id` 时，以手动参数为准。
 
 缓存索引保存在 MaiBot Core 分配的 `data/plugins/chinokou.maidock/maidock_state.sqlite3` 中，不会写入插件源码目录。
+
+### 语音转录与 Mimo 思考回传
+
+- ARK 通过 Responses `input_audio.audio_url` + `input_text` 转录音频，提示词可在 Provider 基础设置中修改。
+- Mimo 专用 ASR 支持 MP3/WAV 和 `auto/zh/en` 语言选项；通用音频理解支持 MP3/WAV/FLAC/M4A/OGG。
+- MaiDock 会校验 Base64、文件签名、显式格式和提供商大小限制，未知格式不会再默认按 WAV 发送。
+- Mimo 仅保存带工具调用轮次的完整思考内容。内容以明文保存在插件数据目录的 SQLite 中，默认保留 30 天并在使用时续期。
 
 ---
 

@@ -1,4 +1,6 @@
 from collections.abc import Mapping
+from typing import Literal
+
 from maibot_sdk import Field, PluginConfigBase
 from pydantic import field_validator
 from pydantic.config import JsonDict
@@ -293,8 +295,13 @@ class VolcengineArkConfig(PluginConfigBase):
         le=604800,
         description="前缀缓存有效期秒数；范围 3600..604800",
     )
+    audio_transcription_prompt: str = Field(
+        default="请识别音频中的内容，以文字形式返回识别结果。",
+        description="ARK Responses 音频转录请求中与 input_audio 一同发送的文本提示词",
+    )
     response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
+    audio_transcription: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
 
 
@@ -308,11 +315,21 @@ class XiaomiMimoConfig(PluginConfigBase):
     user_agent: str = Field(default="", description="自定义 User-Agent；留空时自动使用 MaiDock 默认 UA")
     force_disable_thinking: bool = Field(
         default=True,
-        description="是否强制关闭深度思考/推理。Mimo 启用 thinking 并发生工具调用时要求后续历史消息回传对应思考内容，但 Host 不会向 MaiDock 提供历史 reasoning_content，因此默认关闭",
+        description="是否强制关闭深度思考/推理。关闭后 MaiDock 会通过工具调用元数据和 SQLite 完整回传历史 reasoning_content",
+    )
+    reasoning_retention_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Mimo 工具调用 reasoning_content 的本地保留天数；范围 1..365",
     )
     audio_transcription_prompt: str = Field(
         default="请转写这段音频",
-        description="Mimo 伪语音转录请求中与 input_audio 一同发送的文本提示词",
+        description="Mimo 通用音频理解转录请求中与 input_audio 一同发送的文本提示词",
+    )
+    audio_transcription_language: Literal["auto", "zh", "en"] = Field(
+        default="auto",
+        description="mimo-v2.5-asr 的识别语言；auto=自动检测，zh=中文，en=英文",
     )
     max_retries: int = Field(
         default=3,
@@ -503,6 +520,10 @@ def build_parameter_policies(config: MaiDockConfig) -> ParameterPolicyRegistry:
                 config.volcengine_ark.embeddings,
                 get_parameter_catalog("volcengine_ark", "embeddings"),
             ),
+            audio_transcription=build_parameter_policy(
+                config.volcengine_ark.audio_transcription,
+                get_parameter_catalog("volcengine_ark", "audio_transcription"),
+            ),
             image_generation=build_parameter_policy(
                 config.volcengine_ark.image_generation,
                 get_parameter_catalog("volcengine_ark", "image_generation"),
@@ -566,7 +587,10 @@ def build_runtime_options(
         dashscope_auto_detect_endpoint=bool(config.dashscope.auto_detect_endpoint),
         siliconflow_force_official_endpoint=bool(config.siliconflow.force_official_endpoint),
         mimo_force_disable_thinking=bool(config.xiaomi_mimo.force_disable_thinking),
+        mimo_reasoning_retention_days=config.xiaomi_mimo.reasoning_retention_days,
+        volcengine_audio_transcription_prompt=config.volcengine_ark.audio_transcription_prompt.strip(),
         mimo_audio_transcription_prompt=config.xiaomi_mimo.audio_transcription_prompt.strip(),
+        mimo_audio_transcription_language=config.xiaomi_mimo.audio_transcription_language,
         openai_max_retries=max(0, config.openai_responses.max_retries),
         anthropic_max_retries=max(0, config.anthropic_messages.max_retries),
         dashscope_max_retries=max(0, config.dashscope.max_retries),

@@ -70,9 +70,12 @@ class ProviderRuntimeOptions:
     volcengine_force_official_endpoint: bool = True
     volcengine_prefix_cache_enabled: bool = False
     volcengine_prefix_cache_ttl_seconds: int = 259200
+    volcengine_audio_transcription_prompt: str = "请识别音频中的内容，以文字形式返回识别结果。"
     mimo_user_agent: str = MAIDOCK_USER_AGENT
     mimo_force_disable_thinking: bool = True
+    mimo_reasoning_retention_days: int = 30
     mimo_audio_transcription_prompt: str = "请转写这段音频"
+    mimo_audio_transcription_language: str = "auto"
     openai_max_retries: int = 3
     anthropic_max_retries: int = 3
     dashscope_max_retries: int = 3

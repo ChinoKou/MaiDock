@@ -19,9 +19,18 @@ from ..common.httpx import (
     resolve_endpoint_path,
     with_default_user_agent,
 )
+from ..common.parameter_translation import TranslationContext, TranslationEnvelope
+from .parameter_translation import apply_mimo_chat_parameters, normalize_mimo_chat_body
 
 MIMO_PROVIDER_LABEL = "Xiaomi Mimo"
 MIMO_CHAT_COMPLETIONS_ENDPOINT = "chat/completions"
+
+
+class MimoChatCompletionsMapper(ChatCompletionsMapper):
+    """使用 Mimo 专用字段映射的 Chat Completions mapper。"""
+
+    def _apply_chat_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:
+        apply_mimo_chat_parameters(context, envelope)
 
 
 def build_client_config(
@@ -73,7 +82,7 @@ def resolve_path(config: HttpxClientConfig, endpoint: str) -> str:
 
 
 def _create_mapper(*, options: ProviderRuntimeOptions, logger: logging.Logger) -> ChatCompletionsMapper:
-    return ChatCompletionsMapper(
+    return MimoChatCompletionsMapper(
         options=options,
         logger=logger,
         provider_label=MIMO_PROVIDER_LABEL,
@@ -96,6 +105,7 @@ def build_chat_body(
     body, headers, query = mapper.build_request_body(request, stream=stream)
     if options.mimo_force_disable_thinking:
         body["thinking"] = {"type": "disabled"}
+    normalize_mimo_chat_body(body)
     return body, headers, query
 
 
