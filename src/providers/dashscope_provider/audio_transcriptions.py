@@ -6,7 +6,7 @@ from ...core.common import (
     read_model_identifier,
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
-from ...core.json_types import json_mapping_or_none, list_field, mapping_field
+from ...core.json_types import json_mapping_or_none, list_field, mapping_field, string_field
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import AudioTranscriptionRequestSnapshot
@@ -104,11 +104,14 @@ def parse_audio_transcription_response(
         text = content
     elif isinstance(content, list):
         # 多模态端点的 content 可能是 [{"text": "..."}] 列表格式
-        parts = [
-            item["text"]
-            for item in content
-            if isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"]
-        ]
+        parts: list[str] = []
+        for item in content:
+            item_mapping = json_mapping_or_none(item)
+            if item_mapping is None:
+                continue
+            item_text = string_field(item_mapping, "text")
+            if item_text:
+                parts.append(item_text)
         text = "\n".join(parts) if parts else None
     if text:
         raw_data = sanitize_json_object(payload) if options.include_raw_data else None
