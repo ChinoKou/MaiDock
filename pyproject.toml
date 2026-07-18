@@ -10,8 +10,12 @@ dependencies = [
     "maibot-plugin-sdk>=2.6.0",
     "pillow>=12.2.0",
     "pydantic>=2.13.4",
-    "pyright>=1.1.410",
-    "pytest>=9.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "ruff>=0.15.16",
+    "ruff>=0.15.22",
 ]
