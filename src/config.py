@@ -1,9 +1,8 @@
-import json
 from collections.abc import Mapping
-
 from maibot_sdk import Field, PluginConfigBase
 from pydantic import field_validator
 from pydantic.config import JsonDict
+import json
 
 from .core.common import (
     ImageProcessingLimits,
@@ -284,6 +283,16 @@ class VolcengineArkConfig(PluginConfigBase):
         description="重试间隔秒数（关闭下方开关时作为回退值，开启时强制覆写 Host 值）",
     )
     force_retry_interval: bool = Field(default=False, description="关闭=回退模式，开启=强制使用上方配置值")
+    prefix_cache_enabled: bool = Field(
+        default=False,
+        description="启用 ARK Responses 显式前缀缓存；缓存存储会产生费用",
+    )
+    prefix_cache_ttl_seconds: int = Field(
+        default=259200,
+        ge=3600,
+        le=604800,
+        description="前缀缓存有效期秒数；范围 3600..604800",
+    )
     response: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     embeddings: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
     image_generation: CapabilityParameterPolicyConfig = Field(default_factory=CapabilityParameterPolicyConfig)
@@ -581,6 +590,8 @@ def build_runtime_options(
         dashscope_force_retry_interval=bool(config.dashscope.force_retry_interval),
         siliconflow_force_retry_interval=bool(config.siliconflow.force_retry_interval),
         volcengine_force_retry_interval=bool(config.volcengine_ark.force_retry_interval),
+        volcengine_prefix_cache_enabled=bool(config.volcengine_ark.prefix_cache_enabled),
+        volcengine_prefix_cache_ttl_seconds=config.volcengine_ark.prefix_cache_ttl_seconds,
         mimo_force_retry_interval=bool(config.xiaomi_mimo.force_retry_interval),
         image_limits=build_image_limits(config.compatibility),
         parameter_policies=build_parameter_policies(config),

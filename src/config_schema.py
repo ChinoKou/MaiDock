@@ -55,6 +55,8 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     "volcengine_ark": (
         "user_agent",
         "force_official_endpoint",
+        "prefix_cache_enabled",
+        "prefix_cache_ttl_seconds",
         "max_retries",
         "force_max_retries",
         "retry_interval",
@@ -287,6 +289,31 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
             default=True,
             ui_type="switch",
             hint="阿里云百炼多模态模型与纯文本模型使用不同 API 端点。开启后，文本端点返回 url error 时自动切换多模态端点并在内存中记录。",
+            order=current_order,
+        )
+        current_order += 1
+    if "prefix_cache_enabled" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["prefix_cache_enabled"] = _field(
+            name="prefix_cache_enabled",
+            field_type="boolean",
+            label="启用 ARK 显式前缀缓存",
+            default=False,
+            ui_type="switch",
+            hint="需要 Core 1.0.9，并需先开启方舟“推理（缓存）”计价；仅缓存至少 256 tokens 的开头 system 前缀。",
+            order=current_order,
+        )
+        current_order += 1
+    if "prefix_cache_ttl_seconds" in _PROVIDER_BASE_FIELDS[provider]:
+        fields["prefix_cache_ttl_seconds"] = _field(
+            name="prefix_cache_ttl_seconds",
+            field_type="integer",
+            label="前缀缓存有效期（秒）",
+            default=259200,
+            ui_type="number",
+            min_value=3600,
+            max_value=604800,
+            step=3600,
+            hint="默认 3 天，最短 1 小时，最长 7 天；使用缓存不会延长有效期。",
             order=current_order,
         )
         current_order += 1
@@ -578,6 +605,7 @@ def _field(
     hint: str = "",
     choices: tuple[str, ...] = (),
     min_value: int | None = None,
+    max_value: int | None = None,
     rows: int = 3,
     disabled: bool = False,
     step: float = 1.0,
@@ -590,7 +618,7 @@ def _field(
         "required": False,
         "choices": list(choices),
         "min": min_value,
-        "max": None,
+        "max": max_value,
         "step": step,
         "pattern": None,
         "max_length": None,

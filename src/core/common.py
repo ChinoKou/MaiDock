@@ -68,6 +68,8 @@ class ProviderRuntimeOptions:
     dashscope_auto_detect_endpoint: bool = True
     siliconflow_force_official_endpoint: bool = True
     volcengine_force_official_endpoint: bool = True
+    volcengine_prefix_cache_enabled: bool = False
+    volcengine_prefix_cache_ttl_seconds: int = 259200
     mimo_user_agent: str = MAIDOCK_USER_AGENT
     mimo_force_disable_thinking: bool = True
     mimo_audio_transcription_prompt: str = "请转写这段音频"

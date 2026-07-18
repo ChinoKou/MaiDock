@@ -510,6 +510,8 @@ max_retries = 3
 force_max_retries = false
 retry_interval = 5.0
 force_retry_interval = false
+prefix_cache_enabled = false
+prefix_cache_ttl_seconds = 259200
 
 [volcengine_ark.response]
 accept_model_extra_params = true

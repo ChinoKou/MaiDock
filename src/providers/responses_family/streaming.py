@@ -1,17 +1,19 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-
 import httpx
 
 from ...core.diagnostics import sanitize_for_log, sanitize_json_object
 from ...core.json_types import (
+    JsonValue,
+    json_list_or_none,
+    json_mapping_or_none,
     mapping_field,
     mapping_to_json_object,
-    json_mapping_or_none,
     string_field,
 )
 from ...schemas import OpenAIResponseOutputContentBlock, OpenAIResponseOutputItem
 from ..common.httpx import HttpxProviderError, stream_sse_json
+from .status import incomplete_reason, is_length_incomplete
 
 
 def _empty_str_list() -> list[str]:
@@ -174,13 +176,41 @@ def _event_key(event: dict) -> str:
     return "default"
 
 
-def _json_response_field(event: dict) -> Mapping | None:
+def _json_response_field(event: dict) -> Mapping[str, JsonValue] | None:
     response = json_mapping_or_none(event.get("response"))
     if response is not None:
         return response
     if "output" in event and ("object" in event or "status" in event or "output_text" in event):
         return sanitize_json_object(event)
     return None
+
+
+def _merge_length_incomplete_response(
+    final_response: Mapping[str, JsonValue],
+    accumulator: ResponsesStreamAccumulator,
+) -> dict[str, JsonValue]:
+    result = mapping_to_json_object(final_response)
+    if not is_length_incomplete(result):
+        return result
+    output = json_list_or_none(result.get("output"))
+    output_text = result.get("output_text")
+    accumulated = accumulator.to_response_payload()
+    accumulated_usage = json_mapping_or_none(accumulated.get("usage"))
+    final_usage = json_mapping_or_none(result.get("usage"))
+    merged_usage: dict[str, JsonValue] = {}
+    if accumulated_usage is not None:
+        merged_usage.update(accumulated_usage)
+    if final_usage is not None:
+        merged_usage.update(final_usage)
+    if merged_usage:
+        result["usage"] = merged_usage
+
+    if output or (isinstance(output_text, str) and output_text):
+        return result
+
+    result["output"] = accumulated["output"]
+    result["output_text"] = accumulated["output_text"]
+    return result
 
 
 def _terminal_error_message(provider_label: str, event_type: str, event: dict) -> str | None:
@@ -190,6 +220,8 @@ def _terminal_error_message(provider_label: str, event_type: str, event: dict) -
     if event_type not in {"response.failed", "response.incomplete"}:
         return None
     response = mapping_field(event, "response")
+    if event_type == "response.incomplete" and response is not None and incomplete_reason(response) == "length":
+        return None
     error_payload: object = None
     if response is not None:
         error_payload = response.get("error") or response.get("incomplete_details") or sanitize_json_object(response)
@@ -246,7 +278,7 @@ async def collect_responses_stream(
     retry_interval: float,
 ) -> Mapping:
     accumulator = ResponsesStreamAccumulator(model=model, tool_fallback_prefix=tool_fallback_prefix)
-    final_response: Mapping | None = None
+    final_response: Mapping[str, JsonValue] | None = None
     async for event in stream_sse_json(
         client,
         path,
@@ -274,5 +306,5 @@ async def collect_responses_stream(
         _merge_stream_item(event_type, event_mapping, accumulator)
 
     if final_response is not None:
-        return final_response
+        return _merge_length_incomplete_response(final_response, accumulator)
     return accumulator.to_response_payload()

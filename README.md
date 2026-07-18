@@ -47,6 +47,22 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 ---
 
+### 火山方舟 Responses 前缀缓存
+
+在插件配置的 **Volcengine Ark 基础设置** 中可开启显式前缀缓存。该功能默认关闭；开启后，MaiDock 会：
+该功能需要 MaiBot Core 1.0.9 或更高版本，并需先在火山方舟开通管理中开启“推理（缓存）”计价。
+
+
+- 使用 ARK 分词 API 确认开头的 system 前缀不少于 256 tokens。
+- 将固定 system 前缀与 function tools 创建为非流式缓存，真实请求只发送剩余历史。
+- 按模型、账号、前缀、thinking 和 tools 分别保存缓存 ID，默认有效期为 3 天。
+
+ARK 会收取缓存存储费用和缓存命中输入费用。`instructions`、`json_schema`、`store=false`、非 function 工具不参与自动缓存；模型额外参数中显式设置 `caching` 或 `previous_response_id` 时，以手动参数为准。
+
+缓存索引保存在 MaiBot Core 分配的 `data/plugins/chinokou.maidock/maidock_state.sqlite3` 中，不会写入插件源码目录。
+
+---
+
 ## 注意事项
 
 ### Embedding / 嵌入维度

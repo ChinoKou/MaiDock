@@ -1,11 +1,10 @@
-import asyncio
-import json
-import logging
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
-
+import asyncio
 import httpx
+import json
+import logging
 
 from ...core.common import (
     normalize_base_url,
@@ -17,7 +16,7 @@ from ...core.common import (
     with_default_user_agent,
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
-from ...core.json_types import mapping_to_json_object, json_mapping_or_none
+from ...core.json_types import json_mapping_or_none, mapping_to_json_object
 from ...schemas.host_snapshots import ApiProviderSnapshot
 
 _logger = logging.getLogger("maibot_plugin.maidock.httpx")
@@ -48,6 +47,10 @@ class SseJsonEvent:
 
 class HttpxProviderError(RuntimeError):
     """原生 httpx Provider 抛出的 Provider 错误。"""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class HttpxProviderParseError(ValueError):
@@ -190,7 +193,10 @@ def _status_error_message(provider_label: str, response: httpx.Response) -> str:
 
 def _json_response_payload(provider_label: str, response: httpx.Response) -> dict:
     if response.status_code >= 400:
-        raise HttpxProviderError(_status_error_message(provider_label, response))
+        raise HttpxProviderError(
+            _status_error_message(provider_label, response),
+            status_code=response.status_code,
+        )
     try:
         raw_payload: object = response.json()
     except ValueError as exc:
@@ -358,7 +364,10 @@ async def post_multipart(
                 await asyncio.sleep(retry_interval)
             continue
         if response.status_code >= 400:
-            raise HttpxProviderError(_status_error_message(provider_label, response))
+            raise HttpxProviderError(
+                _status_error_message(provider_label, response),
+                status_code=response.status_code,
+            )
         return response
     raise HttpxProviderError(f"{provider_label} 上游接口调用失败（已重试 {retries} 次）")
 
@@ -432,7 +441,10 @@ async def stream_sse_json(
                         if retry_interval > 0:
                             await asyncio.sleep(retry_interval)
                         continue
-                    raise HttpxProviderError(_status_error_message(provider_label, response))
+                    raise HttpxProviderError(
+                        _status_error_message(provider_label, response),
+                        status_code=response.status_code,
+                    )
                 event_name: str | None = None
                 status: int | None = None
                 data_lines: list[str] = []
