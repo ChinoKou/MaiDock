@@ -15,7 +15,21 @@ from ...schemas import (
     ProviderResponse,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import create_async_client, post_json, post_multipart
+from ..chat_completions_family.transport import (
+    create_async_client as create_chat_client,
+)
+from ..chat_completions_family.transport import (
+    post_json as post_chat_json,
+)
+from ..openai_auxiliary_family.transport import (
+    create_async_client as create_auxiliary_client,
+)
+from ..openai_auxiliary_family.transport import (
+    post_json as post_auxiliary_json,
+)
+from ..openai_auxiliary_family.transport import (
+    post_multipart,
+)
 from .audio_transcriptions import (
     build_audio_transcription_request,
     parse_audio_transcription_response,
@@ -82,7 +96,7 @@ class SiliconFlowProvider(LLMProviderBase):
             force_retry_interval=self.options.siliconflow_force_retry_interval,
         )
         path = resolve_path(config, SILICONFLOW_CHAT_COMPLETIONS_ENDPOINT)
-        async with create_async_client(config, transport=self._transport) as client:
+        async with create_chat_client(config, transport=self._transport) as client:
             if stream:
                 result = await collect_stream_response(
                     client,
@@ -95,7 +109,7 @@ class SiliconFlowProvider(LLMProviderBase):
                     retry_interval=config.retry_interval,
                 )
             else:
-                payload = await post_json(
+                payload = await post_chat_json(
                     client,
                     path,
                     json_body=body,
@@ -130,8 +144,8 @@ class SiliconFlowProvider(LLMProviderBase):
             force_retry_interval=self.options.siliconflow_force_retry_interval,
         )
         path = resolve_path(config, SILICONFLOW_EMBEDDINGS_ENDPOINT)
-        async with create_async_client(config, transport=self._transport) as client:
-            payload = await post_json(
+        async with create_auxiliary_client(config, transport=self._transport) as client:
+            payload = await post_auxiliary_json(
                 client,
                 path,
                 json_body=body,
@@ -162,7 +176,7 @@ class SiliconFlowProvider(LLMProviderBase):
             force_retry_interval=self.options.siliconflow_force_retry_interval,
         )
         path = resolve_path(config, SILICONFLOW_AUDIO_TRANSCRIPTIONS_ENDPOINT)
-        async with create_async_client(config, transport=self._transport) as client:
+        async with create_auxiliary_client(config, transport=self._transport) as client:
             response = await post_multipart(
                 client,
                 path,

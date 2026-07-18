@@ -3,11 +3,7 @@ import logging
 import httpx
 from maibot_sdk import LLMProviderBase
 
-from ...core.common import (
-    ProviderRuntimeOptions,
-    log_request_summary,
-    log_response_summary,
-)
+from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
 from ...schemas import ResponseRequestSnapshot
 from ..common.httpx import create_async_client, post_json, resolve_endpoint_path
 from .messages import (

@@ -9,13 +9,7 @@ from ...core.common import (
     read_model_identifier,
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
-from ...core.json_types import (
-    JsonValue,
-    json_mapping_or_none,
-    list_field,
-    mapping_field,
-    mapping_to_json_object,
-)
+from ...core.json_types import JsonValue, json_mapping_or_none, list_field, mapping_field, mapping_to_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import (
@@ -28,16 +22,8 @@ from ...schemas import (
     ProviderToolCall,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import (
-    HttpxClientConfig,
-    HttpxProviderParseError,
-    build_httpx_client_config,
-    resolve_endpoint_path,
-)
-from ..common.parameter_translation import (
-    TranslationEnvelope,
-    build_translation_context,
-)
+from ..common.httpx import HttpxClientConfig, HttpxProviderParseError, build_httpx_client_config, resolve_endpoint_path
+from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .parameter_translation import apply_dashscope_chat_parameters

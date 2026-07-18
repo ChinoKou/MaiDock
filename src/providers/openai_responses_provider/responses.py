@@ -7,9 +7,22 @@ from ...core.common import (
     resolve_max_retries,
     resolve_retry_interval,
 )
-from ...schemas import ApiProviderSnapshot
-from ..common.httpx import HttpxClientConfig
+from ...schemas import (
+    ApiProviderSnapshot,
+    MessageSnapshot,
+    OpenAIInputImageBlock,
+    OpenAIInputTextBlock,
+    OpenAIResponseOutputItem,
+    OpenAIResponseSnapshot,
+    OpenAIResponsesTool,
+    ProviderToolCall,
+    ToolOptionSnapshot,
+)
+from ..responses_family.parameter_translation import TranslationContext, TranslationEnvelope
 from ..responses_family.responses import ResponsesMapper
+from ..responses_family.transport import HttpxClientConfig
+from . import multimodal, tools
+from .parameter_translation import apply_openai_responses_parameters
 
 OPENAI_PROVIDER_LABEL = "OpenAI Responses"
 OPENAI_API_PREFIX = "v1"
@@ -18,8 +31,33 @@ OPENAI_EMBEDDINGS_ENDPOINT = "embeddings"
 OPENAI_AUDIO_TRANSCRIPTIONS_ENDPOINT = "audio/transcriptions"
 
 
+class OpenAIResponsesMapper(ResponsesMapper):
+    """通过 OpenAI Provider 门面调用 Responses Family。"""
+
+    def _convert_tools(self, tool_options: list[ToolOptionSnapshot]) -> list[OpenAIResponsesTool]:
+        return tools.convert_tools(tool_options)
+
+    def _convert_user_content_parts(
+        self,
+        message: MessageSnapshot,
+    ) -> list[OpenAIInputTextBlock | OpenAIInputImageBlock]:
+        return multimodal.convert_user_content_parts(message, logger=self.logger, options=self.options)
+
+    def _apply_response_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:
+        apply_openai_responses_parameters(context, envelope)
+
+    def _extract_tool_calls(self, output: list[OpenAIResponseOutputItem]) -> list[ProviderToolCall]:
+        return tools.extract_tool_calls(output, options=self.options)
+
+    def _extract_text_content(self, response_model: OpenAIResponseSnapshot) -> str:
+        return multimodal.extract_text_content(response_model)
+
+    def _extract_reasoning_content(self, output: list[OpenAIResponseOutputItem]) -> str | None:
+        return multimodal.extract_reasoning_content(output)
+
+
 def create_responses_mapper(*, options: ProviderRuntimeOptions, logger: logging.Logger) -> ResponsesMapper:
-    return ResponsesMapper(
+    return OpenAIResponsesMapper(
         options=options,
         logger=logger,
         provider_label=OPENAI_PROVIDER_LABEL,

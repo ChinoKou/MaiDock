@@ -1,10 +1,10 @@
+import json
 from collections.abc import Mapping
 from typing import Literal
 
 from maibot_sdk import Field, PluginConfigBase
 from pydantic import field_validator
 from pydantic.config import JsonDict
-import json
 
 from .core.common import (
     ImageProcessingLimits,

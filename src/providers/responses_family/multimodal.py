@@ -1,6 +1,6 @@
 import logging
 
-from ...core.common import ProviderRuntimeOptions, image_data_url
+from ...core.common import ProviderRuntimeOptions
 from ...schemas.host_snapshots import MessagePartImage, MessagePartText, MessageSnapshot
 from ...schemas.responses_compat import (
     OpenAIInputImageBlock,
@@ -8,6 +8,7 @@ from ...schemas.responses_compat import (
     OpenAIResponseOutputItem,
     OpenAIResponseSnapshot,
 )
+from ..common.multimodal import image_data_url_or_none
 
 
 def convert_user_content_parts(
@@ -21,7 +22,7 @@ def convert_user_content_parts(
         if isinstance(part, MessagePartText) and part.text:
             parts.append(OpenAIInputTextBlock(text=part.text))
         elif message.role == "user" and isinstance(part, MessagePartImage):
-            data_url = image_data_url(part, logger, options.invalid_image_policy, options.image_limits)
+            data_url = image_data_url_or_none(part, logger=logger, options=options)
             if data_url:
                 parts.append(OpenAIInputImageBlock(image_url=data_url, detail="auto"))
             elif options.invalid_image_policy == "placeholder":

@@ -2,18 +2,9 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from ...core.json_types import (
-    mapping_to_json_object,
-    normalize_json_value,
-    json_mapping_or_none,
-)
+from ...core.json_types import json_mapping_or_none, mapping_to_json_object, normalize_json_value
 from ...core.parameter_catalog import CapabilityParameterCatalog, dotted_path
-from ...core.parameter_policy import (
-    CapabilityKey,
-    ParameterPolicy,
-    ProviderPolicyKey,
-    UnknownExtraParamsPolicy,
-)
+from ...core.parameter_policy import CapabilityKey, ParameterPolicy, ProviderPolicyKey, UnknownExtraParamsPolicy
 from ...schemas.host_snapshots import (
     AudioTranscriptionRequestSnapshot,
     BaseProviderRequestSnapshot,

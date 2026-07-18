@@ -1,8 +1,8 @@
 from ...core.common import ProviderRuntimeOptions
-from ...core.parsing import fallback_tool_call_id, normalize_arguments
+from ...schemas.host_snapshots import ToolOptionSnapshot
 from ...schemas.provider_contracts import ProviderFunctionCall, ProviderToolCall
 from ...schemas.responses_compat import OpenAIResponseOutputItem, OpenAIResponsesTool
-from ...schemas.host_snapshots import ToolOptionSnapshot
+from ..common.tools import normalize_tool_arguments_value, resolve_tool_call_id_from_seed
 
 
 def convert_tools(tool_options: list[ToolOptionSnapshot]) -> list[OpenAIResponsesTool]:
@@ -32,13 +32,13 @@ def extract_tool_calls(
     for item in output:
         if item.type != "function_call" or not item.name:
             continue
-        call_id = (item.call_id or item.id or fallback_tool_call_id(item.name)).strip()
+        call_id = resolve_tool_call_id_from_seed(item.call_id or item.id, fallback_seed=item.name)
         tool_calls.append(
             ProviderToolCall(
                 id=call_id,
                 function=ProviderFunctionCall(
                     name=item.name,
-                    arguments=normalize_arguments(item.arguments, options.tool_argument_parse_mode),
+                    arguments=normalize_tool_arguments_value(item.arguments, options.tool_argument_parse_mode),
                 ),
                 extra_content={
                     "provider": raw_provider,

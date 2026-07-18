@@ -5,20 +5,9 @@ import httpx
 
 from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
-from ...core.json_types import (
-    JsonValue,
-    json_list_or_none,
-    json_mapping_or_none,
-    mapping_field,
-    mapping_to_json_object,
-)
+from ...core.json_types import JsonValue, json_list_or_none, json_mapping_or_none, mapping_field, mapping_to_json_object
 from ...core.parsing import ToolArgumentParseMode
-from ...schemas import (
-    GenericUsageSnapshot,
-    ProviderFunctionCall,
-    ProviderResponse,
-    ProviderToolCall,
-)
+from ...schemas import GenericUsageSnapshot, ProviderFunctionCall, ProviderResponse, ProviderToolCall
 from ..common.httpx import HttpxProviderError, HttpxProviderParseError, stream_sse_json
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback

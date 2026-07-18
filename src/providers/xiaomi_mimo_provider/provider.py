@@ -1,8 +1,8 @@
+import logging
 from dataclasses import replace
-from maibot_sdk import LLMProviderBase
 
 import httpx
-import logging
+from maibot_sdk import LLMProviderBase
 
 from ...core.common import (
     ProviderRuntimeOptions,
@@ -17,7 +17,7 @@ from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import create_async_client, post_json
+from ..chat_completions_family.transport import create_async_client, post_json
 from .audio_transcriptions import build_mimo_audio_transcription
 from .chat import (
     MIMO_CHAT_COMPLETIONS_ENDPOINT,
@@ -77,9 +77,7 @@ class XiaomiMimoProvider(LLMProviderBase):
         )
         thinking_enabled = mimo_thinking_enabled(body)
         hide_reasoning = thinking_enabled and self.options.reasoning_parse_mode == "none"
-        response_options = (
-            replace(self.options, reasoning_parse_mode="native") if hide_reasoning else self.options
-        )
+        response_options = replace(self.options, reasoning_parse_mode="native") if hide_reasoning else self.options
         if thinking_enabled:
             if self._reasoning_manager is None:
                 raise RuntimeError("Mimo 原生思考已启用，但 MaiDock reasoning 管理器不可用")

@@ -4,15 +4,23 @@ import re
 from ...core.common import ProviderRuntimeOptions
 from ...schemas import (
     ApiProviderSnapshot,
+    MessagePartImage,
+    MessageSnapshot,
     ProviderResponse,
+    ProviderToolCall,
     ResponseRequestSnapshot,
+    ToolCallSnapshot,
+    ToolOptionSnapshot,
 )
 from ..chat_completions_family.chat import ChatCompletionsMapper
-from ..common.httpx import (
+from ..chat_completions_family.parameter_translation import TranslationContext, TranslationEnvelope
+from ..chat_completions_family.transport import (
     HttpxClientConfig,
     build_httpx_client_config,
     resolve_endpoint_path,
 )
+from . import multimodal, tools
+from .parameter_translation import apply_siliconflow_chat_parameters
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 SILICONFLOW_API_PREFIX = "v1"
@@ -47,8 +55,33 @@ def resolve_path(config: HttpxClientConfig, endpoint: str) -> str:
     return resolve_endpoint_path(config.base_url, api_prefix=SILICONFLOW_API_PREFIX, endpoint_path=endpoint)
 
 
+class SiliconFlowChatCompletionsMapper(ChatCompletionsMapper):
+    """通过 SiliconFlow 适配门面调用 Chat Completions Family。"""
+
+    def _convert_message_content(self, message: MessageSnapshot) -> str | list[dict] | None:
+        return multimodal.convert_message_content(message, options=self.options, logger=self.logger)
+
+    def _build_image_content(self, part: MessagePartImage) -> dict | None:
+        return multimodal.build_image_content(part, options=self.options, logger=self.logger)
+
+    def _convert_tools(self, tool_options: list[ToolOptionSnapshot]) -> list[dict]:
+        return tools.convert_tools(tool_options)
+
+    def _convert_history_tool_call(self, tool_call: ToolCallSnapshot, *, index: int = 1) -> dict | None:
+        return tools.convert_history_tool_call(tool_call, options=self.options, index=index)
+
+    def _extract_tool_calls(self, raw_tool_calls: object) -> list[ProviderToolCall]:
+        return tools.extract_tool_calls(raw_tool_calls, options=self.options)
+
+    def _message_content_text(self, value: object) -> str | None:
+        return multimodal.message_content_text(value)
+
+    def _apply_chat_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:
+        apply_siliconflow_chat_parameters(context, envelope)
+
+
 def _create_mapper(*, options: ProviderRuntimeOptions, logger: logging.Logger) -> ChatCompletionsMapper:
-    return ChatCompletionsMapper(
+    return SiliconFlowChatCompletionsMapper(
         options=options,
         logger=logger,
         provider_label=SILICONFLOW_PROVIDER_LABEL,

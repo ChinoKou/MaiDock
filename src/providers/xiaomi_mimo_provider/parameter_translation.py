@@ -1,11 +1,9 @@
 from ...core.json_types import json_mapping_or_none, mapping_to_json_object
 from ...schemas import AudioTranscriptionRequestSnapshot, ResponseRequestSnapshot
 from ..chat_completions_family.parameter_translation import (
-    apply_chat_completions_family_parameters,
-)
-from ..common.parameter_translation import (
     TranslationContext,
     TranslationEnvelope,
+    apply_chat_completions_family_parameters,
     normalize_positive_int,
     set_target_value,
 )
@@ -91,16 +89,12 @@ def _canonicalize_mimo_max_tokens(context: TranslationContext) -> None:
         or legacy_value is not None
         or official_value is not None
     ):
-        raise ValueError(
-            f"{context.provider_label} {context.capability} 参数策略拒绝路径: {legacy_target_path}"
-        )
+        raise ValueError(f"{context.provider_label} {context.capability} 参数策略拒绝路径: {legacy_target_path}")
     if explicit_values:
         expected_source, expected_value = explicit_values[0]
         for source, value in explicit_values[1:]:
             if value != expected_value:
-                raise ValueError(
-                    f"{expected_source} 与 {source} 同时提供了不同的 max_tokens/max_completion_tokens"
-                )
+                raise ValueError(f"{expected_source} 与 {source} 同时提供了不同的 max_tokens/max_completion_tokens")
         context.normalized.fields["max_tokens"] = expected_value
         context.normalized.sources["max_tokens"] = expected_source
         return

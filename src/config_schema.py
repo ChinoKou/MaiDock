@@ -289,9 +289,7 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
         current_order += 1
     if "audio_transcription_prompt" in _PROVIDER_BASE_FIELDS[provider]:
         prompt_default = (
-            "请识别音频中的内容，以文字形式返回识别结果。"
-            if provider == "volcengine_ark"
-            else "请转写这段音频"
+            "请识别音频中的内容，以文字形式返回识别结果。" if provider == "volcengine_ark" else "请转写这段音频"
         )
         prompt_hint = (
             "ARK 使用 Responses input_audio + input_text 完成语音转录。"

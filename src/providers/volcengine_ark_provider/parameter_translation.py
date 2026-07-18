@@ -1,15 +1,14 @@
-from ..common.embeddings_translation import (
+from ..responses_family.parameter_translation import (
     EMBEDDING_TRANSLATORS,
-    apply_embedding_parameters,
-)
-from ..common.parameter_translation import (
+    RESPONSES_TRANSLATORS,
     FieldTranslator,
     TranslationContext,
     TranslationEnvelope,
+    apply_embedding_parameters,
+    apply_responses_parameters,
     run_translators,
     set_target_value,
 )
-from ..responses_family.parameter_translation import RESPONSES_TRANSLATORS, apply_responses_parameters
 
 ARK_EMBEDDING_TRANSLATORS: dict[str, FieldTranslator] = {
     "dimensions": EMBEDDING_TRANSLATORS["dimensions"],

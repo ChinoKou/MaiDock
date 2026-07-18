@@ -1,6 +1,7 @@
-from maibot_sdk import LLMProviderBase
-import httpx
 import logging
+
+import httpx
+from maibot_sdk import LLMProviderBase
 
 from ...core.common import (
     ProviderRuntimeOptions,
@@ -14,7 +15,7 @@ from ...schemas import (
     EmbeddingRequestSnapshot,
     ResponseRequestSnapshot,
 )
-from ..common.httpx import (
+from ..responses_family.transport import (
     HttpxProviderError,
     create_async_client,
     post_json,

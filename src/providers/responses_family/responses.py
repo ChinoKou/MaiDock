@@ -1,6 +1,6 @@
+import logging
 from collections.abc import Mapping
 from typing import Literal
-import logging
 
 from ...core.common import (
     ProviderRuntimeOptions,
@@ -25,18 +25,22 @@ from ...schemas.host_snapshots import (
     MessageSnapshot,
     ResponseRequestSnapshot,
     ToolCallSnapshot,
+    ToolOptionSnapshot,
 )
-from ...schemas.provider_contracts import ProviderResponse
+from ...schemas.provider_contracts import ProviderResponse, ProviderToolCall
 from ...schemas.responses_compat import (
     OpenAIEasyInputMessage,
     OpenAIFunctionCallInputItem,
     OpenAIFunctionCallOutputItem,
+    OpenAIInputImageBlock,
     OpenAIInputMessage,
     OpenAIInputTextBlock,
     OpenAIRawData,
     OpenAIResponseInputItem,
+    OpenAIResponseOutputItem,
     OpenAIResponseSnapshot,
     OpenAIResponsesRequest,
+    OpenAIResponsesTool,
 )
 from ...schemas.sdk_dump import SdkDumpAdapter
 from ..common.parameter_translation import (
@@ -94,7 +98,7 @@ class ResponsesMapper:
         return OpenAIResponsesRequest(
             model=read_model_identifier(request_model.model_info),
             input=self._convert_messages(request_model.message_list),
-            tools=convert_family_tools(request_model.tool_options),
+            tools=self._convert_tools(request_model.tool_options),
             normalized=normalized,
         )
 
@@ -130,7 +134,7 @@ class ResponsesMapper:
             normalized=normalized,
             model=upstream_request.model,
         )
-        apply_family_responses_parameters(context, envelope)
+        self._apply_response_parameters(context, envelope)
         if not apply_policy:
             return envelope.body
         transport = apply_transport_parameter_policy(
@@ -155,11 +159,9 @@ class ResponsesMapper:
         response_model = OpenAIResponseSnapshot.model_validate(raw_payload)
         self._raise_for_terminal_error(response_model, raw_payload)
         length_incomplete = is_length_incomplete(raw_payload)
-        tool_calls = extract_family_tool_calls(
-            response_model.output, options=self.options, raw_provider=self.raw_provider
-        )
-        text_content = extract_family_text_content(response_model)
-        native_reasoning = extract_family_reasoning_content(response_model.output)
+        tool_calls = self._extract_tool_calls(response_model.output)
+        text_content = self._extract_text_content(response_model)
+        native_reasoning = self._extract_reasoning_content(response_model.output)
         reasoning_content, final_content = merge_native_or_text_reasoning(
             content=text_content,
             native_reasoning=native_reasoning,
@@ -189,9 +191,7 @@ class ResponsesMapper:
             else None
         )
         if not final_content and not tool_calls and not (length_incomplete and reasoning_content):
-            raise ValueError(
-                build_parse_error_message(self.provider_label, "响应中没有可用的文本、思考内容或工具调用")
-            )
+            raise ValueError(build_parse_error_message(self.provider_label, "响应中没有可用的文本、思考内容或工具调用"))
         return ProviderResponse(
             content=final_content,
             reasoning_content=reasoning_content,
@@ -242,7 +242,7 @@ class ResponsesMapper:
                 if assistant_text:
                     converted.append(OpenAIEasyInputMessage(content=assistant_text))
             else:
-                input_content = convert_family_user_content_parts(message, logger=self.logger, options=self.options)
+                input_content = self._convert_user_content_parts(message)
                 if input_content:
                     role: Literal["system", "user"] = "system" if message.role == "system" else "user"
                     converted.append(OpenAIInputMessage(role=role, content=input_content))
@@ -270,6 +270,31 @@ class ResponsesMapper:
                 emitted_function_call_ids.add(call_id)
 
         return converted
+
+    def _convert_tools(self, tool_options: list[ToolOptionSnapshot]) -> list[OpenAIResponsesTool]:
+        return convert_family_tools(tool_options)
+
+    def _convert_user_content_parts(
+        self,
+        message: MessageSnapshot,
+    ) -> list[OpenAIInputTextBlock | OpenAIInputImageBlock]:
+        return convert_family_user_content_parts(message, logger=self.logger, options=self.options)
+
+    def _apply_response_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:
+        apply_family_responses_parameters(context, envelope)
+
+    def _extract_tool_calls(self, output: list[OpenAIResponseOutputItem]) -> list[ProviderToolCall]:
+        return extract_family_tool_calls(
+            output,
+            options=self.options,
+            raw_provider=self.raw_provider,
+        )
+
+    def _extract_text_content(self, response_model: OpenAIResponseSnapshot) -> str:
+        return extract_family_text_content(response_model)
+
+    def _extract_reasoning_content(self, output: list[OpenAIResponseOutputItem]) -> str | None:
+        return extract_family_reasoning_content(output)
 
     def _extract_extra_tools(self, raw_tools: object) -> list[dict]:
         if raw_tools is None:

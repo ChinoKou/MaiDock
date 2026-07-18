@@ -1,8 +1,8 @@
-from pathlib import Path
-from time import time
 import asyncio
 import json
 import sqlite3
+from pathlib import Path
+from time import time
 
 from .json_types import JsonValue, normalize_json_value
 
@@ -111,9 +111,7 @@ class PluginStateStore:
     async def delete_expired(self, namespace: str | None = None, *, now: float | None = None) -> int:
         """删除指定命名空间或全部命名空间的过期条目。"""
 
-        checked_namespace = (
-            None if namespace is None else self._validate_identifier(namespace, field_name="namespace")
-        )
+        checked_namespace = None if namespace is None else self._validate_identifier(namespace, field_name="namespace")
         current_time = time() if now is None else now
         async with self._lock:
             connection = await self._ensure_open_locked()
@@ -149,9 +147,7 @@ class PluginStateStore:
             )
             """
         )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS state_entries_expires_at_idx ON state_entries (expires_at)"
-        )
+        connection.execute("CREATE INDEX IF NOT EXISTS state_entries_expires_at_idx ON state_entries (expires_at)")
         connection.commit()
         return connection
 

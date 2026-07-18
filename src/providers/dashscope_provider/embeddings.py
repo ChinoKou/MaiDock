@@ -1,23 +1,13 @@
 import re
 from typing import Literal
 
-from ...core.common import (
-    ProviderRuntimeOptions,
-    build_usage_from_snapshot,
-    read_model_identifier,
-)
-from ...core.json_types import (
-    json_list_or_none,
-    json_mapping_or_none,
-)
+from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot, read_model_identifier
+from ...core.json_types import json_list_or_none, json_mapping_or_none
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import EmbeddingRequestSnapshot, GenericUsageSnapshot, ProviderResponse
 from ..common.embeddings import coerce_embedding_vector
-from ..common.parameter_translation import (
-    build_translation_context,
-    TranslationEnvelope,
-)
+from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from ..common.payloads import raw_data_or_none
 from .chat import DASHSCOPE_PROVIDER_LABEL
 from .parameter_translation import apply_dashscope_embedding_parameters

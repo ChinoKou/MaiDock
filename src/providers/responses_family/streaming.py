@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+
 import httpx
 
 from ...core.diagnostics import sanitize_for_log, sanitize_json_object

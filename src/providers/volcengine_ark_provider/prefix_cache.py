@@ -1,15 +1,16 @@
+import asyncio
+import json
+import logging
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from time import time
 from typing import Final, cast
-from pydantic import BaseModel, ConfigDict, Field
 from weakref import WeakValueDictionary
-import asyncio
+
 import httpx
-import json
-import logging
-import uuid
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.json_types import (
     JsonValue,
@@ -20,7 +21,7 @@ from ...core.json_types import (
     normalize_json_value,
 )
 from ...core.state_store import PluginStateStore
-from ..common.httpx import HttpxClientConfig, post_json
+from ..responses_family.transport import HttpxClientConfig, post_json
 
 ARK_TOKENIZATION_ENDPOINT: Final[str] = "tokenization"
 PREFIX_CACHE_NAMESPACE: Final[str] = "volcengine_ark.prefix_cache.v1"
@@ -365,13 +366,10 @@ class PrefixCacheManager:
 
     def _prune_ineligible(self, *, now: float) -> None:
         expired_keys = [
-            cache_key
-            for cache_key, ineligible_until in self._ineligible_until.items()
-            if ineligible_until <= now
+            cache_key for cache_key, ineligible_until in self._ineligible_until.items() if ineligible_until <= now
         ]
         for cache_key in expired_keys:
             self._ineligible_until.pop(cache_key)
-
 
     async def _lock_for(self, cache_key: str) -> asyncio.Lock:
         async with self._locks_guard:
@@ -467,14 +465,9 @@ class PrefixCacheManager:
             if key.lower() != _ARK_REQUEST_ID_HEADER.lower()
         }
         effective_headers.update(
-            (key.lower(), value)
-            for key, value in headers.items()
-            if key.lower() != _ARK_REQUEST_ID_HEADER.lower()
+            (key.lower(), value) for key, value in headers.items() if key.lower() != _ARK_REQUEST_ID_HEADER.lower()
         )
-        effective_query = {
-            str(key): normalize_json_value(value)
-            for key, value in client_config.default_query.items()
-        }
+        effective_query = {str(key): normalize_json_value(value) for key, value in client_config.default_query.items()}
         effective_query.update((str(key), normalize_json_value(value)) for key, value in query.items())
         scope_payload = {
             "base_url": client_config.base_url,
@@ -498,10 +491,6 @@ class PrefixCacheManager:
 
     @staticmethod
     def _fresh_request_headers(headers: Mapping[str, str]) -> dict[str, str]:
-        result = {
-            key: value
-            for key, value in headers.items()
-            if key.lower() != _ARK_REQUEST_ID_HEADER.lower()
-        }
+        result = {key: value for key, value in headers.items() if key.lower() != _ARK_REQUEST_ID_HEADER.lower()}
         result[_ARK_REQUEST_ID_HEADER] = str(uuid.uuid4())
         return result

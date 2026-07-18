@@ -1,45 +1,21 @@
 from ..chat_completions_family.parameter_translation import (
-    apply_chat_completions_family_parameters,
-)
-from ..common.embeddings_translation import (
-    EMBEDDING_TRANSLATORS,
-    apply_embedding_parameters,
-)
-from ..common.parameter_translation import (
-    FieldTranslator,
     TranslationContext,
     TranslationEnvelope,
-    run_translators,
-    set_target_value,
+    apply_chat_completions_family_parameters,
 )
-
-
-def _translate_sf_audio_identity(target_path: tuple[str, ...], *, field_name: str) -> FieldTranslator:
-    def _translator(context: TranslationContext, envelope: TranslationEnvelope, value: object) -> None:
-        del context
-        set_target_value(envelope, target_path, value)
-
-    _translator.__name__ = f"translate_sf_audio_{field_name}"
-    return _translator
-
+from ..openai_auxiliary_family.parameter_translation import (
+    EMBEDDING_TRANSLATORS,
+    OPENAI_AUDIO_TRANSCRIPTION_TRANSLATORS,
+    FieldTranslator,
+    apply_embedding_parameters,
+    apply_openai_audio_transcription_parameters,
+)
 
 SILICONFLOW_EMBEDDING_TRANSLATORS: dict[str, FieldTranslator] = {
     "dimensions": EMBEDDING_TRANSLATORS["dimensions"],
     "encoding_format": EMBEDDING_TRANSLATORS["encoding_format"],
 }
-SILICONFLOW_AUDIO_TRANSLATORS: dict[str, FieldTranslator] = {
-    "language": _translate_sf_audio_identity(("body", "language"), field_name="language"),
-    "prompt": _translate_sf_audio_identity(("body", "prompt"), field_name="prompt"),
-    "response_format": _translate_sf_audio_identity(("body", "response_format"), field_name="response_format"),
-    "temperature": _translate_sf_audio_identity(("body", "temperature"), field_name="temperature"),
-    "timestamp_granularities": _translate_sf_audio_identity(
-        ("body", "timestamp_granularities"),
-        field_name="timestamp_granularities",
-    ),
-    "chunking_strategy": _translate_sf_audio_identity(("body", "chunking_strategy"), field_name="chunking_strategy"),
-    "include": _translate_sf_audio_identity(("body", "include"), field_name="include"),
-    "stream": _translate_sf_audio_identity(("body", "stream"), field_name="stream"),
-}
+SILICONFLOW_AUDIO_TRANSLATORS: dict[str, FieldTranslator] = dict(OPENAI_AUDIO_TRANSCRIPTION_TRANSLATORS)
 
 
 def apply_siliconflow_chat_parameters(context: TranslationContext, envelope: TranslationEnvelope) -> None:
@@ -51,4 +27,4 @@ def apply_siliconflow_embedding_parameters(context: TranslationContext, envelope
 
 
 def apply_siliconflow_audio_parameters(context: TranslationContext, envelope: TranslationEnvelope) -> None:
-    run_translators(context, envelope, SILICONFLOW_AUDIO_TRANSLATORS)
+    apply_openai_audio_transcription_parameters(context, envelope, SILICONFLOW_AUDIO_TRANSLATORS)

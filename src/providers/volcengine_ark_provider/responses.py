@@ -7,9 +7,22 @@ import httpx
 from ...core.common import ProviderRuntimeOptions
 from ...core.json_types import json_list_or_none, json_mapping_or_none
 from ...core.parameter_catalog import get_parameter_catalog
-from ...schemas import ApiProviderSnapshot
-from ..common.httpx import HttpxClientConfig, build_httpx_client_config
+from ...schemas import (
+    ApiProviderSnapshot,
+    MessageSnapshot,
+    OpenAIInputImageBlock,
+    OpenAIInputTextBlock,
+    OpenAIResponseOutputItem,
+    OpenAIResponseSnapshot,
+    OpenAIResponsesTool,
+    ProviderToolCall,
+    ToolOptionSnapshot,
+)
+from ..responses_family.parameter_translation import TranslationContext, TranslationEnvelope
 from ..responses_family.responses import ResponsesMapper
+from ..responses_family.transport import HttpxClientConfig, build_httpx_client_config
+from . import multimodal, tools
+from .parameter_translation import apply_ark_responses_parameters
 
 VOLCENGINE_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 VOLCENGINE_API_PREFIX = "api/v3"
@@ -30,8 +43,33 @@ ARK_BETA_TOOL_HEADERS = {
 }
 
 
+class ArkResponsesMapper(ResponsesMapper):
+    """通过 ARK Provider 门面调用 Responses Family。"""
+
+    def _convert_tools(self, tool_options: list[ToolOptionSnapshot]) -> list[OpenAIResponsesTool]:
+        return tools.convert_tools(tool_options)
+
+    def _convert_user_content_parts(
+        self,
+        message: MessageSnapshot,
+    ) -> list[OpenAIInputTextBlock | OpenAIInputImageBlock]:
+        return multimodal.convert_user_content_parts(message, logger=self.logger, options=self.options)
+
+    def _apply_response_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:
+        apply_ark_responses_parameters(context, envelope)
+
+    def _extract_tool_calls(self, output: list[OpenAIResponseOutputItem]) -> list[ProviderToolCall]:
+        return tools.extract_tool_calls(output, options=self.options)
+
+    def _extract_text_content(self, response_model: OpenAIResponseSnapshot) -> str:
+        return multimodal.extract_text_content(response_model)
+
+    def _extract_reasoning_content(self, output: list[OpenAIResponseOutputItem]) -> str | None:
+        return multimodal.extract_reasoning_content(output)
+
+
 def create_responses_mapper(*, options: ProviderRuntimeOptions, logger: logging.Logger) -> ResponsesMapper:
-    return ResponsesMapper(
+    return ArkResponsesMapper(
         options=options,
         logger=logger,
         provider_label=VOLCENGINE_PROVIDER_LABEL,

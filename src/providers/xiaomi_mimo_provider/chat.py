@@ -9,17 +9,23 @@ from ...core.common import (
 )
 from ...schemas import (
     ApiProviderSnapshot,
+    MessagePartImage,
+    MessageSnapshot,
     ProviderResponse,
+    ProviderToolCall,
     ResponseRequestSnapshot,
+    ToolCallSnapshot,
+    ToolOptionSnapshot,
 )
 from ..chat_completions_family.chat import ChatCompletionsMapper
-from ..common.httpx import (
+from ..chat_completions_family.parameter_translation import TranslationContext, TranslationEnvelope
+from ..chat_completions_family.transport import (
     HttpxClientConfig,
     normalize_base_url,
     resolve_endpoint_path,
     with_default_user_agent,
 )
-from ..common.parameter_translation import TranslationContext, TranslationEnvelope
+from . import multimodal, tools
 from .parameter_translation import apply_mimo_chat_parameters, normalize_mimo_chat_body
 
 MIMO_PROVIDER_LABEL = "Xiaomi Mimo"
@@ -28,6 +34,24 @@ MIMO_CHAT_COMPLETIONS_ENDPOINT = "chat/completions"
 
 class MimoChatCompletionsMapper(ChatCompletionsMapper):
     """使用 Mimo 专用字段映射的 Chat Completions mapper。"""
+
+    def _convert_message_content(self, message: MessageSnapshot) -> str | list[dict] | None:
+        return multimodal.convert_message_content(message, options=self.options, logger=self.logger)
+
+    def _build_image_content(self, part: MessagePartImage) -> dict | None:
+        return multimodal.build_image_content(part, options=self.options, logger=self.logger)
+
+    def _convert_tools(self, tool_options: list[ToolOptionSnapshot]) -> list[dict]:
+        return tools.convert_tools(tool_options)
+
+    def _convert_history_tool_call(self, tool_call: ToolCallSnapshot, *, index: int = 1) -> dict | None:
+        return tools.convert_history_tool_call(tool_call, options=self.options, index=index)
+
+    def _extract_tool_calls(self, raw_tool_calls: object) -> list[ProviderToolCall]:
+        return tools.extract_tool_calls(raw_tool_calls, options=self.options)
+
+    def _message_content_text(self, value: object) -> str | None:
+        return multimodal.message_content_text(value)
 
     def _apply_chat_parameters(self, context: TranslationContext, envelope: TranslationEnvelope) -> None:
         apply_mimo_chat_parameters(context, envelope)

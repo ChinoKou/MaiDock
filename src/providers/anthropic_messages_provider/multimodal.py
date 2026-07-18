@@ -1,10 +1,6 @@
 import logging
 
-from ...core.common import (
-    ProviderRuntimeOptions,
-    image_media_type,
-    normalize_image_for_openai,
-)
+from ...core.common import ProviderRuntimeOptions, image_media_type, normalize_image_for_openai
 from ...schemas import (
     AnthropicContentBlock,
     AnthropicImageBlock,

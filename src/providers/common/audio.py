@@ -1,9 +1,8 @@
+import base64
+import binascii
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Literal
-
-import base64
-import binascii
 
 type AudioFormat = Literal["wav", "mp3", "aac", "m4a", "flac", "ogg"]
 
@@ -76,9 +75,7 @@ def prepare_base64_audio(
     explicit_format = _explicit_audio_format(extra_params, provider_label=provider_label)
     detected_format = detect_audio_format(decoded)
     if explicit_format is not None and detected_format is not None and explicit_format != detected_format:
-        raise ValueError(
-            f"{provider_label} 显式音频格式 {explicit_format} 与文件签名 {detected_format} 不一致"
-        )
+        raise ValueError(f"{provider_label} 显式音频格式 {explicit_format} 与文件签名 {detected_format} 不一致")
     audio_format = explicit_format or detected_format
     if audio_format is None:
         raise ValueError(f"{provider_label} 无法识别音频格式，请通过 format 或 audio_format 明确指定")

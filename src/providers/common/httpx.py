@@ -1,10 +1,11 @@
+import asyncio
+import json
+import logging
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
-import asyncio
+
 import httpx
-import json
-import logging
 
 from ...core.common import (
     normalize_base_url,

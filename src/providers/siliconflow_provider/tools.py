@@ -3,12 +3,18 @@ from ...schemas import ProviderToolCall, ToolCallSnapshot, ToolOptionSnapshot
 from ..chat_completions_family import tools as family_tools
 
 
-def convert_history_tool_call(tool_call: ToolCallSnapshot, *, options: ProviderRuntimeOptions) -> dict | None:
+def convert_history_tool_call(
+    tool_call: ToolCallSnapshot,
+    *,
+    options: ProviderRuntimeOptions,
+    index: int = 1,
+) -> dict | None:
     """把历史工具调用转给 Chat Completions family 标准实现。"""
     return family_tools.convert_history_tool_call(
         tool_call,
         options=options,
         fallback_prefix="siliconflow_history_tool",
+        index=index,
     )
 
 

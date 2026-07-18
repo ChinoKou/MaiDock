@@ -17,12 +17,6 @@ from ...core.common import (
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
-from ...providers.common.parameter_translation import (
-    NormalizedHostParameters,
-    TranslationContext,
-    TranslationEnvelope,
-    build_translation_context,
-)
 from ...schemas import (
     AnthropicMessage,
     AnthropicMessagesRequest,
@@ -38,6 +32,12 @@ from ...schemas import (
     ResponseRequestSnapshot,
 )
 from ..common.httpx import HttpxClientConfig
+from ..common.parameter_translation import (
+    NormalizedHostParameters,
+    TranslationContext,
+    TranslationEnvelope,
+    build_translation_context,
+)
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .multimodal import convert_content_blocks
 from .parameter_translation import apply_anthropic_parameters

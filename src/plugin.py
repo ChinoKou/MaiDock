@@ -1,6 +1,7 @@
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Literal, Protocol, cast
+
 from maibot_sdk import LLMProvider, LLMProviderBase, MaiBotPlugin
 
 from .config import MaiDockConfig, build_runtime_options, normalize_maidock_config_data
@@ -9,7 +10,6 @@ from .core.common import ProviderRuntimeOptions
 from .core.json_types import value_to_json_object
 from .core.state_store import PluginStateStore
 from .version import __version__
-
 
 type _ProviderKey = Literal["openai", "anthropic", "volcengine", "dashscope", "siliconflow", "xiaomi_mimo"]
 type _ProviderFactory = Callable[[ProviderRuntimeOptions], LLMProviderBase]
@@ -108,7 +108,6 @@ class MaiDockPlugin(MaiBotPlugin):
         except AttributeError as exc:
             raise RuntimeError("当前 Core 未提供 MaiDock 所需的插件标准持久化路径") from exc
         self._state_store = PluginStateStore(paths.data_dir / "maidock_state.sqlite3")
-
 
     def normalize_plugin_config(self, config_data: Mapping[str, object] | None) -> tuple[dict[str, object], bool]:
         normalized_config, changed = super().normalize_plugin_config(config_data)

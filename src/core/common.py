@@ -12,10 +12,6 @@ from urllib.parse import urlsplit
 
 from PIL import Image as PILImage
 
-from ..version import DEFAULT_USER_AGENT
-from .diagnostics import sanitize_for_log
-from .parameter_policy import ParameterPolicyRegistry
-from .parsing import ReasoningParseMode, ToolArgumentParseMode, arguments_to_json
 from ..schemas import (
     ApiProviderSnapshot,
     AudioTranscriptionRequestSnapshot,
@@ -28,6 +24,10 @@ from ..schemas import (
     ObjectFields,
     ProviderUsage,
 )
+from ..version import DEFAULT_USER_AGENT
+from .diagnostics import sanitize_for_log
+from .parameter_policy import ParameterPolicyRegistry
+from .parsing import ReasoningParseMode, ToolArgumentParseMode, arguments_to_json
 
 SUPPORTED_IMAGE_FORMATS = {"jpeg", "png", "webp"}
 InvalidImagePolicy = Literal["placeholder", "skip", "error"]

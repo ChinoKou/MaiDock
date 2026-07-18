@@ -1,6 +1,3 @@
-from typing import Annotated, Literal
-from pydantic import BaseModel, Field
-
 import httpx
 
 from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot, read_model_identifier
@@ -9,9 +6,16 @@ from ...core.json_types import json_mapping_or_none, mapping_field, mapping_to_j
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import AudioTranscriptionRequestSnapshot, GenericUsageSnapshot, ProviderResponse
-from ..common.audio import AudioFormat, prepare_base64_audio
-from ..common.httpx import create_async_client, post_json
-from ..common.parameter_translation import TranslationEnvelope, build_translation_context
+from ..chat_completions_family.audio import (
+    AudioFormat,
+    build_chat_audio_message,
+    prepare_chat_audio,
+)
+from ..chat_completions_family.parameter_translation import (
+    TranslationEnvelope,
+    build_translation_context,
+)
+from ..chat_completions_family.transport import create_async_client, post_json
 from .chat import MIMO_CHAT_COMPLETIONS_ENDPOINT, build_client_config, resolve_path
 from .parameter_translation import apply_mimo_audio_parameters, normalize_mimo_chat_body
 
@@ -40,23 +44,6 @@ _MIMO_ASR_UNSUPPORTED_BODY_FIELDS = frozenset(
         "top_p",
     }
 )
-
-
-class _AudioMessage(BaseModel):
-    class TextPart(BaseModel):
-        type: Literal["text"] = "text"
-        text: str
-
-    class InputData(BaseModel):
-        data: str
-        format: str | None = None
-
-    class InputPart(BaseModel):
-        type: Literal["input_audio"] = "input_audio"
-        input_audio: "_AudioMessage.InputData"
-
-    role: Literal["user"] = "user"
-    content: list[Annotated[TextPart | InputPart, Field(discriminator="type")]]
 
 
 def build_mimo_audio_transcription_request(
@@ -97,7 +84,7 @@ def build_mimo_audio_transcription_request(
     configured_prompt = body.pop("prompt", None)
 
     if model == MIMO_ASR_MODEL:
-        audio = prepare_base64_audio(
+        audio = prepare_chat_audio(
             request.audio_base64,
             format_hints,
             provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
@@ -118,23 +105,12 @@ def build_mimo_audio_transcription_request(
         for field_name in _MIMO_ASR_UNSUPPORTED_BODY_FIELDS:
             body.pop(field_name, None)
         body["asr_options"] = asr_options
-        body["messages"] = [
-            _AudioMessage(
-                content=[
-                    _AudioMessage.InputPart(
-                        input_audio=_AudioMessage.InputData(
-                            data=audio.data_url,
-                            format=audio.audio_format,
-                        )
-                    )
-                ]
-            ).model_dump(exclude_none=True)
-        ]
+        body["messages"] = [build_chat_audio_message(audio, include_format=True)]
     else:
         prompt = configured_prompt if configured_prompt is not None else options.mimo_audio_transcription_prompt
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("未配置转录提示词，请在 Mimo 设置中填写 audio_transcription_prompt")
-        audio = prepare_base64_audio(
+        audio = prepare_chat_audio(
             request.audio_base64,
             format_hints,
             provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
@@ -142,14 +118,7 @@ def build_mimo_audio_transcription_request(
             max_base64_chars=_MIMO_GENERIC_MAX_BASE64_CHARS,
         )
         body.pop("asr_options", None)
-        body["messages"] = [
-            _AudioMessage(
-                content=[
-                    _AudioMessage.InputPart(input_audio=_AudioMessage.InputData(data=audio.data_url)),
-                    _AudioMessage.TextPart(text=prompt.strip()),
-                ]
-            ).model_dump(exclude_none=True)
-        ]
+        body["messages"] = [build_chat_audio_message(audio, prompt=prompt.strip())]
         if options.mimo_force_disable_thinking:
             body["thinking"] = {"type": "disabled"}
 

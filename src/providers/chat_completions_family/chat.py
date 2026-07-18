@@ -8,7 +8,7 @@ from ...core.common import (
     read_model_identifier,
 )
 from ...core.diagnostics import build_parse_error_message
-from ...core.json_types import JsonValue, json_mapping_or_none, mapping_field
+from ...core.json_types import JsonValue, json_mapping_or_none, list_field, mapping_field
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import ProviderPolicyKey, apply_transport_parameter_policy
 from ...schemas import (
@@ -32,13 +32,21 @@ from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .multimodal import (
     build_image_content as build_family_image_content,
+)
+from .multimodal import (
     convert_message_content as convert_family_message_content,
+)
+from .multimodal import (
     message_content_text as family_message_content_text,
 )
 from .parameter_translation import apply_chat_completions_family_parameters
 from .tools import (
     convert_history_tool_call as convert_family_history_tool_call,
+)
+from .tools import (
     convert_tools as convert_family_tools,
+)
+from .tools import (
     extract_tool_calls as extract_family_tool_calls,
 )
 
@@ -49,8 +57,6 @@ def _string_value(mapping: Mapping[str, JsonValue], key: str) -> str | None:
 
 
 def _first_choice(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
-    from ...core.json_types import list_field
-
     choices = list_field(payload, "choices")
     if not choices:
         return None
@@ -215,7 +221,7 @@ class ChatCompletionsMapper:
         native_reasoning: str | None = None
         tool_calls: list[ProviderToolCall] = []
         if message is not None:
-            content = _message_content_text(message.get("content"))
+            content = self._message_content_text(message.get("content"))
             native_reasoning = _string_value(message, "reasoning_content")
             tool_calls = self._extract_tool_calls(message.get("tool_calls"))
 
@@ -245,6 +251,9 @@ class ChatCompletionsMapper:
             namespace=self.tool_namespace,
             fallback_prefix=self.extract_tool_prefix,
         )
+
+    def _message_content_text(self, value: object) -> str | None:
+        return _message_content_text(value)
 
     @staticmethod
     def _extract_usage(payload: dict) -> ProviderUsage:

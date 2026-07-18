@@ -1,19 +1,12 @@
 import base64
 
-from ...core.common import (
-    ProviderRuntimeOptions,
-    build_audio_file,
-    read_model_identifier,
-)
+from ...core.common import ProviderRuntimeOptions, build_audio_file, read_model_identifier
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
 from ...core.json_types import json_mapping_or_none, list_field, mapping_field, string_field
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...schemas import AudioTranscriptionRequestSnapshot
-from ..common.parameter_translation import (
-    build_translation_context,
-    TranslationEnvelope,
-)
+from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from .chat import DASHSCOPE_PROVIDER_LABEL
 from .parameter_translation import apply_dashscope_audio_parameters
 

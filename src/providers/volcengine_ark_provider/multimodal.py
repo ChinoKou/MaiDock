@@ -8,11 +8,9 @@ from ...schemas.responses_compat import (
     OpenAIResponseOutputItem,
     OpenAIResponseSnapshot,
 )
-from ..responses_family.multimodal import (
-    convert_user_content_parts as _family_convert_user_content_parts,
-    extract_reasoning_content as _family_extract_reasoning_content,
-    extract_text_content as _family_extract_text_content,
-)
+from ..responses_family.multimodal import convert_user_content_parts as _family_convert_user_content_parts
+from ..responses_family.multimodal import extract_reasoning_content as _family_extract_reasoning_content
+from ..responses_family.multimodal import extract_text_content as _family_extract_text_content
 
 
 def convert_user_content_parts(

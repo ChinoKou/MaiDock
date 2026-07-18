@@ -3,11 +3,7 @@ import logging
 import httpx
 from maibot_sdk import LLMProviderBase
 
-from ...core.common import (
-    ProviderRuntimeOptions,
-    log_request_summary,
-    log_response_summary,
-)
+from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
@@ -153,7 +149,9 @@ class DashScopeProvider(LLMProviderBase):
                         max_retries=config.max_retries,
                         retry_interval=config.retry_interval,
                     )
-                    result = convert_response(payload, options=self.options, is_multimodal=is_multimodal_endpoint(alt_path))
+                    result = convert_response(
+                        payload, options=self.options, is_multimodal=is_multimodal_endpoint(alt_path)
+                    )
                 self._endpoint_cache[model] = alt_path
 
         log_response_summary(

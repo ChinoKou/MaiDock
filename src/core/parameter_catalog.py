@@ -4,7 +4,6 @@ from typing import Literal
 
 from .parameter_policy import CapabilityKey, ProviderPolicyKey
 
-
 type ParameterValueKind = Literal["string", "integer", "number", "boolean", "json", "string_list"]
 type ParameterFieldLocation = Literal["body", "headers", "query"]
 
