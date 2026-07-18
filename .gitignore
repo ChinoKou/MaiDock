@@ -225,3 +225,5 @@ scripts/
 
 # config_back
 config_back/
+# Local agent state
+.omc/
