@@ -1,6 +1,6 @@
-import logging
 from collections.abc import Mapping
 from typing import Literal
+import logging
 
 from ...core.common import (
     ProviderRuntimeOptions,
@@ -11,9 +11,9 @@ from ...core.common import (
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
 from ...core.json_types import (
-    mapping_to_json_object,
     json_list_or_none,
     json_mapping_or_none,
+    mapping_to_json_object,
 )
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import ProviderPolicyKey, apply_transport_parameter_policy
@@ -51,6 +51,7 @@ from .multimodal import extract_text_content as extract_family_text_content
 from .parameter_translation import (
     apply_responses_parameters as apply_family_responses_parameters,
 )
+from .status import is_length_incomplete
 from .tools import convert_tools as convert_family_tools
 from .tools import extract_tool_calls as extract_family_tool_calls
 
@@ -153,6 +154,7 @@ class ResponsesMapper:
             raise ValueError(error_message)
         response_model = OpenAIResponseSnapshot.model_validate(raw_payload)
         self._raise_for_terminal_error(response_model, raw_payload)
+        length_incomplete = is_length_incomplete(raw_payload)
         tool_calls = extract_family_tool_calls(
             response_model.output, options=self.options, raw_provider=self.raw_provider
         )
@@ -186,8 +188,10 @@ class ResponsesMapper:
             if self.options.include_raw_data
             else None
         )
-        if not final_content and not tool_calls:
-            raise ValueError(build_parse_error_message(self.provider_label, "响应中既没有文本内容，也没有工具调用"))
+        if not final_content and not tool_calls and not (length_incomplete and reasoning_content):
+            raise ValueError(
+                build_parse_error_message(self.provider_label, "响应中没有可用的文本、思考内容或工具调用")
+            )
         return ProviderResponse(
             content=final_content,
             reasoning_content=reasoning_content,
@@ -209,15 +213,12 @@ class ResponsesMapper:
     def _raise_for_terminal_error(self, response_model: OpenAIResponseSnapshot, raw_payload: dict) -> None:
         if response_model.status not in {"failed", "incomplete"}:
             return
-        # "incomplete" with reason "length" 等同于 Chat API 的 finish_reason=length
-        # 是正常截断，内容仍可用，不应抛异常
-        if response_model.status == "incomplete":
-            incomplete = raw_payload.get("incomplete_details") or {}
-            if isinstance(incomplete, dict) and incomplete.get("reason") == "length":
-                self.logger.warning(
-                    "Volcengine Ark 响应因达到 max_output_tokens 被截断 (status=incomplete, reason=length)"
-                )
-                return
+        if is_length_incomplete(raw_payload):
+            self.logger.warning(
+                "%s 响应达到 max_output_tokens，返回已生成的截断内容",
+                self.provider_label,
+            )
+            return
         error = raw_payload.get("error") or raw_payload.get("incomplete_details") or response_model.status
         raise ValueError(build_parse_error_message(self.provider_label, f"响应状态为 {response_model.status}: {error}"))
 
