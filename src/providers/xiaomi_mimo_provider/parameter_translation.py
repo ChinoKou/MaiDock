@@ -1,4 +1,5 @@
 from ...core.json_types import json_mapping_or_none, mapping_to_json_object
+from ...i18n import runtime_expected, runtime_subject, translate
 from ...schemas import AudioTranscriptionRequestSnapshot, ResponseRequestSnapshot
 from ..chat_completions_family.parameter_translation import (
     TranslationContext,
@@ -14,7 +15,13 @@ MIMO_MAX_COMPLETION_TOKENS = 131072
 def _normalize_mimo_max_tokens(value: object) -> int:
     normalized = normalize_positive_int(value, field_name="max_completion_tokens")
     if normalized > MIMO_MAX_COMPLETION_TOKENS:
-        raise ValueError(f"max_completion_tokens 不能超过 {MIMO_MAX_COMPLETION_TOKENS}")
+        raise ValueError(
+            translate(
+                "runtime.error.limit",
+                subject="max_completion_tokens",
+                limit=MIMO_MAX_COMPLETION_TOKENS,
+            )
+        )
     return normalized
 
 
@@ -89,12 +96,19 @@ def _canonicalize_mimo_max_tokens(context: TranslationContext) -> None:
         or legacy_value is not None
         or official_value is not None
     ):
-        raise ValueError(f"{context.provider_label} {context.capability} 参数策略拒绝路径: {legacy_target_path}")
+        raise ValueError(
+            translate(
+                "runtime.error.parameter_path_rejected",
+                provider=context.provider_label,
+                capability=context.capability,
+                path=legacy_target_path,
+            )
+        )
     if explicit_values:
         expected_source, expected_value = explicit_values[0]
         for source, value in explicit_values[1:]:
             if value != expected_value:
-                raise ValueError(f"{expected_source} 与 {source} 同时提供了不同的 max_tokens/max_completion_tokens")
+                raise ValueError(translate("runtime.error.conflict_different", left=expected_source, right=source))
         context.normalized.fields["max_tokens"] = expected_value
         context.normalized.sources["max_tokens"] = expected_source
         return
@@ -106,7 +120,13 @@ def _canonicalize_mimo_max_tokens(context: TranslationContext) -> None:
         normalized_legacy = _normalize_mimo_max_tokens(legacy_value)
         normalized_official = _normalize_mimo_max_tokens(official_value)
         if normalized_legacy != normalized_official:
-            raise ValueError("body.max_tokens 与 body.max_completion_tokens 不能同时设置不同值")
+            raise ValueError(
+                translate(
+                    "runtime.error.conflict_different",
+                    left="body.max_tokens",
+                    right="body.max_completion_tokens",
+                )
+            )
         candidate = normalized_official
     if candidate is not None:
         context.normalized.fields["max_tokens"] = _normalize_mimo_max_tokens(candidate)
@@ -128,7 +148,13 @@ def _translate_mimo_audio_language(
 ) -> None:
     del context
     if value not in {"auto", "zh", "en"}:
-        raise ValueError("Mimo asr_options.language 仅支持 auto、zh 或 en")
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject="Mimo asr_options.language",
+                allowed="auto/zh/en",
+            )
+        )
     set_target_value(envelope, ("body", "asr_options", "language"), value)
 
 
@@ -211,10 +237,23 @@ def mimo_thinking_enabled(body: dict) -> bool:
     if thinking is None:
         return True
     if not isinstance(thinking, dict):
-        raise TypeError("Mimo thinking 必须是 object")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=runtime_subject("mimo_thinking"),
+                expected=runtime_expected("object"),
+                actual=type(thinking).__name__,
+            )
+        )
     thinking_type = thinking.get("type")
     if thinking_type == "disabled":
         return False
     if thinking_type == "enabled":
         return True
-    raise ValueError("Mimo thinking.type 仅支持 enabled 或 disabled")
+    raise ValueError(
+        translate(
+            "runtime.error.unsupported_value",
+            subject="Mimo thinking.type",
+            allowed="enabled/disabled",
+        )
+    )

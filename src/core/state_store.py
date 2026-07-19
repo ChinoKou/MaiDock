@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 from time import time
 
+from ..i18n import runtime_item, translate
 from .json_types import JsonValue, normalize_json_value
 
 
@@ -124,7 +125,7 @@ class PluginStateStore:
 
     async def _ensure_open_locked(self) -> sqlite3.Connection:
         if self._closed:
-            raise RuntimeError("MaiDock 状态存储已关闭")
+            raise RuntimeError(translate("runtime.error.state_store_closed"))
         if self._connection is None:
             self._connection = await asyncio.to_thread(self._open_sync)
         return self._connection
@@ -222,5 +223,7 @@ class PluginStateStore:
     def _validate_identifier(value: str, *, field_name: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError(f"{field_name} 不能为空")
+            raise ValueError(
+                translate("runtime.error.required", subject=field_name, field=runtime_item("non_empty_value"))
+            )
         return normalized

@@ -1,5 +1,6 @@
 from collections.abc import Collection, Mapping
 
+from ...i18n import runtime_item, translate
 from ...schemas import ProviderResponse
 from ..common.audio import AudioFormat, prepare_base64_audio
 from .responses import ResponsesMapper
@@ -46,7 +47,13 @@ def parse_responses_audio_transcription(
 
     result = mapper.convert_response(payload)
     if not result.content:
-        raise ValueError(f"{provider_label} 音频转录响应中没有可用文本")
+        raise ValueError(
+            translate(
+                "runtime.error.response_missing",
+                provider=provider_label,
+                item=runtime_item("audio_transcription_text"),
+            )
+        )
     return result
 
 

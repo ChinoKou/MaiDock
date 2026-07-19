@@ -12,6 +12,7 @@ from weakref import WeakValueDictionary
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from ...core.diagnostics import sanitize_upstream_detail
 from ...core.json_types import (
     JsonValue,
     is_json_mapping,
@@ -21,6 +22,7 @@ from ...core.json_types import (
     normalize_json_value,
 )
 from ...core.state_store import PluginStateStore
+from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
 from ..responses_family.transport import HttpxClientConfig, post_json
 
 ARK_TOKENIZATION_ENDPOINT: Final[str] = "tokenization"
@@ -70,7 +72,13 @@ class PrefixCacheManager:
 
     def __init__(self, state_store: PluginStateStore, *, ttl_seconds: int) -> None:
         if not 3600 <= ttl_seconds <= 604800:
-            raise ValueError("ARK 前缀缓存 TTL 必须位于 3600..604800 秒")
+            raise ValueError(
+                translate(
+                    "runtime.error.unsupported_value",
+                    subject="ARK prefix cache TTL",
+                    allowed="3600..604800 s",
+                )
+            )
         self._state_store = state_store
         self._ttl_seconds = ttl_seconds
         self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
@@ -124,9 +132,11 @@ class PrefixCacheManager:
                 if input_tokens < PREFIX_CACHE_MIN_TOKENS:
                     self._remember_ineligible(plan.cache_key, now=current_time)
                     logger.info(
-                        "ARK system 前缀仅 %d tokens，小于 %d，跳过显式缓存",
-                        input_tokens,
-                        PREFIX_CACHE_MIN_TOKENS,
+                        translate(
+                            "runtime.log.cache_prefix_short",
+                            tokens=input_tokens,
+                            minimum=PREFIX_CACHE_MIN_TOKENS,
+                        )
                     )
                     return PrefixCacheResolution(body=dict(body))
                 entry = await self._create_entry(
@@ -147,7 +157,7 @@ class PrefixCacheManager:
         reuse_body["previous_response_id"] = entry.response_id
         reuse_body.pop("caching", None)
         reuse_body.pop("tools", None)
-        logger.debug("复用 ARK 前缀缓存: model=%s key=%s", plan.model, plan.cache_key[:12])
+        logger.debug(translate("runtime.log.cache_reused", model=plan.model, key=plan.cache_key[:12]))
         return PrefixCacheResolution(body=reuse_body, cache_key=plan.cache_key)
 
     def build_plan(
@@ -161,33 +171,46 @@ class PrefixCacheManager:
         """根据最终请求体判断自动缓存是否适用，并生成稳定指纹。"""
 
         if "caching" in body or "previous_response_id" in body:
-            logger.info("请求已显式设置 caching/previous_response_id，跳过自动前缀缓存")
+            logger.info(translate("runtime.log.cache_skip_explicit"))
             return None
         if body.get("store") is False:
-            logger.info("请求显式设置 store=false，跳过自动前缀缓存")
+            logger.info(translate("runtime.log.cache_skip_store"))
             return None
         if self._has_instructions(body.get("instructions")):
-            logger.info("ARK instructions 与显式缓存不兼容，跳过自动前缀缓存")
+            logger.info(translate("runtime.log.cache_skip_instructions"))
             return None
         if self._uses_json_schema(body):
-            logger.info("ARK json_schema 与显式缓存不兼容，跳过自动前缀缓存")
+            logger.info(translate("runtime.log.cache_skip_schema"))
             return None
 
         raw_input = json_list_or_none(body.get("input"))
         if raw_input is None:
-            raise TypeError("ARK Responses input 必须是数组")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("ark_responses_input"),
+                    expected=runtime_expected("array"),
+                    actual=type(body.get("input")).__name__,
+                )
+            )
         prefix_input, suffix_input, tokenization_texts = self._split_system_prefix(raw_input)
         if not prefix_input or not suffix_input:
             return None
 
         tools = self._function_tools(body.get("tools"))
         if tools is None:
-            logger.info("ARK 自动前缀缓存只支持 function tools，当前请求跳过缓存")
+            logger.info(translate("runtime.log.cache_skip_tools"))
             return None
 
         model = body.get("model")
         if not isinstance(model, str) or not model.strip():
-            raise ValueError("ARK Responses 请求缺少 model")
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject=runtime_subject("ark_responses_request"),
+                    field="model",
+                )
+            )
         thinking_present = "thinking" in body
         thinking = normalize_json_value(body.get("thinking"))
         cache_key = self._cache_key(
@@ -215,14 +238,21 @@ class PrefixCacheManager:
         """删除失效的本地缓存引用。"""
 
         await self._state_store.delete(PREFIX_CACHE_NAMESPACE, cache_key)
-        logger.info("已删除失效的 ARK 前缀缓存引用: key=%s", cache_key[:12])
+        logger.info(translate("runtime.log.cache_invalidated", key=cache_key[:12]))
 
     async def _load_entry(self, cache_key: str, *, now: float) -> PrefixCacheEntry | None:
         raw_entry = await self._state_store.get(PREFIX_CACHE_NAMESPACE, cache_key, now=now)
         if raw_entry is None:
             return None
         if not is_json_mapping(raw_entry):
-            raise ValueError("ARK 前缀缓存持久化条目不是 JSON object")
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("ark_prefix_cache_entry"),
+                    expected=runtime_expected("object"),
+                    actual=type(raw_entry).__name__,
+                )
+            )
         entry = PrefixCacheEntry.model_validate(raw_entry)
         if entry.expires_at <= now + PREFIX_CACHE_EXPIRY_SAFETY_SECONDS:
             await self.invalidate(cache_key)
@@ -267,10 +297,23 @@ class PrefixCacheManager:
         status = payload.get("status")
         if status in {"failed", "incomplete"}:
             details = payload.get("error") or payload.get("incomplete_details") or status
-            raise ValueError(f"ARK 前缀缓存创建失败: {details}")
+            raise ValueError(
+                translate(
+                    "runtime.error.response_invalid",
+                    provider="ARK prefix cache",
+                    field="status",
+                    details=sanitize_upstream_detail(details),
+                )
+            )
         response_id = payload.get("id")
         if not isinstance(response_id, str) or not response_id.strip():
-            raise ValueError("ARK 前缀缓存创建响应缺少有效 id")
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject=runtime_subject("ark_prefix_cache_response"),
+                    field=runtime_item("valid_id"),
+                )
+            )
         entry = PrefixCacheEntry(
             response_id=response_id.strip(),
             expires_at=float(expire_at),
@@ -285,11 +328,13 @@ class PrefixCacheManager:
             now=now,
         )
         logger.info(
-            "已创建 ARK 前缀缓存: model=%s tokens=%d expires_at=%d key=%s",
-            plan.model,
-            input_tokens,
-            expire_at,
-            plan.cache_key[:12],
+            translate(
+                "runtime.log.cache_created",
+                model=plan.model,
+                tokens=input_tokens,
+                expires_at=expire_at,
+                key=plan.cache_key[:12],
+            )
         )
         return entry
 
@@ -319,15 +364,29 @@ class PrefixCacheManager:
         )
         data = json_list_or_none(payload.get("data"))
         if data is None or len(data) != len(plan.tokenization_texts):
-            raise ValueError("ARK 分词响应 data 数量与 system 文本数量不一致")
+            raise ValueError(translate("runtime.error.tokenization_count_mismatch"))
         total_tokens = 0
         for item in data:
             item_mapping = json_mapping_or_none(item)
             if item_mapping is None:
-                raise ValueError("ARK 分词响应 data 项不是 object")
+                raise ValueError(
+                    translate(
+                        "runtime.error.expected_type",
+                        subject=runtime_subject("ark_tokenization_data_item"),
+                        expected=runtime_expected("object"),
+                        actual=type(item).__name__,
+                    )
+                )
             item_tokens = item_mapping.get("total_tokens")
             if not isinstance(item_tokens, int) or isinstance(item_tokens, bool) or item_tokens < 0:
-                raise ValueError("ARK 分词响应 total_tokens 不是非负整数")
+                raise ValueError(
+                    translate(
+                        "runtime.error.expected_type",
+                        subject="ARK tokenization total_tokens",
+                        expected=runtime_expected("non_negative_integer"),
+                        actual=type(item_tokens).__name__,
+                    )
+                )
             total_tokens += item_tokens
         return total_tokens
 
@@ -343,7 +402,7 @@ class PrefixCacheManager:
             )
             self._next_cleanup_at = now + PREFIX_CACHE_CLEANUP_INTERVAL_SECONDS
             if deleted:
-                logger.info("已清理 %d 条过期 ARK 前缀缓存引用", deleted)
+                logger.info(translate("runtime.log.cache_cleaned", count=deleted))
 
     def _is_ineligible(self, cache_key: str, *, now: float) -> bool:
         ineligible_until = self._ineligible_until.get(cache_key)

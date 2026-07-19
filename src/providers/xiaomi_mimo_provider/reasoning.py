@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ...core.json_types import json_mapping_or_none, mapping_to_json_object
 from ...core.state_store import PluginStateStore
+from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
 from ...schemas import ProviderResponse, ResponseRequestSnapshot, ToolCallSnapshot
 
 MIMO_REASONING_NAMESPACE = "xiaomi_mimo.reasoning.v1"
@@ -50,7 +51,13 @@ class MimoReasoningManager:
             call_ids = self._history_call_ids(message.tool_calls)
             target = assistant_messages.get(call_ids[0])
             if target is None or any(assistant_messages.get(call_id) is not target for call_id in call_ids):
-                raise ValueError("Mimo 历史工具调用无法与出站 assistant 消息对应")
+                raise ValueError(
+                    translate(
+                        "runtime.error.required",
+                        subject=runtime_subject("mimo_historical_tool_call"),
+                        field=runtime_item("matching_outbound_assistant_message"),
+                    )
+                )
             reasoning = await self._resolve_message_reasoning(
                 message.tool_calls,
                 base_url=base_url,
@@ -75,7 +82,13 @@ class MimoReasoningManager:
         reasoning = (result.reasoning_content or "").strip()
         if not reasoning:
             if thinking_enabled:
-                raise ValueError("Mimo 已启用思考，但工具调用响应缺少 reasoning_content")
+                raise ValueError(
+                    translate(
+                        "runtime.error.required",
+                        subject=runtime_subject("mimo_reasoning_tool_call_response"),
+                        field="reasoning_content",
+                    )
+                )
             return
 
         await self._cleanup_if_due()
@@ -83,12 +96,24 @@ class MimoReasoningManager:
         for tool_call in result.tool_calls:
             call_id = tool_call.id.strip()
             if not call_id:
-                raise ValueError("Mimo 工具调用缺少 call_id，无法保存 reasoning_content")
+                raise ValueError(
+                    translate(
+                        "runtime.error.required",
+                        subject=runtime_subject("mimo_tool_call"),
+                        field="call_id",
+                    )
+                )
             extra_content = dict(tool_call.extra_content)
             provider_payload = self._provider_payload(extra_content)
             existing = provider_payload.get("reasoning_content")
             if existing is not None and existing != reasoning:
-                raise ValueError(f"Mimo 工具调用 {call_id} 的 reasoning_content 元数据发生冲突")
+                raise ValueError(
+                    translate(
+                        "runtime.error.conflict_different",
+                        left=f"{runtime_subject('mimo_tool_call_metadata')} {call_id}",
+                        right=runtime_item("response_reasoning_content"),
+                    )
+                )
             provider_payload["reasoning_content"] = reasoning
             provider_payload.setdefault(
                 "raw_arguments",
@@ -130,12 +155,24 @@ class MimoReasoningManager:
                 if candidate is None:
                     continue
                 if resolved is not None and candidate != resolved:
-                    raise ValueError(f"Mimo 历史工具调用 {call_id} 的 reasoning_content 来源发生冲突")
+                    raise ValueError(
+                        translate(
+                            "runtime.error.conflict_different",
+                            left=f"{runtime_subject('mimo_historical_tool_call')} {call_id} reasoning_content",
+                            right=runtime_item("stored_reasoning_content"),
+                        )
+                    )
                 resolved = candidate
 
         if resolved is None:
             joined_call_ids = ", ".join(states)
-            raise ValueError(f"Mimo 历史工具调用缺少可回传的 reasoning_content: {joined_call_ids}")
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject=f"{runtime_subject('mimo_historical_tool_calls')} {joined_call_ids}",
+                    field=runtime_item("restorable_reasoning_content"),
+                )
+            )
 
         current_time = time()
         for call_id, state in states.items():
@@ -185,9 +222,21 @@ class MimoReasoningManager:
         for tool_call in tool_calls:
             call_id = tool_call.resolved_call_id()
             if not call_id:
-                raise ValueError("Mimo 历史工具调用缺少 call_id，无法恢复 reasoning_content")
+                raise ValueError(
+                    translate(
+                        "runtime.error.required",
+                        subject=runtime_subject("mimo_historical_tool_call"),
+                        field="call_id",
+                    )
+                )
             if call_id in call_ids:
-                raise ValueError(f"Mimo 历史 assistant 中存在重复的 call_id: {call_id}")
+                raise ValueError(
+                    translate(
+                        "runtime.error.conflict_different",
+                        left=f"{runtime_subject('mimo_historical_tool_call')} call_id {call_id}",
+                        right=f"{runtime_item('duplicate_call_id')} {call_id}",
+                    )
+                )
             call_ids.append(call_id)
         return call_ids
 
@@ -195,7 +244,14 @@ class MimoReasoningManager:
     def _assistant_messages_by_call_id(body: dict) -> dict[str, dict]:
         messages = body.get("messages")
         if not isinstance(messages, list):
-            raise TypeError("Mimo 请求体 messages 必须是数组")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("mimo_request_messages"),
+                    expected=runtime_expected("array"),
+                    actual=type(messages).__name__,
+                )
+            )
         result: dict[str, dict] = {}
         for message in messages:
             if not isinstance(message, dict) or message.get("role") != "assistant":
@@ -205,12 +261,31 @@ class MimoReasoningManager:
                 continue
             for tool_call in tool_calls:
                 if not isinstance(tool_call, dict):
-                    raise TypeError("Mimo assistant.tool_calls 必须由 object 组成")
+                    raise TypeError(
+                        translate(
+                            "runtime.error.expected_type",
+                            subject=runtime_subject("mimo_assistant_tool_call_item"),
+                            expected=runtime_expected("object"),
+                            actual=type(tool_call).__name__,
+                        )
+                    )
                 call_id = tool_call.get("id")
                 if not isinstance(call_id, str) or not call_id.strip():
-                    raise ValueError("Mimo 出站历史工具调用缺少 call_id")
+                    raise ValueError(
+                        translate(
+                            "runtime.error.required",
+                            subject=runtime_subject("mimo_outbound_tool_call"),
+                            field="call_id",
+                        )
+                    )
                 if call_id in result:
-                    raise ValueError(f"Mimo 出站历史中存在重复的 call_id: {call_id}")
+                    raise ValueError(
+                        translate(
+                            "runtime.error.conflict_different",
+                            left=f"{runtime_subject('mimo_outbound_tool_call')} call_id {call_id}",
+                            right=f"{runtime_item('duplicate_call_id')} {call_id}",
+                        )
+                    )
                 result[call_id] = message
         return result
 
@@ -220,13 +295,27 @@ class MimoReasoningManager:
         provider_payload = json_mapping_or_none(extra_content.get("xiaomi_mimo"))
         if provider_payload is None:
             if "xiaomi_mimo" in extra_content:
-                raise TypeError("Mimo 工具调用 extra_content.xiaomi_mimo 必须是 object")
+                raise TypeError(
+                    translate(
+                        "runtime.error.expected_type",
+                        subject=runtime_subject("mimo_tool_call_extra_content"),
+                        expected=runtime_expected("object"),
+                        actual=type(extra_content["xiaomi_mimo"]).__name__,
+                    )
+                )
             return None
         value = provider_payload.get("reasoning_content")
         if value is None:
             return None
         if not isinstance(value, str) or not value.strip():
-            raise TypeError("Mimo 工具调用 reasoning_content 元数据必须是非空字符串")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("mimo_tool_call_metadata"),
+                    expected=runtime_expected("non_empty_string"),
+                    actual=type(value).__name__,
+                )
+            )
         return value.strip()
 
     @staticmethod
@@ -236,5 +325,12 @@ class MimoReasoningManager:
             return {}
         payload = json_mapping_or_none(raw_payload)
         if payload is None:
-            raise TypeError("Mimo 工具调用 extra_content.xiaomi_mimo 必须是 object")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("mimo_tool_call_extra_content"),
+                    expected=runtime_expected("object"),
+                    actual=type(raw_payload).__name__,
+                )
+            )
         return mapping_to_json_object(payload)

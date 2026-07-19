@@ -1,5 +1,6 @@
 from typing import cast
 
+from ...i18n import translate
 from ..common.embeddings_translation import (
     EMBEDDING_TRANSLATORS,
     apply_embedding_parameters,
@@ -51,7 +52,13 @@ def translate_response_text_format(
         return
     text_object = merge_body_object(envelope, "text", {})
     if "format" in text_object:
-        raise ValueError("extra_params.text.format 与 response_format 不能同时设置")
+        raise ValueError(
+            translate(
+                "runtime.error.conflict",
+                left="extra_params.text.format",
+                right="response_format",
+            )
+        )
     text_object["format"] = format_payload
 
 

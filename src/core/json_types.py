@@ -1,6 +1,8 @@
 from collections.abc import Iterable, Mapping
 from typing import TypeGuard
 
+from ..i18n import runtime_expected, runtime_subject, translate
+
 type JsonValue = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
 
 
@@ -57,5 +59,12 @@ def mapping_to_json_object(value: Mapping[str, JsonValue]) -> dict[str, JsonValu
 
 def value_to_json_object(value: object) -> dict[str, JsonValue]:
     if not is_json_mapping(value):
-        raise TypeError(f"期望 mapping，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=runtime_subject("json_value"),
+                expected=runtime_expected("mapping"),
+                actual=type(value).__name__,
+            )
+        )
     return mapping_to_json_object(value)

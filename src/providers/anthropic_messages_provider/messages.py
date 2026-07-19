@@ -5,6 +5,7 @@ from ...core.common import (
     ProviderRuntimeOptions,
     build_usage_from_snapshot,
     message_text,
+    normalize_auth_type,
     normalize_base_url,
     read_api_key,
     read_model_identifier,
@@ -17,6 +18,7 @@ from ...core.common import (
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...i18n import runtime_item, translate
 from ...schemas import (
     AnthropicMessage,
     AnthropicMessagesRequest,
@@ -71,7 +73,7 @@ def build_client_config(
 ) -> HttpxClientConfig:
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
     default_query = api_provider.default_query.to_plain_dict()
-    auth_type = (api_provider.auth_type or "bearer").strip().lower()
+    auth_type = normalize_auth_type(api_provider.auth_type)
     api_key = read_api_key(api_provider, allow_empty=auth_type == "none")
 
     if auth_type == "bearer":
@@ -86,9 +88,6 @@ def build_client_config(
             default_headers[header_name] = _auth_header_value(api_provider.auth_header_prefix, api_key)
     elif auth_type == "query":
         default_query[api_provider.auth_query_name] = api_key
-    elif auth_type != "none":
-        raise ValueError(f"不支持的 auth_type: {api_provider.auth_type}")
-
     normalized_base_url = normalize_base_url(api_provider.base_url)
     headers = with_default_user_agent(default_headers, user_agent)
     headers.setdefault("anthropic-version", ANTHROPIC_VERSION)
@@ -161,7 +160,13 @@ def build_http_body(
 ) -> dict:
     normalized = upstream_request.normalized
     if not isinstance(normalized, NormalizedHostParameters):
-        raise TypeError("AnthropicMessagesRequest.normalized 缺少 NormalizedHostParameters")
+        raise TypeError(
+            translate(
+                "runtime.error.required",
+                subject="AnthropicMessagesRequest.normalized",
+                field="NormalizedHostParameters",
+            )
+        )
 
     policy = options.parameter_policies.get("anthropic_messages", "chat_completion")
     catalog = get_parameter_catalog("anthropic_messages", "chat_completion")
@@ -294,7 +299,11 @@ def convert_response(response: object, *, options: ProviderRuntimeOptions) -> Pr
         else None
     )
     if not final_content and not tool_calls:
-        raise ValueError(build_parse_error_message(ANTHROPIC_PROVIDER_LABEL, "响应中既没有文本内容，也没有工具调用"))
+        message = translate(
+            "runtime.error.output_missing",
+            item=runtime_item("output_text_or_tools"),
+        )
+        raise ValueError(build_parse_error_message(ANTHROPIC_PROVIDER_LABEL, message))
     return ProviderResponse(
         content=final_content,
         reasoning_content=reasoning_content,

@@ -1,3 +1,4 @@
+from ...i18n import runtime_expected, translate
 from .parameter_translation import (
     FieldTranslator,
     TranslationContext,
@@ -24,7 +25,14 @@ def translate_embedding_encoding_format(
 ) -> None:
     del context
     if not isinstance(value, str):
-        raise TypeError(f"encoding_format 必须是字符串，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject="encoding_format",
+                expected=runtime_expected("string"),
+                actual=type(value).__name__,
+            )
+        )
     set_target_value(envelope, ("body", "encoding_format"), value.strip().lower() or "float")
 
 
@@ -44,7 +52,14 @@ def translate_embedding_sparse_embedding(
 ) -> None:
     del context
     if not isinstance(value, bool):
-        raise TypeError(f"sparse_embedding 必须是 boolean，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject="sparse_embedding",
+                expected=runtime_expected("boolean"),
+                actual=type(value).__name__,
+            )
+        )
     set_target_value(envelope, ("body", "sparse_embedding"), {"type": "enabled" if value else "disabled"})
 
 

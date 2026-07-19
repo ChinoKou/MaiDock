@@ -86,8 +86,13 @@
   "capabilities": [],
   "i18n": {
     "default_locale": "zh-CN",
+    "locales_path": "locales",
     "supported_locales": [
-      "zh-CN"
+      "zh-CN",
+      "zh-TW",
+      "en-US",
+      "ja-JP",
+      "ko-KR"
     ]
   },
   "plugin_type": "provider"

@@ -7,6 +7,7 @@ import httpx
 from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
 from ...core.json_types import JsonValue, json_list_or_none, json_mapping_or_none, mapping_field, mapping_to_json_object
+from ...i18n import runtime_item, translate
 from ...schemas import GenericUsageSnapshot, ProviderResponse
 from ..common.httpx import HttpxProviderError, HttpxProviderParseError, stream_sse_json
 from ..common.payloads import raw_data_or_none
@@ -117,9 +118,11 @@ class DashScopeStreamAccumulator:
             options=self.options,
         )
         if not final_content and not tool_calls:
-            raise HttpxProviderParseError(
-                build_parse_error_message(DASHSCOPE_PROVIDER_LABEL, "流式响应中既没有文本内容，也没有工具调用")
+            message = translate(
+                "runtime.error.output_missing",
+                item=runtime_item("output_stream_text_or_tools"),
             )
+            raise HttpxProviderParseError(build_parse_error_message(DASHSCOPE_PROVIDER_LABEL, message))
         raw_data: dict = self.final_payload if self.final_payload is not None else {"usage": self.usage}
         return ProviderResponse(
             content=final_content,
@@ -140,12 +143,25 @@ def _tool_call_key(tool_call: Mapping[str, JsonValue], index: int) -> str:
 
 def _stream_error_message(payload: dict, *, event_name: str | None, status: int | None) -> str | None:
     if event_name == "error":
-        return f"{DASHSCOPE_PROVIDER_LABEL} 流式响应返回错误: {sanitize_for_log(payload)}"
+        return translate(
+            "runtime.error.stream",
+            provider=DASHSCOPE_PROVIDER_LABEL,
+            details=sanitize_for_log(payload),
+        )
     if status is not None and not 200 <= status < 300:
-        return f"{DASHSCOPE_PROVIDER_LABEL} 流式响应状态码 {status}: {sanitize_for_log(payload)}"
+        return translate(
+            "runtime.error.stream_status_code",
+            provider=DASHSCOPE_PROVIDER_LABEL,
+            status=status,
+            details=sanitize_for_log(payload),
+        )
     code = payload.get("code")
     if isinstance(code, str) and code.strip() and code.strip().lower() not in {"success", "ok"}:
-        return f"{DASHSCOPE_PROVIDER_LABEL} 流式响应返回错误: {sanitize_for_log(payload)}"
+        return translate(
+            "runtime.error.stream",
+            provider=DASHSCOPE_PROVIDER_LABEL,
+            details=sanitize_for_log(payload),
+        )
     return None
 
 

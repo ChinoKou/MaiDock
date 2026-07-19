@@ -1,6 +1,7 @@
 from pydantic import BaseModel, TypeAdapter
 
 from ..core.json_types import is_json_iterable, is_json_mapping, mapping_to_json_object
+from ..i18n import runtime_expected, translate
 from .base import ModelDumpable
 
 _DICT_ADAPTER: TypeAdapter[dict] = TypeAdapter(dict)
@@ -32,11 +33,23 @@ class SdkDumpAdapter:
         plain = SdkDumpAdapter.to_plain(value)
         if is_json_mapping(plain):
             return _DICT_ADAPTER.validate_python(mapping_to_json_object(plain))
-        raise TypeError(f"不支持的响应对象类型: {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject=f"response object type {type(value).__name__}",
+                allowed=f"{runtime_expected('mapping')}/BaseModel/ModelDumpable",
+            )
+        )
 
     @staticmethod
     def to_plain_list(value: object) -> list:
         plain = SdkDumpAdapter.to_plain(value)
         if isinstance(plain, list):
             return _LIST_ADAPTER.validate_python(plain)
-        raise TypeError(f"不支持的列表对象类型: {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject=f"list object type {type(value).__name__}",
+                allowed=f"{runtime_expected('list')}/tuple",
+            )
+        )

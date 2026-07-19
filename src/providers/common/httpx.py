@@ -9,6 +9,7 @@ import httpx
 
 from ...core.common import (
     normalize_base_url,
+    normalize_auth_type,
     read_api_key,
     read_timeout,
     require_string_mapping,
@@ -18,6 +19,7 @@ from ...core.common import (
 )
 from ...core.diagnostics import build_parse_error_message, sanitize_for_log
 from ...core.json_types import json_mapping_or_none, mapping_to_json_object
+from ...i18n import runtime_actual, runtime_expected, runtime_item, runtime_subject, translate
 from ...schemas.host_snapshots import ApiProviderSnapshot
 
 _logger = logging.getLogger("maibot_plugin.maidock.httpx")
@@ -64,7 +66,9 @@ def resolve_endpoint_path(base_url: str, *, api_prefix: str, endpoint_path: str)
     normalized_endpoint = endpoint_path.strip().strip("/")
     normalized_prefix = api_prefix.strip().strip("/")
     if not normalized_endpoint:
-        raise ValueError("endpoint_path 不能为空")
+        raise ValueError(
+            translate("runtime.error.required", subject="endpoint_path", field=runtime_item("non_empty_path"))
+        )
     if not normalized_prefix:
         return normalized_endpoint
 
@@ -108,16 +112,13 @@ def build_httpx_client_config(
 
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
     default_query = api_provider.default_query.to_plain_dict()
-    auth_type = (api_provider.auth_type or "bearer").strip().lower()
+    auth_type = normalize_auth_type(api_provider.auth_type)
     api_key = read_api_key(api_provider, allow_empty=auth_type == "none")
 
     if auth_type in {"bearer", "header"}:
         default_headers[api_provider.auth_header_name] = _auth_header_value(api_provider.auth_header_prefix, api_key)
     elif auth_type == "query":
         default_query[api_provider.auth_query_name] = api_key
-    elif auth_type != "none":
-        raise ValueError(f"不支持的 auth_type: {api_provider.auth_type}")
-
     normalized_base_url = _resolve_httpx_base_url(
         api_provider,
         default_base_url=default_base_url,
@@ -189,7 +190,11 @@ def _status_error_message(provider_label: str, response: httpx.Response) -> str:
         body = response.json()
     except ValueError:
         body = response.text
-    return f"{provider_label} 上游接口返回状态码 {response.status_code}: {sanitize_for_log(body)}"
+    return translate(
+        "runtime.error.upstream_status",
+        provider=provider_label,
+        details=f"HTTP {response.status_code}: {sanitize_for_log(body)}",
+    )
 
 
 def _json_response_payload(provider_label: str, response: httpx.Response) -> dict:
@@ -201,10 +206,22 @@ def _json_response_payload(provider_label: str, response: httpx.Response) -> dic
     try:
         raw_payload: object = response.json()
     except ValueError as exc:
-        raise HttpxProviderParseError(build_parse_error_message(provider_label, "响应不是合法 JSON")) from exc
+        message = translate(
+            "runtime.error.expected_type",
+            subject=runtime_subject("response"),
+            expected=runtime_expected("valid_json"),
+            actual=runtime_actual("invalid_json"),
+        )
+        raise HttpxProviderParseError(build_parse_error_message(provider_label, message)) from exc
     payload = json_mapping_or_none(raw_payload)
     if payload is None:
-        raise HttpxProviderParseError(build_parse_error_message(provider_label, "JSON 响应不是 object"))
+        message = translate(
+            "runtime.error.expected_type",
+            subject=runtime_subject("json_response"),
+            expected=runtime_expected("object"),
+            actual=type(raw_payload).__name__,
+        )
+        raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
     return mapping_to_json_object(payload)
 
 
@@ -252,46 +269,69 @@ async def post_json(
         except httpx.TimeoutException as exc:
             if attempt < retries:
                 _logger.warning(
-                    "[%s] POST 超时，将在 %.1f 秒后重试 (%d/%d): %s",
-                    provider_label,
-                    retry_interval,
-                    attempt + 1,
-                    retries,
-                    exc,
+                    translate(
+                        "runtime.log.retry_timeout",
+                        provider=provider_label,
+                        kind="POST",
+                        delay=retry_interval,
+                        attempt=attempt + 1,
+                        retries=retries,
+                        details=exc,
+                    )
                 )
                 if retry_interval > 0:
                     await asyncio.sleep(retry_interval)
                 continue
-            raise HttpxProviderError(f"{provider_label} 上游接口请求超时（已重试 {retries} 次）: {exc}") from exc
+            raise HttpxProviderError(
+                translate(
+                    "runtime.error.timeout_retried",
+                    provider=provider_label,
+                    retries=retries,
+                    details=exc,
+                )
+            ) from exc
         except httpx.HTTPError as exc:
             if attempt < retries:
                 _logger.warning(
-                    "[%s] POST 连接失败，将在 %.1f 秒后重试 (%d/%d): %s",
-                    provider_label,
-                    retry_interval,
-                    attempt + 1,
-                    retries,
-                    exc,
+                    translate(
+                        "runtime.log.retry_connect",
+                        provider=provider_label,
+                        kind="POST",
+                        delay=retry_interval,
+                        attempt=attempt + 1,
+                        retries=retries,
+                        details=exc,
+                    )
                 )
                 if retry_interval > 0:
                     await asyncio.sleep(retry_interval)
                 continue
-            raise HttpxProviderError(f"{provider_label} 上游接口连接失败（已重试 {retries} 次）: {exc}") from exc
+            raise HttpxProviderError(
+                translate(
+                    "runtime.error.connect_retried",
+                    provider=provider_label,
+                    retries=retries,
+                    details=exc,
+                )
+            ) from exc
         if response.status_code >= 400 and attempt < retries and _should_retry_response(response):
             _logger.warning(
-                "[%s] POST 收到状态码 %d，将在 %.1f 秒后重试 (%d/%d)",
-                provider_label,
-                response.status_code,
-                retry_interval,
-                attempt + 1,
-                retries,
+                translate(
+                    "runtime.log.retry_status",
+                    provider=provider_label,
+                    kind="POST",
+                    status=response.status_code,
+                    delay=retry_interval,
+                    attempt=attempt + 1,
+                    retries=retries,
+                )
             )
             await response.aclose()
             if retry_interval > 0:
                 await asyncio.sleep(retry_interval)
             continue
         return _json_response_payload(provider_label, response)
-    raise HttpxProviderError(f"{provider_label} 上游接口调用失败（已重试 {retries} 次）")
+    raise HttpxProviderError(translate("runtime.error.call_retried", provider=provider_label, retries=retries))
 
 
 async def post_multipart(
@@ -326,39 +366,62 @@ async def post_multipart(
         except httpx.TimeoutException as exc:
             if attempt < retries:
                 _logger.warning(
-                    "[%s] POST multipart 超时，将在 %.1f 秒后重试 (%d/%d): %s",
-                    provider_label,
-                    retry_interval,
-                    attempt + 1,
-                    retries,
-                    exc,
+                    translate(
+                        "runtime.log.retry_timeout",
+                        provider=provider_label,
+                        kind="POST multipart",
+                        delay=retry_interval,
+                        attempt=attempt + 1,
+                        retries=retries,
+                        details=exc,
+                    )
                 )
                 if retry_interval > 0:
                     await asyncio.sleep(retry_interval)
                 continue
-            raise HttpxProviderError(f"{provider_label} 上游接口请求超时（已重试 {retries} 次）: {exc}") from exc
+            raise HttpxProviderError(
+                translate(
+                    "runtime.error.timeout_retried",
+                    provider=provider_label,
+                    retries=retries,
+                    details=exc,
+                )
+            ) from exc
         except httpx.HTTPError as exc:
             if attempt < retries:
                 _logger.warning(
-                    "[%s] POST multipart 连接失败，将在 %.1f 秒后重试 (%d/%d): %s",
-                    provider_label,
-                    retry_interval,
-                    attempt + 1,
-                    retries,
-                    exc,
+                    translate(
+                        "runtime.log.retry_connect",
+                        provider=provider_label,
+                        kind="POST multipart",
+                        delay=retry_interval,
+                        attempt=attempt + 1,
+                        retries=retries,
+                        details=exc,
+                    )
                 )
                 if retry_interval > 0:
                     await asyncio.sleep(retry_interval)
                 continue
-            raise HttpxProviderError(f"{provider_label} 上游接口连接失败（已重试 {retries} 次）: {exc}") from exc
+            raise HttpxProviderError(
+                translate(
+                    "runtime.error.connect_retried",
+                    provider=provider_label,
+                    retries=retries,
+                    details=exc,
+                )
+            ) from exc
         if response.status_code >= 400 and attempt < retries and _should_retry_response(response):
             _logger.warning(
-                "[%s] POST multipart 收到状态码 %d，将在 %.1f 秒后重试 (%d/%d)",
-                provider_label,
-                response.status_code,
-                retry_interval,
-                attempt + 1,
-                retries,
+                translate(
+                    "runtime.log.retry_status",
+                    provider=provider_label,
+                    kind="POST multipart",
+                    status=response.status_code,
+                    delay=retry_interval,
+                    attempt=attempt + 1,
+                    retries=retries,
+                )
             )
             await response.aclose()
             if retry_interval > 0:
@@ -370,7 +433,7 @@ async def post_multipart(
                 status_code=response.status_code,
             )
         return response
-    raise HttpxProviderError(f"{provider_label} 上游接口调用失败（已重试 {retries} 次）")
+    raise HttpxProviderError(translate("runtime.error.call_retried", provider=provider_label, retries=retries))
 
 
 def _parse_sse_data(provider_label: str, data: str) -> dict | None:
@@ -380,10 +443,22 @@ def _parse_sse_data(provider_label: str, data: str) -> dict | None:
     try:
         raw_payload: object = json.loads(normalized)
     except json.JSONDecodeError as exc:
-        raise HttpxProviderParseError(build_parse_error_message(provider_label, "SSE data 不是合法 JSON")) from exc
+        message = translate(
+            "runtime.error.expected_type",
+            subject=runtime_subject("sse_data"),
+            expected=runtime_expected("valid_json"),
+            actual=runtime_actual("invalid_json"),
+        )
+        raise HttpxProviderParseError(build_parse_error_message(provider_label, message)) from exc
     payload = json_mapping_or_none(raw_payload)
     if payload is None:
-        raise HttpxProviderParseError(build_parse_error_message(provider_label, "SSE JSON data 不是 object"))
+        message = translate(
+            "runtime.error.expected_type",
+            subject=runtime_subject("sse_json_data"),
+            expected=runtime_expected("object"),
+            actual=type(raw_payload).__name__,
+        )
+        raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
     return mapping_to_json_object(payload)
 
 
@@ -432,12 +507,15 @@ async def stream_sse_json(
                     await response.aread()
                     if attempt < retries and _should_retry_response(response):
                         _logger.warning(
-                            "[%s] SSE 流收到状态码 %d，将在 %.1f 秒后重试 (%d/%d)",
-                            provider_label,
-                            response.status_code,
-                            retry_interval,
-                            attempt + 1,
-                            retries,
+                            translate(
+                                "runtime.log.retry_status",
+                                provider=provider_label,
+                                kind="SSE",
+                                status=response.status_code,
+                                delay=retry_interval,
+                                attempt=attempt + 1,
+                                retries=retries,
+                            )
                         )
                         if retry_interval > 0:
                             await asyncio.sleep(retry_interval)
@@ -480,28 +558,48 @@ async def stream_sse_json(
         except httpx.TimeoutException as exc:
             if not emitted_event and attempt < retries:
                 _logger.warning(
-                    "[%s] SSE 流超时，将在 %.1f 秒后重试 (%d/%d): %s",
-                    provider_label,
-                    retry_interval,
-                    attempt + 1,
-                    retries,
-                    exc,
+                    translate(
+                        "runtime.log.retry_timeout",
+                        provider=provider_label,
+                        kind="SSE",
+                        delay=retry_interval,
+                        attempt=attempt + 1,
+                        retries=retries,
+                        details=exc,
+                    )
                 )
                 if retry_interval > 0:
                     await asyncio.sleep(retry_interval)
                 continue
-            raise HttpxProviderError(f"{provider_label} 上游接口请求超时（已重试 {retries} 次）: {exc}") from exc
+            raise HttpxProviderError(
+                translate(
+                    "runtime.error.timeout_retried",
+                    provider=provider_label,
+                    retries=retries,
+                    details=exc,
+                )
+            ) from exc
         except httpx.HTTPError as exc:
             if not emitted_event and attempt < retries:
                 _logger.warning(
-                    "[%s] SSE 流连接失败，将在 %.1f 秒后重试 (%d/%d): %s",
-                    provider_label,
-                    retry_interval,
-                    attempt + 1,
-                    retries,
-                    exc,
+                    translate(
+                        "runtime.log.retry_connect",
+                        provider=provider_label,
+                        kind="SSE",
+                        delay=retry_interval,
+                        attempt=attempt + 1,
+                        retries=retries,
+                        details=exc,
+                    )
                 )
                 if retry_interval > 0:
                     await asyncio.sleep(retry_interval)
                 continue
-            raise HttpxProviderError(f"{provider_label} 上游接口连接失败（已重试 {retries} 次）: {exc}") from exc
+            raise HttpxProviderError(
+                translate(
+                    "runtime.error.connect_retried",
+                    provider=provider_label,
+                    retries=retries,
+                    details=exc,
+                )
+            ) from exc

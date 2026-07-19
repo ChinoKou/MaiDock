@@ -3,16 +3,27 @@ from pathlib import Path
 from typing import Literal, Protocol, cast
 
 from maibot_sdk import LLMProvider, LLMProviderBase, MaiBotPlugin
+from pydantic import ValidationError
 
 from .config import MaiDockConfig, build_runtime_options, normalize_maidock_config_data
 from .config_schema import build_maidock_config_schema
 from .core.common import ProviderRuntimeOptions
 from .core.json_types import value_to_json_object
 from .core.state_store import PluginStateStore
+from .i18n import (
+    DEFAULT_LOCALE,
+    Locale,
+    format_validation_error,
+    normalize_locale,
+    translate,
+    use_locale,
+    validate_catalogs,
+)
 from .version import __version__
 
 type _ProviderKey = Literal["openai", "anthropic", "volcengine", "dashscope", "siliconflow", "xiaomi_mimo"]
 type _ProviderFactory = Callable[[ProviderRuntimeOptions], LLMProviderBase]
+type _ProviderGetter = Callable[[], LLMProviderBase]
 
 
 class _PluginPaths(Protocol):
@@ -87,8 +98,10 @@ class MaiDockPlugin(MaiBotPlugin):
         self._mimo_provider: LLMProviderBase | None = None
 
     async def on_load(self) -> None:
+        validate_catalogs()
         self._invalidate_runtime_state()
-        self._initialize_state_store()
+        with use_locale(self._get_runtime_options().locale):
+            self._initialize_state_store()
 
     async def on_unload(self) -> None:
         self._invalidate_runtime_state()
@@ -106,13 +119,15 @@ class MaiDockPlugin(MaiBotPlugin):
         try:
             paths = cast(_PluginContextWithPaths, self.ctx).paths
         except AttributeError as exc:
-            raise RuntimeError("当前 Core 未提供 MaiDock 所需的插件标准持久化路径") from exc
+            raise RuntimeError(translate("runtime.plugin.paths_missing")) from exc
         self._state_store = PluginStateStore(paths.data_dir / "maidock_state.sqlite3")
 
     def normalize_plugin_config(self, config_data: Mapping[str, object] | None) -> tuple[dict[str, object], bool]:
-        normalized_config, changed = super().normalize_plugin_config(config_data)
-        maidock_config, maidock_changed = normalize_maidock_config_data(normalized_config)
-        return maidock_config, changed or maidock_changed
+        locale = self._locale_from_config_data(config_data)
+        with use_locale(locale):
+            normalized_config, changed = super().normalize_plugin_config(config_data)
+            maidock_config, maidock_changed = normalize_maidock_config_data(normalized_config)
+            return maidock_config, changed or maidock_changed
 
     def get_webui_config_schema(
         self,
@@ -129,7 +144,24 @@ class MaiDockPlugin(MaiBotPlugin):
             plugin_version=plugin_version,
             plugin_description=plugin_description,
             plugin_author=plugin_author,
+            locale=self._get_locale(),
         )
+
+    @staticmethod
+    def _locale_from_config_data(config_data: Mapping[str, object] | None) -> Locale:
+        if config_data is None:
+            return DEFAULT_LOCALE
+        plugin_section = config_data.get("plugin")
+        if not isinstance(plugin_section, Mapping):
+            return DEFAULT_LOCALE
+        try:
+            return normalize_locale(plugin_section.get("locale", DEFAULT_LOCALE))
+        except ValueError:
+            return DEFAULT_LOCALE
+
+    def _get_locale(self) -> Locale:
+        config = self._read_config()
+        return config.plugin.locale if config is not None else DEFAULT_LOCALE
 
     def _read_config(self) -> MaiDockConfig | None:
         try:
@@ -208,7 +240,7 @@ class MaiDockPlugin(MaiBotPlugin):
         options = self._get_runtime_options()
         state_store = self._state_store
         if options.volcengine_prefix_cache_enabled and state_store is None:
-            raise RuntimeError("ARK 前缀缓存已启用，但 MaiDock 持久化存储尚未初始化")
+            raise RuntimeError(translate("runtime.plugin.cache_store_missing"))
         provider = _create_volcengine_provider(options, state_store)
         self._set_provider_slot("volcengine", provider)
         return provider
@@ -224,7 +256,7 @@ class MaiDockPlugin(MaiBotPlugin):
         if provider is not None:
             return provider
         if self._state_store is None:
-            raise RuntimeError("MaiDock 持久化存储尚未初始化")
+            raise RuntimeError(translate("runtime.plugin.store_missing"))
         provider = _create_mimo_provider(self._get_runtime_options(), self._state_store)
         self._set_provider_slot("xiaomi_mimo", provider)
         return provider
@@ -232,7 +264,33 @@ class MaiDockPlugin(MaiBotPlugin):
     def _ensure_enabled(self) -> None:
         config = self._read_config()
         if config is not None and not config.plugin.enabled:
-            raise RuntimeError("MaiDock 当前已在插件配置中禁用")
+            raise RuntimeError(translate("runtime.plugin.disabled"))
+
+    async def _dispatch_provider(
+        self,
+        getter: _ProviderGetter,
+        operation: str,
+        request: dict,
+    ) -> dict:
+        options = self._get_runtime_options()
+        with use_locale(options.locale):
+            self._ensure_enabled()
+            if operation not in {"response", "embedding", "audio_transcription"}:
+                raise ValueError(translate("runtime.error.operation_unsupported", operation=operation))
+            provider = getter()
+            try:
+                result = await provider.dispatch(operation=operation, request=request)
+            except ValidationError as exc:
+                raise ValueError(format_validation_error(exc)) from exc
+            except NotImplementedError as exc:
+                raise NotImplementedError(
+                    translate(
+                        "runtime.error.capability_unsupported",
+                        provider=type(provider).__name__,
+                        capability=operation,
+                    )
+                ) from exc
+            return value_to_json_object(result)
 
     @LLMProvider(
         client_type="maidock-openai-responses",
@@ -241,10 +299,7 @@ class MaiDockPlugin(MaiBotPlugin):
         version=__version__,
     )
     async def openai_responses_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(
-            await self._require_openai_provider().dispatch(operation=operation, request=request)
-        )
+        return await self._dispatch_provider(self._require_openai_provider, operation, request)
 
     @LLMProvider(
         client_type="maidock-anthropic-messages",
@@ -253,10 +308,7 @@ class MaiDockPlugin(MaiBotPlugin):
         version=__version__,
     )
     async def anthropic_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(
-            await self._require_anthropic_provider().dispatch(operation=operation, request=request)
-        )
+        return await self._dispatch_provider(self._require_anthropic_provider, operation, request)
 
     @LLMProvider(
         client_type="maidock-dashscope",
@@ -265,10 +317,7 @@ class MaiDockPlugin(MaiBotPlugin):
         version=__version__,
     )
     async def dashscope_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(
-            await self._require_dashscope_provider().dispatch(operation=operation, request=request)
-        )
+        return await self._dispatch_provider(self._require_dashscope_provider, operation, request)
 
     @LLMProvider(
         client_type="maidock-siliconflow",
@@ -277,10 +326,7 @@ class MaiDockPlugin(MaiBotPlugin):
         version=__version__,
     )
     async def siliconflow_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(
-            await self._require_siliconflow_provider().dispatch(operation=operation, request=request)
-        )
+        return await self._dispatch_provider(self._require_siliconflow_provider, operation, request)
 
     @LLMProvider(
         client_type="maidock-volcengine-ark-responses",
@@ -289,10 +335,7 @@ class MaiDockPlugin(MaiBotPlugin):
         version=__version__,
     )
     async def volcengine_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(
-            await self._require_volcengine_provider().dispatch(operation=operation, request=request)
-        )
+        return await self._dispatch_provider(self._require_volcengine_provider, operation, request)
 
     @LLMProvider(
         client_type="maidock-xiaomi-mimo",
@@ -301,8 +344,7 @@ class MaiDockPlugin(MaiBotPlugin):
         version=__version__,
     )
     async def xiaomi_mimo_provider(self, operation: str, request: dict) -> dict:
-        self._ensure_enabled()
-        return value_to_json_object(await self._require_mimo_provider().dispatch(operation=operation, request=request))
+        return await self._dispatch_provider(self._require_mimo_provider, operation, request)
 
 
 def create_plugin() -> MaiDockPlugin:

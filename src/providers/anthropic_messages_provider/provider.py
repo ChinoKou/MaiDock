@@ -4,6 +4,7 @@ import httpx
 from maibot_sdk import LLMProviderBase
 
 from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
+from ...i18n import translate
 from ...schemas import ResponseRequestSnapshot
 from ..common.httpx import create_async_client, post_json, resolve_endpoint_path
 from .messages import (
@@ -99,10 +100,20 @@ class AnthropicMessagesProvider(LLMProviderBase):
 
     async def get_embedding(self, request: dict) -> dict:
         del request
-        raise NotImplementedError("Anthropic Messages API 不提供 embedding 端点，请改用支持 embedding 的 Provider")
+        raise NotImplementedError(
+            translate(
+                "runtime.error.capability_unsupported",
+                provider="Anthropic Messages API",
+                capability="embedding",
+            )
+        )
 
     async def get_audio_transcriptions(self, request: dict) -> dict:
         del request
         raise NotImplementedError(
-            "Anthropic Messages API 不提供 audio_transcription 端点，请改用支持音频转写的 Provider"
+            translate(
+                "runtime.error.capability_unsupported",
+                provider="Anthropic Messages API",
+                capability="audio_transcription",
+            )
         )

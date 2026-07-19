@@ -1,4 +1,5 @@
 from ...core.json_types import json_mapping_or_none
+from ...i18n import translate
 from ..common.parameter_translation import (
     FieldTranslator,
     TranslationContext,
@@ -47,16 +48,34 @@ def reject_anthropic_response_format_params(context: TranslationContext) -> None
         return
     response_format = getattr(request, "response_format", None)
     if response_format is not None:
-        raise ValueError("Anthropic Messages 不支持 Host response_format，请不要配置 request.response_format")
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject="Anthropic Messages request.response_format",
+                allowed="unset",
+            )
+        )
     for source_name, source in (
         ("model_info.extra_params", request.model_info.extra_params.fields),
         ("request.extra_params", request.extra_params.fields),
     ):
         if "response_format" in source:
-            raise ValueError(f"Anthropic Messages 不支持 {source_name}.response_format")
+            raise ValueError(
+                translate(
+                    "runtime.error.unsupported_value",
+                    subject=f"Anthropic Messages {source_name}.response_format",
+                    allowed="unset",
+                )
+            )
         body = json_mapping_or_none(source.get("body"))
         if body is not None and "response_format" in body:
-            raise ValueError(f"Anthropic Messages 不支持 {source_name}.body.response_format")
+            raise ValueError(
+                translate(
+                    "runtime.error.unsupported_value",
+                    subject=f"Anthropic Messages {source_name}.body.response_format",
+                    allowed="unset",
+                )
+            )
 
 
 ANTHROPIC_TRANSLATORS: dict[str, FieldTranslator] = {

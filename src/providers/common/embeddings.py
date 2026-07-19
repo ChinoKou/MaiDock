@@ -4,6 +4,7 @@ import struct
 
 from ...core.diagnostics import build_parse_error_message
 from ...core.json_types import json_list_or_none
+from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
 from .httpx import HttpxProviderParseError
 
 
@@ -20,33 +21,50 @@ def coerce_embedding_vector(value: object, *, provider_label: str, encoding_form
         embedding = decode_base64_embedding(value)
         for index, item in enumerate(embedding):
             if not math.isfinite(item):
-                raise HttpxProviderParseError(
-                    build_parse_error_message(provider_label, f"embedding[{index}] 不是有限数值")
+                message = translate(
+                    "runtime.error.expected_type",
+                    subject=f"embedding[{index}]",
+                    expected=runtime_expected("finite_number"),
+                    actual=item,
                 )
+                raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
         return embedding
 
     raw_embedding = json_list_or_none(value)
     if raw_embedding is None:
-        raise HttpxProviderParseError(build_parse_error_message(provider_label, "缺少 embedding 数组"))
+        message = translate(
+            "runtime.error.required",
+            subject=runtime_subject("response"),
+            field=runtime_item("embedding_array"),
+        )
+        raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
     embedding: list[float] = []
     for index, item in enumerate(raw_embedding):
         if not isinstance(item, (str, int, float)) or isinstance(item, bool):
-            raise HttpxProviderParseError(
-                build_parse_error_message(
-                    provider_label,
-                    f"embedding[{index}] 无法转换为 float，类型为 {type(item).__name__}",
-                )
+            message = translate(
+                "runtime.error.expected_type",
+                subject=f"embedding[{index}]",
+                expected=runtime_expected("float_compatible_value"),
+                actual=type(item).__name__,
             )
+            raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
         try:
             value = float(item)
         except (TypeError, ValueError, OverflowError) as exc:
-            raise HttpxProviderParseError(
-                build_parse_error_message(
-                    provider_label,
-                    f"embedding[{index}] 无法转换为 float，类型为 {type(item).__name__}",
-                )
-            ) from exc
+            message = translate(
+                "runtime.error.expected_type",
+                subject=f"embedding[{index}]",
+                expected=runtime_expected("float_compatible_value"),
+                actual=type(item).__name__,
+            )
+            raise HttpxProviderParseError(build_parse_error_message(provider_label, message)) from exc
         if not math.isfinite(value):
-            raise HttpxProviderParseError(build_parse_error_message(provider_label, f"embedding[{index}] 不是有限数值"))
+            message = translate(
+                "runtime.error.expected_type",
+                subject=f"embedding[{index}]",
+                expected=runtime_expected("finite_number"),
+                actual=value,
+            )
+            raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
         embedding.append(value)
     return embedding

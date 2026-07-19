@@ -1,5 +1,6 @@
 from ...core.common import ProviderRuntimeOptions, message_text
 from ...core.parsing import normalize_arguments
+from ...i18n import runtime_subject, translate
 from ...schemas import (
     AnthropicMessage,
     AnthropicTextBlock,
@@ -23,7 +24,13 @@ def convert_assistant_tool_calls(
             continue
         tool_use_id = tool_call.resolved_call_id()
         if not tool_use_id:
-            raise ValueError(f"Anthropic Messages 历史工具调用 {name} 缺少 tool_use id，无法构建 tool_use")
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject=f"Anthropic Messages {runtime_subject('historical_tool_call')} {name}",
+                    field="tool_use id",
+                )
+            )
         blocks.append(
             AnthropicToolUseBlock(
                 id=tool_use_id,

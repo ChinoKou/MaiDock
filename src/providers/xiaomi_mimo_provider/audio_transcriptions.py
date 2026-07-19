@@ -5,6 +5,7 @@ from ...core.diagnostics import sanitize_json_object
 from ...core.json_types import json_mapping_or_none, mapping_field, mapping_to_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
 from ...schemas import AudioTranscriptionRequestSnapshot, GenericUsageSnapshot, ProviderResponse
 from ..chat_completions_family.audio import (
     AudioFormat,
@@ -94,13 +95,26 @@ def build_mimo_audio_transcription_request(
         raw_asr_options_value = body.pop("asr_options", None)
         raw_asr_options = json_mapping_or_none(raw_asr_options_value)
         if raw_asr_options_value is not None and raw_asr_options is None:
-            raise TypeError("Mimo asr_options 必须是 object")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject="Mimo asr_options",
+                    expected=runtime_expected("object"),
+                    actual=type(raw_asr_options_value).__name__,
+                )
+            )
         asr_options = mapping_to_json_object(raw_asr_options) if raw_asr_options is not None else {}
         language = options.mimo_audio_transcription_language
         if "language" in asr_options:
             language = asr_options["language"]
         if language not in {"auto", "zh", "en"}:
-            raise ValueError("Mimo asr_options.language 仅支持 auto、zh 或 en")
+            raise ValueError(
+                translate(
+                    "runtime.error.unsupported_value",
+                    subject="Mimo asr_options.language",
+                    allowed="auto/zh/en",
+                )
+            )
         asr_options["language"] = language
         for field_name in _MIMO_ASR_UNSUPPORTED_BODY_FIELDS:
             body.pop(field_name, None)
@@ -109,7 +123,13 @@ def build_mimo_audio_transcription_request(
     else:
         prompt = configured_prompt if configured_prompt is not None else options.mimo_audio_transcription_prompt
         if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("未配置转录提示词，请在 Mimo 设置中填写 audio_transcription_prompt")
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject=runtime_subject("mimo_settings"),
+                    field="audio_transcription_prompt",
+                )
+            )
         audio = prepare_chat_audio(
             request.audio_base64,
             format_hints,
@@ -160,10 +180,23 @@ async def build_mimo_audio_transcription(
 def _parse_audio_transcription_response(payload: dict, *, options: ProviderRuntimeOptions) -> ProviderResponse:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise ValueError(f"{MIMO_AUDIO_TRANSCRIPTION_LABEL} 响应中没有 choices")
+        raise ValueError(
+            translate(
+                "runtime.error.response_missing",
+                provider=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+                item="choices",
+            )
+        )
     first = json_mapping_or_none(choices[0])
     if first is None:
-        raise ValueError(f"{MIMO_AUDIO_TRANSCRIPTION_LABEL} choices[0] 不是 object")
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=f"{MIMO_AUDIO_TRANSCRIPTION_LABEL} choices[0]",
+                expected=runtime_expected("object"),
+                actual=type(choices[0]).__name__,
+            )
+        )
     message = mapping_field(first, "message")
     content: str | None = None
     if message is not None:
@@ -180,7 +213,13 @@ def _parse_audio_transcription_response(payload: dict, *, options: ProviderRunti
                         parts.append(text)
             content = "".join(parts) or None
     if not content:
-        raise ValueError(f"{MIMO_AUDIO_TRANSCRIPTION_LABEL} 响应中无法提取转录文本")
+        raise ValueError(
+            translate(
+                "runtime.error.response_missing",
+                provider=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+                item=runtime_item("audio_transcription_text"),
+            )
+        )
     return ProviderResponse(
         content=content,
         usage=build_usage_from_snapshot(GenericUsageSnapshot.model_validate(payload.get("usage") or {})),

@@ -1,3 +1,4 @@
+from ...i18n import runtime_item, translate
 from ...schemas import ResponseFormatSchemaSnapshot
 from ..common.response_format import normalize_response_format_snapshot
 
@@ -14,14 +15,32 @@ def build_chat_response_format_payload(value: object, *, provider_label: str) ->
     if format_type in {"json_object", "json_obj"}:
         return {"type": "json_object"}
     if format_type != "json_schema":
-        raise ValueError(f"{provider_label} 不支持的 response_format.format_type: {response_format.format_type}")
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject=f"{provider_label} response_format.format_type",
+                allowed="text/json_object/json_schema",
+            )
+        )
     schema_payload = response_format.schema_
     if not isinstance(schema_payload, ResponseFormatSchemaSnapshot):
-        raise ValueError(f"{provider_label} response_format=json_schema 需要提供 name 与 schema")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=f"{provider_label} json_schema",
+                field=runtime_item("name_and_schema"),
+            )
+        )
     if schema_payload.name is None or not schema_payload.name.strip():
-        raise ValueError(f"{provider_label} response_format=json_schema 需要提供非空 name")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=f"{provider_label} json_schema",
+                field=runtime_item("non_empty_name"),
+            )
+        )
     if schema_payload.schema_ is None:
-        raise ValueError(f"{provider_label} response_format=json_schema 需要提供 schema")
+        raise ValueError(translate("runtime.error.required", subject=f"{provider_label} json_schema", field="schema"))
     json_schema: dict = {
         "name": schema_payload.name.strip(),
         "schema": schema_payload.schema_.to_plain_dict(),

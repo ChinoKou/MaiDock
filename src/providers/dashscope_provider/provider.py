@@ -4,6 +4,7 @@ import httpx
 from maibot_sdk import LLMProviderBase
 
 from ...core.common import ProviderRuntimeOptions, log_request_summary, log_response_summary
+from ...i18n import translate
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
@@ -121,7 +122,7 @@ class DashScopeProvider(LLMProviderBase):
                 ):
                     raise
                 alt_path = resolve_path(config, DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT)
-                logger.info("[dashscope] 模型 %s 在文本端点返回 url error，切换多模态端点", model)
+                logger.info(translate("runtime.log.dashscope_endpoint_switch", model=model))
                 if stream:
                     result = await collect_stream_response(
                         client,

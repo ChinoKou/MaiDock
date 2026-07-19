@@ -10,6 +10,7 @@ from ...core.common import (
 )
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...core.state_store import PluginStateStore
+from ...i18n import translate
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     EmbeddingRequestSnapshot,
@@ -59,7 +60,7 @@ class VolcengineArkResponsesProvider(LLMProviderBase):
         self._transport = transport
         self._responses_mapper = create_responses_mapper(options=options, logger=logger)
         if options.volcengine_prefix_cache_enabled and state_store is None:
-            raise RuntimeError("ARK 前缀缓存已启用，但未注入 MaiDock 持久化存储")
+            raise RuntimeError(translate("runtime.plugin.cache_store_missing"))
         self._prefix_cache_manager = (
             PrefixCacheManager(
                 state_store,

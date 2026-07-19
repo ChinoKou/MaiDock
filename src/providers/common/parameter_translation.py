@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from ...core.json_types import json_mapping_or_none, mapping_to_json_object, normalize_json_value
 from ...core.parameter_catalog import CapabilityParameterCatalog, dotted_path
 from ...core.parameter_policy import CapabilityKey, ParameterPolicy, ProviderPolicyKey, UnknownExtraParamsPolicy
+from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
 from ...schemas.host_snapshots import (
     AudioTranscriptionRequestSnapshot,
     BaseProviderRequestSnapshot,
@@ -185,9 +186,23 @@ def set_target_value(envelope: TranslationEnvelope, path: tuple[str, ...], value
     root, tail = _split_target_path(path)
     if root == "headers":
         if len(tail) != 1:
-            raise ValueError(f"headers 目标路径必须只有一个字段: {dotted_path(path)}")
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=f"headers {runtime_subject('target_path')} {dotted_path(path)}",
+                    expected=runtime_expected("one_field"),
+                    actual=len(tail),
+                )
+            )
         if not isinstance(value, str):
-            raise TypeError(f"{dotted_path(path)} 必须是字符串，实际为 {type(value).__name__}")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=dotted_path(path),
+                    expected=runtime_expected("string"),
+                    actual=type(value).__name__,
+                )
+            )
         envelope.headers[tail[0]] = value
         return
     target = envelope.body if root == "body" else envelope.query
@@ -217,13 +232,20 @@ def pop_target_value(envelope: TranslationEnvelope, path: tuple[str, ...]) -> ob
 def normalize_temperature(value: object, *, field_name: str = "temperature") -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
-    raise TypeError(f"{field_name} 必须是数字，实际为 {type(value).__name__}")
+    raise TypeError(
+        translate(
+            "runtime.error.expected_type",
+            subject=field_name,
+            expected=runtime_expected("number"),
+            actual=type(value).__name__,
+        )
+    )
 
 
 def normalize_positive_int(value: object, *, field_name: str) -> int:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
-    raise ValueError(f"{field_name} 必须是正整数")
+    raise ValueError(translate("runtime.error.positive_integer", subject=field_name))
 
 
 def normalize_dimensions(value: object, *, field_name: str = "dimensions") -> int:
@@ -233,7 +255,14 @@ def normalize_dimensions(value: object, *, field_name: str = "dimensions") -> in
 def normalize_json_object_value(value: object, *, field_name: str) -> dict:
     mapping = json_mapping_or_none(value)
     if mapping is None:
-        raise TypeError(f"{field_name} 必须是 object，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=field_name,
+                expected=runtime_expected("object"),
+                actual=type(value).__name__,
+            )
+        )
     return mapping_to_json_object(mapping)
 
 
@@ -398,7 +427,11 @@ def _merge_source(
         if canonical_key in source_values and source_values[canonical_key] != value:
             previous_key = source_keys[canonical_key]
             raise ValueError(
-                f"{source_label} 同时提供 {previous_key} 与 {normalized_key}，它们都映射到 {canonical_key} 且值不一致"
+                translate(
+                    "runtime.error.conflict_different",
+                    left=f"{source_label}.{previous_key} ({canonical_key})",
+                    right=f"{source_label}.{normalized_key} ({canonical_key})",
+                )
             )
         source_values[canonical_key] = value
         source_keys[canonical_key] = normalized_key
@@ -427,7 +460,13 @@ def _set_known_field(
         return
     if reject_conflict and key in fields and fields[key] != value:
         previous_source = sources.get(key, key)
-        raise ValueError(f"Host typed 字段 {key} 与 {previous_source} 同时存在且值不一致")
+        raise ValueError(
+            translate(
+                "runtime.error.conflict_different",
+                left=f"Host typed field {key}",
+                right=previous_source,
+            )
+        )
     if overwrite or key not in fields:
         fields[key] = value
         sources[key] = source_label
@@ -443,7 +482,14 @@ def _merge_control_root(
 ) -> None:
     incoming = json_mapping_or_none(value)
     if incoming is None:
-        raise TypeError(f"extra_params.{key} 必须是 object，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=f"extra_params.{key}",
+                expected=runtime_expected("object"),
+                actual=type(value).__name__,
+            )
+        )
     current = json_mapping_or_none(fields.get(key))
     merged = mapping_to_json_object(current) if current is not None else {}
     _deep_merge(merged, mapping_to_json_object(incoming))
@@ -454,7 +500,14 @@ def _merge_control_root(
 def _merge_transport_root(envelope: TranslationEnvelope, key: str, value: object) -> None:
     incoming = json_mapping_or_none(value)
     if incoming is None:
-        raise TypeError(f"extra_params.{key} 必须是 object，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=f"extra_params.{key}",
+                expected=runtime_expected("object"),
+                actual=type(value).__name__,
+            )
+        )
     incoming_object = mapping_to_json_object(incoming)
     if key == "body":
         _deep_merge(envelope.body, incoming_object)
@@ -463,7 +516,14 @@ def _merge_transport_root(envelope: TranslationEnvelope, key: str, value: object
     else:
         for header, header_value in incoming_object.items():
             if not isinstance(header_value, str):
-                raise TypeError(f"extra_params.headers.{header} 必须是字符串，实际为 {type(header_value).__name__}")
+                raise TypeError(
+                    translate(
+                        "runtime.error.expected_type",
+                        subject=f"extra_params.headers.{header}",
+                        expected=runtime_expected("string"),
+                        actual=type(header_value).__name__,
+                    )
+                )
             envelope.headers[header] = header_value
 
 
@@ -477,7 +537,14 @@ def _handle_unknown_field(
     if unknown_policy == "drop":
         return
     if unknown_policy == "reject":
-        raise ValueError(f"{context.provider_label} {context.capability} 不支持 extra_params 字段: {key}")
+        raise ValueError(
+            translate(
+                "runtime.error.unknown_extra_param",
+                provider=context.provider_label,
+                capability=context.capability,
+                field=key,
+            )
+        )
     set_target_value(envelope, ("body", key), value)
 
 
@@ -517,11 +584,26 @@ def _raise_for_rejected_normalized_fields(
 ) -> None:
     for field_def in catalog.fields:
         if field_def.key in fields and dotted_path(field_def.target_path) in rejected_paths:
-            raise ValueError(f"{provider_label} {capability} 参数策略拒绝路径: {dotted_path(field_def.target_path)}")
+            path = dotted_path(field_def.target_path)
+            raise ValueError(
+                translate(
+                    "runtime.error.parameter_path_rejected",
+                    provider=provider_label,
+                    capability=capability,
+                    path=path,
+                )
+            )
     for path in rejected_paths:
         parts = tuple(part for part in path.split(".") if part)
         if len(parts) == 1 and parts[0] in fields:
-            raise ValueError(f"{provider_label} {capability} 参数策略拒绝路径: {path}")
+            raise ValueError(
+                translate(
+                    "runtime.error.parameter_path_rejected",
+                    provider=provider_label,
+                    capability=capability,
+                    path=path,
+                )
+            )
 
 
 def _is_disabled_source(key: str, disabled_paths: set[str]) -> bool:
@@ -534,13 +616,24 @@ def _normalized_paths(paths: tuple[str, ...]) -> set[str]:
 
 def _split_target_path(path: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
     if len(path) < 2 or path[0] not in _TRANSPORT_ROOTS:
-        raise ValueError(f"目标路径必须以 body/headers/query 开头: {dotted_path(path)}")
+        raise ValueError(
+            translate(
+                "runtime.error.target_root_invalid",
+                path=dotted_path(path),
+            )
+        )
     return path[0], path[1:]
 
 
 def _set_nested_value(target: dict, parts: tuple[str, ...], value: object) -> None:
     if not parts:
-        raise ValueError("目标路径不能为空")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=runtime_subject("target_path"),
+                field=runtime_item("path_segment"),
+            )
+        )
     current = target
     for part in parts[:-1]:
         child = json_mapping_or_none(current.get(part))

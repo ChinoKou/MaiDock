@@ -12,6 +12,7 @@ from ...core.json_types import (
     mapping_to_json_object,
     string_field,
 )
+from ...i18n import translate
 from ...schemas import OpenAIResponseOutputContentBlock, OpenAIResponseOutputItem
 from ..common.httpx import HttpxProviderError, stream_sse_json
 from .status import incomplete_reason, is_length_incomplete
@@ -217,7 +218,11 @@ def _merge_length_incomplete_response(
 def _terminal_error_message(provider_label: str, event_type: str, event: dict) -> str | None:
     bare_error = event.get("error")
     if event_type == "error" or bare_error is not None:
-        return f"{provider_label} 流式响应返回错误: {sanitize_for_log(bare_error or sanitize_json_object(event))}"
+        return translate(
+            "runtime.error.stream",
+            provider=provider_label,
+            details=sanitize_for_log(bare_error or sanitize_json_object(event)),
+        )
     if event_type not in {"response.failed", "response.incomplete"}:
         return None
     response = mapping_field(event, "response")
@@ -228,7 +233,12 @@ def _terminal_error_message(provider_label: str, event_type: str, event: dict) -
         error_payload = response.get("error") or response.get("incomplete_details") or sanitize_json_object(response)
     if error_payload is None:
         error_payload = event.get("error") or event.get("message") or sanitize_json_object(event)
-    return f"{provider_label} 流式响应状态为 {event_type}: {sanitize_for_log(error_payload)}"
+    return translate(
+        "runtime.error.stream_status",
+        provider=provider_label,
+        status=event_type,
+        details=sanitize_for_log(error_payload),
+    )
 
 
 def _merge_stream_item(

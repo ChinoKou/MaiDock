@@ -5,6 +5,7 @@ from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot, re
 from ...core.json_types import json_list_or_none, json_mapping_or_none
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...i18n import translate
 from ...schemas import EmbeddingRequestSnapshot, GenericUsageSnapshot, ProviderResponse
 from ..common.embeddings import coerce_embedding_vector
 from ..common.parameter_translation import TranslationEnvelope, build_translation_context
@@ -37,8 +38,11 @@ def dashscope_embedding_endpoint(model: str) -> EmbeddingEndpoint:
     if normalized.startswith("tongyi-embedding-vision-"):
         return DASHSCOPE_MULTIMODAL_EMBEDDING_ENDPOINT
     raise ValueError(
-        f"{DASHSCOPE_PROVIDER_LABEL} embedding 模型必须匹配 text-embedding-v*、multimodal-embedding-*、"
-        "qwen*-vl-embedding 或 tongyi-embedding-vision-*"
+        translate(
+            "runtime.error.unsupported_value",
+            subject=f"{DASHSCOPE_PROVIDER_LABEL} embedding model",
+            allowed="text-embedding-v*/multimodal-embedding-*/qwen*-vl-embedding/tongyi-embedding-vision-*",
+        )
     )
 
 

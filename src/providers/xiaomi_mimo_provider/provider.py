@@ -13,6 +13,7 @@ from ...core.common import (
 )
 from ...core.json_types import json_list_or_none
 from ...core.state_store import PluginStateStore
+from ...i18n import runtime_item, runtime_subject, translate
 from ...schemas import (
     AudioTranscriptionRequestSnapshot,
     ResponseRequestSnapshot,
@@ -46,7 +47,7 @@ class XiaomiMimoProvider(LLMProviderBase):
         self.options = options
         self._transport = transport
         if not options.mimo_force_disable_thinking and state_store is None:
-            raise RuntimeError("Mimo 原生思考已启用，但未注入 MaiDock 持久化存储")
+            raise RuntimeError(translate("runtime.plugin.store_missing"))
         self._reasoning_manager = (
             MimoReasoningManager(
                 state_store,
@@ -80,7 +81,13 @@ class XiaomiMimoProvider(LLMProviderBase):
         response_options = replace(self.options, reasoning_parse_mode="native") if hide_reasoning else self.options
         if thinking_enabled:
             if self._reasoning_manager is None:
-                raise RuntimeError("Mimo 原生思考已启用，但 MaiDock reasoning 管理器不可用")
+                raise RuntimeError(
+                    translate(
+                        "runtime.error.required",
+                        subject=runtime_subject("mimo_native_reasoning"),
+                        field=runtime_item("reasoning_manager"),
+                    )
+                )
             await self._reasoning_manager.restore_history(
                 request_model,
                 body,
@@ -148,7 +155,13 @@ class XiaomiMimoProvider(LLMProviderBase):
         return result.to_host_dict()
 
     async def get_embedding(self, request: dict) -> dict:
-        raise NotImplementedError("Xiaomi Mimo Provider 当前不提供 embedding 端点")
+        raise NotImplementedError(
+            translate(
+                "runtime.error.capability_unsupported",
+                provider="Xiaomi Mimo Provider",
+                capability="embedding",
+            )
+        )
 
     async def get_audio_transcriptions(self, request: dict) -> dict:
         request_model = AudioTranscriptionRequestSnapshot.model_validate(request)

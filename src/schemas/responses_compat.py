@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from ..core.json_types import is_json_list
+from ..i18n import runtime_expected, translate
 from .base import (
     HostDumpModel,
     IgnoreExtraModel,
@@ -169,9 +170,22 @@ class OpenAITextFormatConfig(HostDumpModel):
         if self.type == "json_object":
             return {"type": "json_object"}
         if self.name is None or not self.name.strip():
-            raise ValueError("OpenAI Responses text.format.name 必须是非空字符串")
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject="OpenAI Responses text.format.name",
+                    expected=runtime_expected("non_empty_string"),
+                    actual=type(self.name).__name__,
+                )
+            )
         if self.schema_payload is None:
-            raise ValueError("OpenAI Responses text.format.schema 不能为空")
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject="OpenAI Responses text.format",
+                    field="schema",
+                )
+            )
         payload: dict = {
             "type": "json_schema",
             "name": self.name.strip(),

@@ -5,6 +5,7 @@ from ...core.diagnostics import build_parse_error_message, sanitize_json_object
 from ...core.json_types import json_mapping_or_none, list_field, mapping_field, string_field
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...i18n import runtime_item, translate
 from ...schemas import AudioTranscriptionRequestSnapshot
 from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from .chat import DASHSCOPE_PROVIDER_LABEL
@@ -109,4 +110,6 @@ def parse_audio_transcription_response(
     if text:
         raw_data = sanitize_json_object(payload) if options.include_raw_data else None
         return text, raw_data
-    raise ValueError(build_parse_error_message(f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions", "响应缺少文本内容"))
+    provider_label = f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions"
+    message = translate("runtime.error.output_missing", item=runtime_item("text_content"))
+    raise ValueError(build_parse_error_message(provider_label, message))

@@ -3,6 +3,7 @@ import logging
 from ...core.common import ProviderRuntimeOptions, read_model_identifier
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...i18n import runtime_subject, translate
 from ...schemas import AudioTranscriptionRequestSnapshot, ProviderResponse
 from ..responses_family.audio import (
     AudioFormat,
@@ -58,7 +59,13 @@ def build_ark_audio_transcription_request(
     configured_prompt = body.pop("prompt", None)
     prompt = configured_prompt if configured_prompt is not None else options.volcengine_audio_transcription_prompt
     if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("未配置转录提示词，请在 ARK 设置中填写 audio_transcription_prompt")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=runtime_subject("ark_settings"),
+                field="audio_transcription_prompt",
+            )
+        )
     for unsupported_key in ("caching", "instructions", "previous_response_id", "tools"):
         body.pop(unsupported_key, None)
     body["model"] = model

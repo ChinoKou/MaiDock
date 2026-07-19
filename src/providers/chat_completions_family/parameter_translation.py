@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 
 from ...core.json_types import json_list_or_none
+from ...i18n import translate
 from ..common.parameter_translation import (
     FieldTranslator,
     TranslationContext,
@@ -45,7 +46,13 @@ def translate_chat_response_format(
     if response_format is None:
         return
     if "response_format" in envelope.body:
-        raise ValueError("extra_params.body.response_format 与 response_format 不能同时设置")
+        raise ValueError(
+            translate(
+                "runtime.error.conflict",
+                left="extra_params.body.response_format",
+                right="response_format",
+            )
+        )
     envelope.body["response_format"] = response_format
 
 

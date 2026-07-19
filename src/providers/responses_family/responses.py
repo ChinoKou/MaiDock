@@ -9,7 +9,7 @@ from ...core.common import (
     read_model_identifier,
     tool_arguments_to_json,
 )
-from ...core.diagnostics import build_parse_error_message, sanitize_for_log
+from ...core.diagnostics import build_parse_error_message, sanitize_for_log, sanitize_upstream_detail
 from ...core.json_types import (
     json_list_or_none,
     json_mapping_or_none,
@@ -21,6 +21,7 @@ from ...core.parsing import (
     extract_xml_tool_calls,
     merge_native_or_text_reasoning,
 )
+from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
 from ...schemas.host_snapshots import (
     MessageSnapshot,
     ResponseRequestSnapshot,
@@ -112,7 +113,13 @@ class ResponsesMapper:
         policy = self.options.parameter_policies.get(self.policy_provider, "response")
         normalized = upstream_request.normalized
         if not isinstance(normalized, NormalizedHostParameters):
-            raise TypeError("OpenAIResponsesRequest.normalized 缺少 NormalizedHostParameters")
+            raise TypeError(
+                translate(
+                    "runtime.error.required",
+                    subject="OpenAIResponsesRequest.normalized",
+                    field="NormalizedHostParameters",
+                )
+            )
 
         input_params = upstream_request.input_params()
         tool_params = upstream_request.tool_params()
@@ -191,7 +198,11 @@ class ResponsesMapper:
             else None
         )
         if not final_content and not tool_calls and not (length_incomplete and reasoning_content):
-            raise ValueError(build_parse_error_message(self.provider_label, "响应中没有可用的文本、思考内容或工具调用"))
+            message = translate(
+                "runtime.error.output_missing",
+                item=runtime_item("output_text_reasoning_or_tools"),
+            )
+            raise ValueError(build_parse_error_message(self.provider_label, message))
         return ProviderResponse(
             content=final_content,
             reasoning_content=reasoning_content,
@@ -208,19 +219,26 @@ class ResponsesMapper:
         if error_payload is None:
             return None
         message = error_payload.get("message") or error_payload.get("code") or error_payload.get("type")
-        return f"{self.provider_label} 上游接口返回错误: {sanitize_for_log(message or error_payload)}"
+        return translate(
+            "runtime.error.upstream_status",
+            provider=self.provider_label,
+            details=sanitize_for_log(message or error_payload),
+        )
 
     def _raise_for_terminal_error(self, response_model: OpenAIResponseSnapshot, raw_payload: dict) -> None:
         if response_model.status not in {"failed", "incomplete"}:
             return
         if is_length_incomplete(raw_payload):
-            self.logger.warning(
-                "%s 响应达到 max_output_tokens，返回已生成的截断内容",
-                self.provider_label,
-            )
+            self.logger.warning(translate("runtime.log.response_truncated", provider=self.provider_label))
             return
         error = raw_payload.get("error") or raw_payload.get("incomplete_details") or response_model.status
-        raise ValueError(build_parse_error_message(self.provider_label, f"响应状态为 {response_model.status}: {error}"))
+        message = translate(
+            "runtime.error.response_invalid",
+            provider=self.provider_label,
+            field="status",
+            details=f"{response_model.status}: {sanitize_upstream_detail(error)}",
+        )
+        raise ValueError(build_parse_error_message(self.provider_label, message))
 
     def _convert_messages(self, messages: list[MessageSnapshot]) -> list[OpenAIResponseInputItem]:
         converted: list[OpenAIResponseInputItem] = []
@@ -252,7 +270,13 @@ class ResponsesMapper:
                     continue
                 call_id = tool_call.resolved_call_id()
                 if not call_id:
-                    raise ValueError(f"{self.provider_label} 历史工具调用 {name} 缺少 call_id，无法构建 function_call")
+                    raise ValueError(
+                        translate(
+                            "runtime.error.required",
+                            subject=f"{self.provider_label} {runtime_subject('historical_tool_call')} {name}",
+                            field="call_id",
+                        )
+                    )
                 item_id, status = self._extract_tool_call_item_metadata(tool_call)
                 converted.append(
                     OpenAIFunctionCallInputItem(
@@ -301,12 +325,26 @@ class ResponsesMapper:
             return []
         items = json_list_or_none(raw_tools)
         if items is None:
-            raise ValueError("extra_params.tools 必须是 object 列表")
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject="extra_params.tools",
+                    expected=runtime_expected("list_of_objects"),
+                    actual=type(raw_tools).__name__,
+                )
+            )
         tools: list[dict] = []
         for index, item in enumerate(items, start=1):
             tool_mapping = json_mapping_or_none(item)
             if tool_mapping is None:
-                raise ValueError(f"extra_params.tools[{index}] 必须是 object")
+                raise ValueError(
+                    translate(
+                        "runtime.error.expected_type",
+                        subject=f"extra_params.tools[{index}]",
+                        expected=runtime_expected("object"),
+                        actual=type(item).__name__,
+                    )
+                )
             tools.append(mapping_to_json_object(tool_mapping))
         return tools
 

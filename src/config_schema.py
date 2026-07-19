@@ -1,3 +1,5 @@
+from typing import cast
+
 from .core.parameter_catalog import (
     CAPABILITY_TITLES,
     PROVIDER_TITLES,
@@ -6,9 +8,11 @@ from .core.parameter_catalog import (
     field_enabled_key,
     field_override_enabled_key,
     field_override_value_key,
+    get_parameter_catalog,
     provider_catalogs,
 )
 from .core.parameter_policy import CapabilityKey, ProviderPolicyKey
+from .i18n import DEFAULT_LOCALE, Locale, translate, use_locale
 from .version import __version__
 
 _PROVIDER_ICONS: dict[ProviderPolicyKey, str] = {
@@ -76,8 +80,73 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     ),
 }
 
+_PARAMETER_LABEL_KEYS: dict[str, str] = {
+    "parallel_tool_calls": "ui.parameter.parallel_tool_calls",
+    "store": "ui.parameter.store",
+    "stream": "ui.parameter.stream",
+    "enable_thinking": "ui.parameter.enable_thinking",
+    "enable_search": "ui.parameter.enable_search",
+    "incremental_output": "ui.parameter.incremental_output",
+    "auto_truncation": "ui.parameter.auto_truncation",
+    "enable_fusion": "ui.parameter.enable_fusion",
+    "enable_itn": "ui.parameter.enable_itn",
+    "sparse_embedding": "ui.parameter.sparse_embedding",
+}
+
+_STATIC_FIELD_KEYS: dict[str, tuple[str, str | None]] = {
+    "enabled": ("ui.field.enabled.label", None),
+    "locale": ("ui.field.locale.label", "ui.field.locale.hint"),
+    "config_version": ("ui.field.config_version.label", None),
+    "include_raw_data": ("ui.field.include_raw_data.label", "ui.field.include_raw_data.hint"),
+    "log_payload_summary": ("ui.field.log_summary.label", None),
+    "log_payload_debug": ("ui.field.log_debug.label", "ui.field.log_debug.hint"),
+    "tool_argument_parse_mode": ("ui.field.tool_parse_mode.label", None),
+    "reasoning_parse_mode": ("ui.field.reasoning_parse_mode.label", None),
+    "invalid_image_policy": ("ui.field.invalid_image_policy.label", None),
+    "max_image_bytes_mb": ("ui.field.max_image_bytes.label", None),
+    "max_image_pixels": ("ui.field.max_image_pixels.label", None),
+    "max_image_dimension": ("ui.field.max_image_dimension.label", None),
+    "max_image_frames": ("ui.field.max_image_frames.label", None),
+    "force_disable_thinking": ("ui.field.force_thinking.label", "ui.field.force_thinking.hint"),
+    "reasoning_retention_days": ("ui.field.reasoning_retention.label", "ui.field.reasoning_retention.hint"),
+    "audio_transcription_language": ("ui.field.asr_language.label", "ui.field.asr_language.hint"),
+    "auto_detect_endpoint": ("ui.field.auto_endpoint.label", "ui.field.auto_endpoint.hint"),
+    "prefix_cache_enabled": ("ui.field.prefix_cache.label", "ui.field.prefix_cache.hint"),
+    "prefix_cache_ttl_seconds": ("ui.field.prefix_cache_ttl.label", "ui.field.prefix_cache_ttl.hint"),
+    "max_retries": ("ui.field.max_retries.label", "ui.field.max_retries.hint"),
+    "force_max_retries": ("ui.field.force_max_retries.label", "ui.field.force_value.hint"),
+    "retry_interval": ("ui.field.retry_interval.label", "ui.field.retry_interval.hint"),
+    "force_retry_interval": ("ui.field.force_retry_interval.label", "ui.field.force_value.hint"),
+    "accept_model_extra_params": ("ui.field.accept_model_extra.label", None),
+    "accept_request_extra_params": ("ui.field.accept_request_extra.label", None),
+    "unknown_extra_params": ("ui.field.unknown_extra.label", "ui.field.unknown_extra.hint"),
+}
+
 
 def build_maidock_config_schema(
+    *,
+    plugin_id: str = "",
+    plugin_name: str = "",
+    plugin_version: str = "",
+    plugin_description: str = "",
+    plugin_author: str = "",
+    locale: Locale = DEFAULT_LOCALE,
+) -> dict:
+    """使用指定语言构建 WebUI 安全插件配置 schema。"""
+
+    with use_locale(locale):
+        schema = _build_maidock_config_schema(
+            plugin_id=plugin_id,
+            plugin_name=plugin_name,
+            plugin_version=plugin_version,
+            plugin_description=plugin_description,
+            plugin_author=plugin_author,
+        )
+        _localize_schema(schema)
+        return schema
+
+
+def _build_maidock_config_schema(
     *,
     plugin_id: str = "",
     plugin_name: str = "",
@@ -103,13 +172,21 @@ def build_maidock_config_schema(
                     ui_type="switch",
                     order=0,
                 ),
+                "locale": _select_field(
+                    name="locale",
+                    label="MaiDock locale",
+                    default=DEFAULT_LOCALE,
+                    choices=("zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR"),
+                    hint="MaiDock display, log, and error locale.",
+                    order=1,
+                ),
                 "config_version": _field(
                     name="config_version",
                     field_type="string",
                     label="配置版本",
                     default=__version__,
                     ui_type="text",
-                    order=1,
+                    order=2,
                     disabled=True,
                 ),
             },
@@ -219,6 +296,186 @@ def build_maidock_config_schema(
         "sections": sections,
         "layout": {"type": "tabs", "tabs": tabs},
     }
+
+
+def _localize_schema(schema: dict) -> None:
+    plugin_info = schema["plugin_info"]
+    plugin_info["description"] = translate("ui.plugin.description")
+
+    for tab in schema["layout"]["tabs"]:
+        tab_id = str(tab["id"])
+        if tab_id == "general":
+            tab["title"] = translate("ui.tab.general")
+            continue
+        provider = cast(ProviderPolicyKey, tab_id)
+        provider_title = _localized_provider_title(provider)
+        tab["title"] = (
+            translate("ui.tab.protocol_client", provider=provider_title)
+            if provider in {"openai_responses", "anthropic_messages"}
+            else provider_title
+        )
+
+    for section_key, section in schema["sections"].items():
+        section_name = str(section["name"])
+        _localize_section(section_key, section_name, section)
+        _localize_section_fields(section_name, section["fields"])
+
+
+def _localize_section(section_key: str, section_name: str, section: dict) -> None:
+    if section_key == "plugin":
+        section["title"] = translate("ui.section.plugin.title")
+        section["description"] = translate("ui.section.plugin.description")
+        return
+    if section_key == "diagnostics":
+        section["title"] = translate("ui.section.diagnostics.title")
+        section["description"] = translate("ui.section.diagnostics.description")
+        return
+    if section_key == "compatibility":
+        section["title"] = translate("ui.section.compatibility.title")
+        section["description"] = translate("ui.section.compatibility.description")
+        return
+    if section_key in _PROVIDER_BASE_FIELDS:
+        provider = cast(ProviderPolicyKey, section_key)
+        section["title"] = translate(
+            "ui.section.provider_base.title",
+            provider=_localized_provider_title(provider),
+        )
+        section["description"] = translate("ui.section.provider_base.description")
+        return
+
+    parts = section_name.split(".")
+    if len(parts) < 2:
+        return
+    provider = cast(ProviderPolicyKey, parts[0])
+    capability = cast(CapabilityKey, parts[1])
+    capability_title = _localized_capability_title(capability)
+    if section_name.endswith(".fields"):
+        title_key = "ui.section.fields.title_spaced" if capability == "embeddings" else "ui.section.fields.title"
+        section["title"] = translate(title_key, capability=capability_title)
+        section["description"] = _localized_fields_description(provider, capability)
+        return
+    title_key = "ui.section.policy.title_spaced" if capability == "embeddings" else "ui.section.policy.title"
+    section["title"] = translate(title_key, capability=capability_title)
+    section["description"] = _localized_policy_description(provider, capability)
+
+
+def _localize_section_fields(section_name: str, fields: dict[str, dict]) -> None:
+    for field_name, field_schema in fields.items():
+        static_keys = _STATIC_FIELD_KEYS.get(field_name)
+        if static_keys is not None:
+            label_key, hint_key = static_keys
+            _set_field_text(field_schema, label_key, hint_key)
+
+    if section_name in _PROVIDER_BASE_FIELDS:
+        _localize_provider_base_fields(cast(ProviderPolicyKey, section_name), fields)
+        return
+    if not section_name.endswith(".fields"):
+        return
+
+    provider_name, capability_name, _ = section_name.split(".")
+    catalog = get_parameter_catalog(
+        cast(ProviderPolicyKey, provider_name),
+        cast(CapabilityKey, capability_name),
+    )
+    for parameter in catalog.fields:
+        label = _localized_parameter_label(parameter)
+        description = _localized_parameter_description(parameter, label)
+        enabled = fields[field_enabled_key(parameter)]
+        enabled["label"] = translate("ui.field.parameter.send.label", field=label)
+        enabled["description"] = enabled["label"]
+        enabled["hint"] = translate("ui.field.parameter.send.hint", description=description)
+
+        override_enabled = fields[field_override_enabled_key(parameter)]
+        override_enabled["label"] = translate("ui.field.parameter.override.label", field=label)
+        override_enabled["description"] = override_enabled["label"]
+        override_enabled["hint"] = translate("ui.field.parameter.override.hint")
+
+        override_value = fields[field_override_value_key(parameter)]
+        override_value["label"] = translate("ui.field.parameter.override_value.label", field=label)
+        override_value["description"] = override_value["label"]
+        override_value["hint"] = description if parameter.value_kind == "boolean" else _localized_value_hint(parameter)
+        if parameter.value_kind != "boolean":
+            override_value["placeholder"] = _localized_value_placeholder(parameter)
+
+
+def _set_field_text(field_schema: dict, label_key: str, hint_key: str | None) -> None:
+    field_schema["label"] = translate(label_key)
+    field_schema["description"] = field_schema["label"]
+    if hint_key is not None:
+        field_schema["hint"] = translate(hint_key)
+
+
+def _localize_provider_base_fields(provider: ProviderPolicyKey, fields: dict[str, dict]) -> None:
+    if "user_agent" in fields:
+        fields["user_agent"]["placeholder"] = translate("ui.field.user_agent.placeholder")
+    if "force_official_endpoint" in fields:
+        endpoint_key = {
+            "volcengine_ark": "ark",
+            "dashscope": "dashscope",
+            "siliconflow": "siliconflow",
+        }.get(provider, "default")
+        endpoint = fields["force_official_endpoint"]
+        endpoint["label"] = translate(f"ui.endpoint.label.{endpoint_key}")
+        endpoint["description"] = endpoint["label"]
+        endpoint["hint"] = translate(f"ui.endpoint.hint.{endpoint_key}")
+    if "audio_transcription_prompt" in fields:
+        prompt = fields["audio_transcription_prompt"]
+        prompt["label"] = translate("ui.field.transcription_prompt.label")
+        prompt["description"] = prompt["label"]
+        prompt["hint"] = translate(
+            "ui.field.transcription_prompt.hint.ark"
+            if provider == "volcengine_ark"
+            else "ui.field.transcription_prompt.hint.mimo"
+        )
+
+
+def _localized_provider_title(provider: ProviderPolicyKey) -> str:
+    return translate(f"ui.provider.{provider}")
+
+
+def _localized_capability_title(capability: CapabilityKey) -> str:
+    return translate(f"ui.capability.{capability}")
+
+
+def _localized_policy_description(provider: ProviderPolicyKey, capability: CapabilityKey) -> str:
+    if provider == "xiaomi_mimo" and capability == "audio_transcription":
+        return translate("ui.section.policy.description.mimo_audio")
+    if provider == "volcengine_ark" and capability == "audio_transcription":
+        return translate("ui.section.policy.description.ark_audio")
+    return translate("ui.section.policy.description")
+
+
+def _localized_fields_description(provider: ProviderPolicyKey, capability: CapabilityKey) -> str:
+    if provider == "xiaomi_mimo" and capability == "audio_transcription":
+        return translate("ui.section.fields.description.mimo_audio")
+    if provider == "volcengine_ark" and capability == "audio_transcription":
+        return translate("ui.section.fields.description.ark_audio")
+    return translate("ui.section.fields.description")
+
+
+def _localized_parameter_label(field: ParameterFieldDefinition) -> str:
+    label_key = _PARAMETER_LABEL_KEYS.get(field.key)
+    return translate(label_key) if label_key is not None else field.label
+
+
+def _localized_parameter_description(field: ParameterFieldDefinition, label: str) -> str:
+    if field.key == "response_format" and field.target_path == ("body", "text", "format"):
+        return translate("ui.parameter.response_format_description")
+    if field.key == "sparse_embedding":
+        return translate("ui.parameter.sparse_embedding_description")
+    return translate("ui.field.parameter.target_description", field=label)
+
+
+def _localized_value_placeholder(field: ParameterFieldDefinition) -> str:
+    if field.value_kind == "string_list":
+        return '["item1","item2"]'
+    if field.value_kind == "json":
+        return '{"key":"value"}'
+    return translate(f"ui.placeholder.{field.value_kind}")
+
+
+def _localized_value_hint(field: ParameterFieldDefinition) -> str:
+    return translate(f"ui.hint.{field.value_kind}")
 
 
 def _add_provider_sections(sections: dict[str, dict], provider: ProviderPolicyKey, *, order: int) -> tuple[str, ...]:

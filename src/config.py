@@ -38,6 +38,15 @@ from .core.parsing import (
     normalize_reasoning_parse_mode,
     normalize_tool_argument_parse_mode,
 )
+from .i18n import (
+    DEFAULT_LOCALE,
+    Locale,
+    normalize_locale,
+    runtime_expected,
+    runtime_item,
+    runtime_subject,
+    translate,
+)
 from .version import DEFAULT_USER_AGENT, __version__
 
 _UNKNOWN_POLICY_CHOICES: tuple[object, ...] = ("forward", "drop", "reject")
@@ -59,6 +68,16 @@ class PluginSectionConfig(PluginConfigBase):
     __ui_label__ = "插件"
     __ui_icon__ = "package"
     __ui_order__ = 0
+
+    locale: Literal["zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR"] = Field(
+        default=DEFAULT_LOCALE,
+        description="MaiDock display, log, and error locale",
+    )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def validate_locale(cls, value: object) -> Locale:
+        return normalize_locale(value)
 
     enabled: bool = Field(default=True, description="是否启用 MaiDock")
     config_version: str = Field(default=__version__, description="配置版本")
@@ -115,7 +134,14 @@ class CapabilityParameterPolicyConfig(PluginConfigBase):
             return {}
         mapping = json_mapping_or_none(value)
         if mapping is None:
-            raise TypeError(f"字段控制必须是 object，实际为 {type(value).__name__}")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject="fields",
+                    expected=runtime_expected("object"),
+                    actual=type(value).__name__,
+                )
+            )
         normalized: FieldControlMap = {}
         for key, item in mapping.items():
             normalized_key = str(key).strip()
@@ -127,7 +153,14 @@ class CapabilityParameterPolicyConfig(PluginConfigBase):
             if isinstance(item, str):
                 normalized[normalized_key] = item
                 continue
-            raise TypeError(f"字段控制 {normalized_key} 必须是 bool 或 str，实际为 {type(item).__name__}")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=f"fields.{normalized_key}",
+                    expected=runtime_expected("boolean_or_string"),
+                    actual=type(item).__name__,
+                )
+            )
         return normalized
 
     @field_validator("disabled_paths", "rejected_paths", mode="before")
@@ -136,11 +169,25 @@ class CapabilityParameterPolicyConfig(PluginConfigBase):
         if value is None:
             return []
         if not is_json_list(value):
-            raise TypeError(f"参数路径列表必须是 list，实际为 {type(value).__name__}")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("parameter_paths"),
+                    expected=runtime_expected("list"),
+                    actual=type(value).__name__,
+                )
+            )
         normalized: list[str] = []
         for item in value:
             if not isinstance(item, str):
-                raise TypeError(f"参数路径必须是字符串，实际为 {type(item).__name__}")
+                raise TypeError(
+                    translate(
+                        "runtime.error.expected_type",
+                        subject=runtime_subject("parameter_path"),
+                        expected=runtime_expected("string"),
+                        actual=type(item).__name__,
+                    )
+                )
             normalized.append(item.strip())
         return [item for item in normalized if item]
 
@@ -154,7 +201,13 @@ class CapabilityParameterPolicyConfig(PluginConfigBase):
     def validate_unknown_extra_params(cls, value: object) -> UnknownExtraParamsPolicy:
         if value in ("forward", "drop", "reject"):
             return value
-        raise ValueError("unknown_extra_params 必须是 forward/drop/reject")
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject="unknown_extra_params",
+                allowed="forward/drop/reject",
+            )
+        )
 
 
 class OpenAIResponsesConfig(PluginConfigBase):
@@ -570,6 +623,7 @@ def build_runtime_options(
         return ProviderRuntimeOptions()
     invalid_image_policy = normalize_invalid_image_policy(config.compatibility.invalid_image_policy)
     return ProviderRuntimeOptions(
+        locale=config.plugin.locale,
         include_raw_data=bool(config.diagnostics.include_raw_data),
         log_payload_summary=bool(config.diagnostics.log_payload_summary),
         log_payload_debug=bool(config.diagnostics.log_payload_debug),
@@ -648,7 +702,7 @@ def _build_field_override_params(
         value = parse_field_override_value(
             raw_value=raw_value,
             value_kind=field.value_kind,
-            field_label=f"{catalog.title}.{field.label}",
+            field_label=f"{catalog.provider}.{catalog.capability}.{field.key}",
         )
         _set_path_value(override_params, field.override_path, value)
     return override_params
@@ -664,26 +718,56 @@ def parse_field_override_value(*, raw_value: str | bool, value_kind: str, field_
     else:
         raw = raw_value.strip()
         if not raw:
-            raise ValueError(f"{field_label} 已启用覆写，但覆写值为空")
+            raise ValueError(
+                translate("runtime.error.required", subject=field_label, field=runtime_item("override_value"))
+            )
     if value_kind == "string":
         return raw
     if value_kind == "boolean":
         if isinstance(raw_value, bool):
             return raw_value
-        raise TypeError(f"{field_label} 覆写值必须是布尔值")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=field_label,
+                expected=runtime_expected("boolean_override_value"),
+                actual=type(raw_value).__name__,
+            )
+        )
     parsed = _loads_json_value(raw, field_label=field_label)
     if value_kind == "integer":
         if isinstance(parsed, int) and not isinstance(parsed, bool):
             return parsed
-        raise ValueError(f"{field_label} 覆写值必须是整数")
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=field_label,
+                expected=runtime_expected("integer_override_value"),
+                actual=raw,
+            )
+        )
     if value_kind == "number":
         if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
             return parsed
-        raise ValueError(f"{field_label} 覆写值必须是数字")
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=field_label,
+                expected=runtime_expected("numeric_override_value"),
+                actual=raw,
+            )
+        )
     if value_kind == "string_list":
         if is_json_list(parsed) and all(isinstance(item, str) for item in parsed):
             return [str(item) for item in parsed]
-        raise ValueError(f"{field_label} 覆写值必须是字符串数组 JSON")
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=field_label,
+                expected=runtime_expected("json_string_array_override_value"),
+                actual=raw,
+            )
+        )
     return normalize_json_value(parsed)
 
 
@@ -691,7 +775,14 @@ def _loads_json_value(raw: str, *, field_label: str) -> object:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"{field_label} 覆写值必须是合法 JSON: {exc.msg}") from exc
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=field_label,
+                expected=runtime_expected("valid_json_override_value"),
+                actual=exc.msg,
+            )
+        ) from exc
 
 
 def _field_control_bool(fields: Mapping[str, FieldControlValue], key: str, *, default: bool) -> bool:

@@ -12,6 +12,7 @@ from ...core.diagnostics import build_parse_error_message, sanitize_for_log
 from ...core.json_types import JsonValue, json_mapping_or_none, list_field, mapping_field, mapping_to_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
+from ...i18n import runtime_item, translate
 from ...schemas import (
     ApiProviderSnapshot,
     GenericUsageSnapshot,
@@ -256,7 +257,11 @@ def _payload_error_message(payload: dict) -> str | None:
             "code": code,
             "message": message,
         }
-        return f"{DASHSCOPE_PROVIDER_LABEL} 上游接口返回错误: {sanitize_for_log(details)}"
+        return translate(
+            "runtime.error.upstream_status",
+            provider=DASHSCOPE_PROVIDER_LABEL,
+            details=sanitize_for_log(details),
+        )
     return None
 
 
@@ -287,9 +292,11 @@ def convert_response(
         options=options,
     )
     if not final_content and not tool_calls:
-        raise HttpxProviderParseError(
-            build_parse_error_message(DASHSCOPE_PROVIDER_LABEL, "响应中既没有文本内容，也没有工具调用")
+        missing_message = translate(
+            "runtime.error.output_missing",
+            item=runtime_item("output_text_or_tools"),
         )
+        raise HttpxProviderParseError(build_parse_error_message(DASHSCOPE_PROVIDER_LABEL, missing_message))
     return ProviderResponse(
         content=final_content,
         reasoning_content=reasoning_content,

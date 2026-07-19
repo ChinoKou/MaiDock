@@ -1,6 +1,7 @@
 import logging
 
 from ...core.common import ProviderRuntimeOptions, image_media_type, normalize_image_for_openai
+from ...i18n import runtime_actual, runtime_expected, runtime_subject, translate
 from ...schemas import (
     AnthropicContentBlock,
     AnthropicImageBlock,
@@ -41,7 +42,14 @@ def convert_image_block(
     normalized_image = normalize_image_for_openai(part, logger, options.image_limits)
     if normalized_image is None:
         if options.invalid_image_policy == "error":
-            raise ValueError("图片数据无效，无法构建 Anthropic 图片消息片段")
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("anthropic_image_data"),
+                    expected=runtime_expected("valid_image"),
+                    actual=runtime_actual("invalid_image"),
+                )
+            )
         return None
     image_format, image_base64 = normalized_image
     media_type = anthropic_image_media_type(image_format)
@@ -58,4 +66,10 @@ def anthropic_image_media_type(image_format: str | None) -> AnthropicImageMediaT
         return "image/gif"
     if media_type == "image/webp":
         return "image/webp"
-    raise ValueError(f"Anthropic 不支持图片 media_type: {media_type}")
+    raise ValueError(
+        translate(
+            "runtime.error.unsupported_value",
+            subject=f"Anthropic image media_type {media_type}",
+            allowed="image/jpeg,image/png,image/gif,image/webp",
+        )
+    )

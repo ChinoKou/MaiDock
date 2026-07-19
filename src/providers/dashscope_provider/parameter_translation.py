@@ -1,5 +1,6 @@
 import logging
 
+from ...i18n import translate
 from ..common.parameter_translation import (
     FieldTranslator,
     TranslationContext,
@@ -50,9 +51,19 @@ def translate_dashscope_response_format(
         return
     if format_type == "json_schema":
         raise ValueError(
-            "阿里云百炼 DashScope native response_format 暂未确认支持 json_schema，不能擅自转译 Host schema"
+            translate(
+                "runtime.error.unsupported_value",
+                subject="DashScope native response_format json_schema",
+                allowed="text/json_object",
+            )
         )
-    raise ValueError(f"阿里云百炼 DashScope 不支持的 response_format.format_type: {response_format.format_type}")
+    raise ValueError(
+        translate(
+            "runtime.error.unsupported_value",
+            subject="DashScope response_format.format_type",
+            allowed="text/json_object",
+        )
+    )
 
 
 def translate_dashscope_parameters_identity(target_name: str, *, field_name: str) -> FieldTranslator:
@@ -74,7 +85,7 @@ def translate_dashscope_tool_choice(
 ) -> None:
     del context
     if isinstance(value, str) and value == "required":
-        _logger.warning("[dashscope] tool_choice='required' 不是有效值，已降级为 'auto'")
+        _logger.warning(translate("runtime.log.dashscope_tool_choice"))
         set_target_value(envelope, ("body", "parameters", "tool_choice"), "auto")
         return
     set_target_value(envelope, ("body", "parameters", "tool_choice"), value)

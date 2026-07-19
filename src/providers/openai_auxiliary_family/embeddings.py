@@ -5,6 +5,7 @@ from ...core.diagnostics import sanitize_json_object
 from ...core.json_types import json_list_or_none, json_mapping_or_none
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import ProviderPolicyKey, apply_transport_parameter_policy
+from ...i18n import translate
 from ...schemas import EmbeddingRequestSnapshot, GenericUsageSnapshot, ProviderResponse
 from ..common.embeddings import coerce_embedding_vector
 from ..common.payloads import raw_data_or_none
@@ -66,7 +67,13 @@ class OpenAICompatibleEmbeddingMapper:
 
         dimensions_supported = self.supports_dimensions is None or self.supports_dimensions(model)
         if not dimensions_supported and "dimensions" in context.normalized.fields:
-            raise ValueError(f"{self.provider_label} 模型 {model} 不支持 dimensions 参数")
+            raise ValueError(
+                translate(
+                    "runtime.error.unsupported_value",
+                    subject=f"{self.provider_label} model {model} dimensions",
+                    allowed="unset",
+                )
+            )
         transport = apply_transport_parameter_policy(
             body=envelope.body,
             headers=envelope.headers,

@@ -7,6 +7,7 @@ from ...core.common import ProviderRuntimeOptions, build_usage_from_snapshot
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
 from ...core.json_types import JsonValue, json_list_or_none, json_mapping_or_none, mapping_field, mapping_to_json_object
 from ...core.parsing import ToolArgumentParseMode
+from ...i18n import runtime_item, translate
 from ...schemas import GenericUsageSnapshot, ProviderFunctionCall, ProviderResponse, ProviderToolCall
 from ..common.httpx import HttpxProviderError, HttpxProviderParseError, stream_sse_json
 from ..common.payloads import raw_data_or_none
@@ -156,9 +157,11 @@ class ChatCompletionsStreamAccumulator:
             options=self.options,
         )
         if not final_content and not tool_calls:
-            raise HttpxProviderParseError(
-                build_parse_error_message("Chat Completions", "流式响应中既没有文本内容，也没有工具调用")
+            message = translate(
+                "runtime.error.output_missing",
+                item=runtime_item("output_stream_text_or_tools"),
             )
+            raise HttpxProviderParseError(build_parse_error_message("Chat Completions", message))
         return ProviderResponse(
             content=final_content,
             reasoning_content=reasoning_content,
@@ -190,7 +193,11 @@ def _tool_call_key(tool_call: Mapping[str, JsonValue], index: int) -> str:
 def _stream_error_message(provider_label: str, payload: dict) -> str | None:
     error = json_mapping_or_none(payload.get("error"))
     if error is not None:
-        return f"{provider_label} 流式响应返回错误: {sanitize_json_object(error)}"
+        return translate(
+            "runtime.error.stream",
+            provider=provider_label,
+            details=sanitize_json_object(error),
+        )
     return None
 
 

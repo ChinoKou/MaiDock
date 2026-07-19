@@ -8,6 +8,7 @@ from ...core.diagnostics import build_parse_error_message, sanitize_for_log, san
 from ...core.json_types import json_mapping_or_none
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import ProviderPolicyKey, apply_transport_parameter_policy
+from ...i18n import runtime_item, translate
 from ...schemas import AudioTranscriptionRequestSnapshot
 from .parameter_translation import (
     TranslationContext,
@@ -98,4 +99,5 @@ def parse_multipart_audio_transcription_response(
     if content:
         raw_data = {"text": sanitize_for_log(content)} if options.include_raw_data else None
         return content, raw_data
-    raise ValueError(build_parse_error_message(provider_label, "缺少文本内容"))
+    message = translate("runtime.error.output_missing", item=runtime_item("text_content"))
+    raise ValueError(build_parse_error_message(provider_label, message))

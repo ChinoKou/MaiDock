@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from ..i18n import runtime_expected, translate
 from ..schemas.base import ObjectFields
 from ..schemas.host_snapshots import BaseProviderRequestSnapshot
 from .json_types import (
@@ -28,6 +29,21 @@ type CapabilityKey = Literal[
 ]
 type UnknownExtraParamsPolicy = Literal["forward", "drop", "reject"]
 
+_CAPABILITY_KEYS: tuple[CapabilityKey, ...] = (
+    "response",
+    "chat_completion",
+    "embeddings",
+    "audio_transcription",
+    "image_generation",
+)
+_PROVIDER_POLICY_KEYS: tuple[ProviderPolicyKey, ...] = (
+    "openai_responses",
+    "anthropic_messages",
+    "volcengine_ark",
+    "dashscope",
+    "siliconflow",
+    "xiaomi_mimo",
+)
 _TRANSPORT_ROOTS = {"body", "headers", "query"}
 _CONTROL_EXTRA_PARAM_KEYS = _TRANSPORT_ROOTS
 
@@ -67,7 +83,13 @@ class ProviderCapabilityPolicies:
                 return self.audio_transcription
             case "image_generation":
                 return self.image_generation
-        raise ValueError(f"不支持的能力策略: {capability}")
+        raise ValueError(
+            translate(
+                "runtime.error.capability_policy_unsupported",
+                value=repr(capability),
+                allowed=", ".join(_CAPABILITY_KEYS),
+            )
+        )
 
 
 @dataclass(slots=True)
@@ -95,7 +117,13 @@ class ParameterPolicyRegistry:
                 return self.volcengine_ark.get(capability)
             case "xiaomi_mimo":
                 return self.xiaomi_mimo.get(capability)
-        raise ValueError(f"不支持的 Provider 参数策略: {provider}")
+        raise ValueError(
+            translate(
+                "runtime.error.provider_policy_unsupported",
+                value=repr(provider),
+                allowed=", ".join(_PROVIDER_POLICY_KEYS),
+            )
+        )
 
 
 @dataclass(slots=True)
@@ -252,7 +280,13 @@ def _apply_unknown_policy(
             params.pop(key, None)
         return
     joined_keys = ", ".join(unknown_keys)
-    raise ValueError(f"{provider_label} {capability} 不支持这些 extra_params 字段: {joined_keys}")
+    raise ValueError(
+        translate(
+            "runtime.error.unsupported_value",
+            subject=f"{provider_label} {capability} extra_params",
+            allowed=f"known fields; received {joined_keys}",
+        )
+    )
 
 
 def _unknown_top_level_keys(
@@ -294,7 +328,14 @@ def _raise_for_rejected_paths(
     for path in paths:
         parts = _parse_path(path)
         if parts and _has_path(payload, parts):
-            raise ValueError(f"{provider_label} {capability} 参数策略拒绝路径: {path}")
+            raise ValueError(
+                translate(
+                    "runtime.error.parameter_path_rejected",
+                    provider=provider_label,
+                    capability=capability,
+                    path=path,
+                )
+            )
 
 
 def _has_path(payload: Mapping[str, JsonValue], parts: tuple[str, ...]) -> bool:
@@ -381,6 +422,13 @@ def _string_dict(value: Mapping[str, JsonValue], *, field_name: str) -> dict[str
     result: dict[str, str] = {}
     for key, item in value.items():
         if not isinstance(item, str):
-            raise TypeError(f"{field_name}.{key} 必须是字符串，实际为 {type(item).__name__}")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=f"{field_name}.{key}",
+                    expected=runtime_expected("string"),
+                    actual=type(item).__name__,
+                )
+            )
         result[str(key)] = item
     return result

@@ -7,11 +7,19 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlsplit
 
 from PIL import Image as PILImage
 
+from ..i18n import (
+    DEFAULT_LOCALE,
+    Locale,
+    runtime_actual,
+    runtime_expected,
+    runtime_subject,
+    translate,
+)
 from ..schemas import (
     ApiProviderSnapshot,
     AudioTranscriptionRequestSnapshot,
@@ -31,6 +39,8 @@ from .parsing import ReasoningParseMode, ToolArgumentParseMode, arguments_to_jso
 
 SUPPORTED_IMAGE_FORMATS = {"jpeg", "png", "webp"}
 InvalidImagePolicy = Literal["placeholder", "skip", "error"]
+type AuthType = Literal["none", "bearer", "header", "query"]
+SUPPORTED_AUTH_TYPES: tuple[AuthType, ...] = ("none", "bearer", "header", "query")
 MAIDOCK_USER_AGENT = DEFAULT_USER_AGENT
 DEFAULT_MAX_IMAGE_BYTES = 30 * 1024 * 1024
 DEFAULT_MAX_IMAGE_PIXELS = 25_000_000
@@ -53,6 +63,7 @@ class ImageProcessingLimits:
 class ProviderRuntimeOptions:
     """插件运行时配置。"""
 
+    locale: Locale = DEFAULT_LOCALE
     include_raw_data: bool = False
     log_payload_summary: bool = True
     log_payload_debug: bool = False
@@ -129,7 +140,13 @@ def read_model_identifier(model_info: ModelInfoSnapshot) -> str:
 
     model = model_info.model_identifier or model_info.name
     if model is None or not model.strip():
-        raise ValueError("LLM Provider 请求缺少 model_info.model_identifier")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=runtime_subject("llm_provider_request"),
+                field="model_info.model_identifier",
+            )
+        )
     return model.strip()
 
 
@@ -138,7 +155,7 @@ def read_api_key(api_provider: ApiProviderSnapshot, *, allow_empty: bool = False
 
     api_key = api_provider.api_key.strip()
     if not api_key and not allow_empty:
-        raise ValueError("api_provider.api_key 为空，无法调用需要鉴权的上游 LLM API")
+        raise ValueError(translate("runtime.error.required", subject="api_provider", field="api_key"))
     return api_key
 
 
@@ -220,7 +237,14 @@ def require_string_dict(value: Mapping[str, object], *, field_name: str) -> dict
     result: dict[str, str] = {}
     for key, item in value.items():
         if not isinstance(item, str):
-            raise TypeError(f"{field_name}.{key} 必须是字符串，实际为 {type(item).__name__}")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=f"{field_name}.{key}",
+                    expected=runtime_expected("string"),
+                    actual=type(item).__name__,
+                )
+            )
         result[str(key)] = item
     return result
 
@@ -235,15 +259,15 @@ def normalize_base_url(base_url: str | None) -> str:
     """规范化 base_url。"""
 
     if not base_url or not base_url.strip():
-        raise ValueError("api_provider.base_url 为空，无法构建 HTTP 客户端配置")
+        raise ValueError(translate("runtime.error.required", subject="api_provider", field="base_url"))
     normalized = base_url.strip()
     if not normalized.startswith(("http://", "https://")):
         normalized = "https://" + normalized
     parsed = urlsplit(normalized)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"base_url 仅支持 http/https（{base_url!r}）")
+        raise ValueError(translate("runtime.error.unsupported_value", subject="base_url", allowed="http/https"))
     if not parsed.netloc:
-        raise ValueError(f"base_url 缺少主机名（{base_url!r}）")
+        raise ValueError(translate("runtime.error.required", subject="base_url", field="host"))
     return normalized.rstrip("/")
 
 
@@ -252,6 +276,21 @@ def _build_auth_header_value(prefix: str, api_key: str) -> str:
     if not normalized_prefix:
         return api_key
     return f"{normalized_prefix} {api_key}"
+
+
+def normalize_auth_type(raw_auth_type: str | None) -> AuthType:
+    """严格规范化 Host 的鉴权类型。"""
+
+    auth_type = (raw_auth_type or "bearer").strip().lower()
+    if auth_type not in SUPPORTED_AUTH_TYPES:
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject="auth_type",
+                allowed="/".join(SUPPORTED_AUTH_TYPES),
+            )
+        )
+    return cast(AuthType, auth_type)
 
 
 def with_default_user_agent(headers: Mapping[str, str], user_agent: str | None = MAIDOCK_USER_AGENT) -> dict[str, str]:
@@ -271,7 +310,7 @@ def build_openai_compatible_client_config(
 
     default_headers = require_string_mapping(api_provider.default_headers, field_name="api_provider.default_headers")
     default_query = api_provider.default_query.to_plain_dict()
-    auth_type = (api_provider.auth_type or "bearer").strip().lower()
+    auth_type = normalize_auth_type(api_provider.auth_type)
     api_key = api_provider.api_key.strip()
     client_api_key = api_key
 
@@ -292,11 +331,8 @@ def build_openai_compatible_client_config(
         default_query[api_provider.auth_query_name] = api_key
     elif auth_type == "none":
         client_api_key = ""
-    else:
-        raise ValueError(f"不支持的 auth_type: {api_provider.auth_type}")
-
     if auth_type != "none" and not api_key:
-        raise ValueError("api_provider.api_key 为空，无法构建鉴权配置")
+        raise ValueError(translate("runtime.error.required", subject="api_provider", field="api_key"))
 
     return OpenAICompatibleClientConfig(
         api_key=client_api_key,
@@ -367,14 +403,27 @@ def _validate_decoded_size(image_bytes: bytes, limits: ImageProcessingLimits) ->
 def _validate_image_geometry(image: PILImage.Image, limits: ImageProcessingLimits) -> None:
     width, height = image.size
     if width <= 0 or height <= 0:
-        raise ValueError("图片尺寸无效")
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=runtime_subject("image_dimensions"),
+                expected=runtime_expected("positive_dimensions"),
+                actual=f"{width}x{height}",
+            )
+        )
     if limits.max_dimension > 0 and (width > limits.max_dimension or height > limits.max_dimension):
-        raise ValueError("图片单边尺寸超过限制")
+        raise ValueError(
+            translate("runtime.error.limit", subject=runtime_subject("image_dimension"), limit=limits.max_dimension)
+        )
     if limits.max_pixels > 0 and width * height > limits.max_pixels:
-        raise ValueError("图片像素数量超过限制")
+        raise ValueError(
+            translate("runtime.error.limit", subject=runtime_subject("image_pixels"), limit=limits.max_pixels)
+        )
     frame_count = int(getattr(image, "n_frames", 1) or 1)
     if limits.max_frames > 0 and frame_count > limits.max_frames:
-        raise ValueError("图片帧数超过限制")
+        raise ValueError(
+            translate("runtime.error.limit", subject=runtime_subject("image_frames"), limit=limits.max_frames)
+        )
 
 
 def normalize_image_for_openai(
@@ -388,15 +437,15 @@ def normalize_image_for_openai(
     if not part.image_base64:
         return None
     if not _validate_base64_size(part.image_base64, active_limits):
-        logger.warning("图片 Base64 长度超过限制，已按配置处理该图片片段")
+        logger.warning(translate("runtime.log.image_base64_too_long"))
         return None
     try:
         image_bytes = base64.b64decode(part.image_base64, validate=True)
     except (binascii.Error, ValueError) as exc:
-        logger.warning("图片 Base64 解码失败，已按配置处理该图片片段: %s", exc)
+        logger.warning(translate("runtime.log.image_base64_invalid", details=exc))
         return None
     if not _validate_decoded_size(image_bytes, active_limits):
-        logger.warning("图片解码后大小超过限制，已按配置处理该图片片段")
+        logger.warning(translate("runtime.log.image_too_large"))
         return None
 
     original_max_pixels = PILImage.MAX_IMAGE_PIXELS
@@ -415,7 +464,7 @@ def normalize_image_for_openai(
                     return _convert_gif_to_webp(image, active_limits)
                 return _convert_static_image_to_png(image, active_limits)
     except Exception as exc:
-        logger.warning("图片内容无法识别或超过处理限制，已按配置处理该图片片段: %s", exc)
+        logger.warning(translate("runtime.log.image_invalid", details=exc))
         return None
     finally:
         PILImage.MAX_IMAGE_PIXELS = original_max_pixels
@@ -479,7 +528,14 @@ def image_data_url(
     normalized_image = normalize_image_for_openai(part, logger, limits)
     if normalized_image is None:
         if invalid_policy == "error":
-            raise ValueError("图片数据无效，无法构建上游请求")
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=runtime_subject("image_data"),
+                    expected=runtime_expected("valid_image"),
+                    actual=runtime_actual("invalid_image"),
+                )
+            )
         return None
     image_format, image_base64 = normalized_image
     return f"data:image/{image_format};base64,{image_base64}"
@@ -554,11 +610,24 @@ def build_audio_file(
     """把 Host 的音频 base64 转为上游 multipart 文件对象。"""
 
     if not audio_request.audio_base64:
-        raise ValueError("音频转写请求缺少 audio_base64")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=runtime_subject("audio_transcription_request"),
+                field="audio_base64",
+            )
+        )
     try:
         audio_bytes = base64.b64decode(audio_request.audio_base64, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ValueError("audio_base64 不是有效的 Base64 数据") from exc
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject="audio_base64",
+                expected=runtime_expected("valid_base64_data"),
+                actual=runtime_actual("invalid_base64_data"),
+            )
+        ) from exc
     return "audio.wav", io.BytesIO(audio_bytes)
 
 
@@ -577,17 +646,21 @@ def log_request_summary(
     if not options.log_payload_summary:
         return
     logger.info(
-        "[MaiDock/%s] request model=%s messages=%s tools=%s",
-        provider_label,
-        model,
-        messages,
-        tools,
+        translate(
+            "runtime.log.request_summary",
+            provider=provider_label,
+            model=model,
+            messages=messages,
+            tools=tools,
+        )
     )
     if options.log_payload_debug and extra is not None:
         logger.debug(
-            "[MaiDock/%s] request payload=%s",
-            provider_label,
-            sanitize_for_log(dict(extra)),
+            translate(
+                "runtime.log.request_payload",
+                provider=provider_label,
+                payload=sanitize_for_log(dict(extra)),
+            )
         )
 
 
@@ -605,9 +678,11 @@ def log_response_summary(
     if not options.log_payload_summary:
         return
     logger.info(
-        "[MaiDock/%s] response content_len=%s tool_calls=%s usage=%s",
-        provider_label,
-        len(content or ""),
-        len(tool_calls),
-        json.dumps(usage.model_dump(mode="json"), ensure_ascii=False),
+        translate(
+            "runtime.log.response_summary",
+            provider=provider_label,
+            content_chars=len(content or ""),
+            tools=len(tool_calls),
+            tokens=json.dumps(usage.model_dump(mode="json"), ensure_ascii=False),
+        )
     )

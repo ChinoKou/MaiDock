@@ -3,6 +3,7 @@ from typing import Literal, Protocol, Self, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 from ..core.json_types import is_json_mapping, mapping_to_json_object
+from ..i18n import runtime_expected, runtime_subject, translate
 
 type OpenAITextVerbosity = Literal["low", "medium", "high"]
 type AnthropicImageMediaType = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -52,7 +53,14 @@ class ObjectFields(IgnoreExtraModel):
             return cls(fields=_DICT_ADAPTER.validate_python(mapping_to_json_object(value)))
         if value is None:
             return cls()
-        raise TypeError(f"期望 object/mapping，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject=runtime_subject("value"),
+                expected=runtime_expected("mapping"),
+                actual=type(value).__name__,
+            )
+        )
 
     def to_plain_dict(self) -> dict:
         return dict(self.fields)
@@ -64,7 +72,14 @@ class ObjectFields(IgnoreExtraModel):
             return _DICT_ADAPTER.validate_python(mapping_to_json_object(value))
         if value is None:
             return {}
-        raise TypeError(f"ObjectFields.fields 必须是 mapping，实际为 {type(value).__name__}")
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject="ObjectFields.fields",
+                expected=runtime_expected("mapping"),
+                actual=type(value).__name__,
+            )
+        )
 
 
 def default_tool_parameters() -> ObjectFields:

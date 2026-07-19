@@ -11,6 +11,7 @@ from ...core.diagnostics import build_parse_error_message
 from ...core.json_types import JsonValue, json_mapping_or_none, list_field, mapping_field
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import ProviderPolicyKey, apply_transport_parameter_policy
+from ...i18n import runtime_item, translate
 from ...schemas import (
     GenericUsageSnapshot,
     MessagePartImage,
@@ -232,9 +233,11 @@ class ChatCompletionsMapper:
             options=self.options,
         )
         if not final_content and not tool_calls:
-            raise HttpxProviderParseError(
-                build_parse_error_message(self.provider_label, "响应中既没有文本内容，也没有工具调用")
+            message = translate(
+                "runtime.error.output_missing",
+                item=runtime_item("output_text_or_tools"),
             )
+            raise HttpxProviderParseError(build_parse_error_message(self.provider_label, message))
         return ProviderResponse(
             content=final_content,
             reasoning_content=reasoning_content,

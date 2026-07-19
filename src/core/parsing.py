@@ -6,6 +6,7 @@ from uuid import uuid4
 from json_repair import repair_json
 from pydantic import TypeAdapter
 
+from ..i18n import runtime_expected, runtime_subject, translate
 from ..schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
 
 ToolArgumentParseMode = Literal["auto", "strict", "repair", "double_decode"]
@@ -67,7 +68,13 @@ def _argument_preview(raw_arguments: str) -> str:
 
 
 def _tool_argument_error(raw_arguments: str, reason: str) -> ValueError:
-    return ValueError(f"无法解析工具调用参数: {reason}。参数预览: {_argument_preview(raw_arguments)}")
+    return ValueError(
+        translate(
+            "runtime.error.parse",
+            provider=runtime_subject("tool_call_arguments"),
+            message=f"{reason}; preview={_argument_preview(raw_arguments)}",
+        )
+    )
 
 
 def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> dict:
@@ -89,7 +96,13 @@ def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode =
         raise _tool_argument_error(raw_arguments, type(exc).__name__) from exc
 
     if not isinstance(arguments, dict):
-        raise _tool_argument_error(raw_arguments, f"解析结果必须是 object，实际为 {type(arguments).__name__}")
+        reason = translate(
+            "runtime.error.expected_type",
+            subject=runtime_subject("parsed_tool_call_arguments"),
+            expected=runtime_expected("object"),
+            actual=type(arguments).__name__,
+        )
+        raise _tool_argument_error(raw_arguments, reason)
     return _DICT_ADAPTER.validate_python(arguments)
 
 

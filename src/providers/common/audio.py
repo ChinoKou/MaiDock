@@ -4,6 +4,8 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from ...i18n import runtime_actual, runtime_expected, runtime_item, runtime_subject, translate
+
 type AudioFormat = Literal["wav", "mp3", "aac", "m4a", "flac", "ogg"]
 
 _AUDIO_MIME_TYPES: dict[AudioFormat, str] = {
@@ -52,36 +54,88 @@ def prepare_base64_audio(
     """严格解码 Base64，并结合显式提示与文件签名确定音频格式。"""
 
     if not audio_base64:
-        raise ValueError(f"{provider_label} 请求缺少 audio_base64")
+        raise ValueError(translate("runtime.error.required", subject=provider_label, field="audio_base64"))
     try:
         encoded_size = len(audio_base64.encode("ascii"))
     except UnicodeEncodeError as exc:
-        raise ValueError(f"{provider_label} audio_base64 不是有效的 Base64 数据") from exc
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=f"{provider_label} audio_base64",
+                expected=runtime_expected("valid_base64_data"),
+                actual=runtime_actual("non_ascii_data"),
+            )
+        ) from exc
     if max_base64_chars is not None and encoded_size > max_base64_chars:
-        raise ValueError(f"{provider_label} Base64 字符串超过 {max_base64_chars // (1024 * 1024)} MiB 限制")
+        raise ValueError(
+            translate(
+                "runtime.error.limit",
+                subject=f"{provider_label} {runtime_subject('base64_data')}",
+                limit=f"{max_base64_chars // (1024 * 1024)} MiB",
+            )
+        )
     if max_decoded_bytes is not None:
         max_encoded_size = ((max_decoded_bytes + 2) // 3) * 4
         if encoded_size > max_encoded_size:
-            raise ValueError(f"{provider_label} 音频文件超过 {max_decoded_bytes // (1024 * 1024)} MiB 限制")
+            raise ValueError(
+                translate(
+                    "runtime.error.limit",
+                    subject=f"{provider_label} {runtime_subject('audio_file')}",
+                    limit=f"{max_decoded_bytes // (1024 * 1024)} MiB",
+                )
+            )
     try:
         decoded = base64.b64decode(audio_base64, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ValueError(f"{provider_label} audio_base64 不是有效的 Base64 数据") from exc
+        raise ValueError(
+            translate(
+                "runtime.error.expected_type",
+                subject=f"{provider_label} audio_base64",
+                expected=runtime_expected("valid_base64_data"),
+                actual=runtime_actual("invalid_base64_data"),
+            )
+        ) from exc
     if not decoded:
-        raise ValueError(f"{provider_label} audio_base64 解码后为空")
+        raise ValueError(
+            translate("runtime.error.required", subject=provider_label, field=runtime_item("decoded_audio_data"))
+        )
     if max_decoded_bytes is not None and len(decoded) > max_decoded_bytes:
-        raise ValueError(f"{provider_label} 音频文件超过 {max_decoded_bytes // (1024 * 1024)} MiB 限制")
+        raise ValueError(
+            translate(
+                "runtime.error.limit",
+                subject=f"{provider_label} {runtime_subject('audio_file')}",
+                limit=f"{max_decoded_bytes // (1024 * 1024)} MiB",
+            )
+        )
 
     explicit_format = _explicit_audio_format(extra_params, provider_label=provider_label)
     detected_format = detect_audio_format(decoded)
     if explicit_format is not None and detected_format is not None and explicit_format != detected_format:
-        raise ValueError(f"{provider_label} 显式音频格式 {explicit_format} 与文件签名 {detected_format} 不一致")
+        raise ValueError(
+            translate(
+                "runtime.error.conflict_different",
+                left=f"{provider_label} {runtime_subject('explicit_audio_format')} {explicit_format}",
+                right=f"{runtime_subject('detected_file_signature')} {detected_format}",
+            )
+        )
     audio_format = explicit_format or detected_format
     if audio_format is None:
-        raise ValueError(f"{provider_label} 无法识别音频格式，请通过 format 或 audio_format 明确指定")
+        raise ValueError(
+            translate(
+                "runtime.error.required",
+                subject=f"{provider_label} {runtime_subject('unrecognized_audio')}",
+                field=runtime_item("format_or_audio_format"),
+            )
+        )
     if audio_format not in allowed_formats:
         supported = ", ".join(sorted(allowed_formats))
-        raise ValueError(f"{provider_label} 不支持 {audio_format} 音频，仅支持: {supported}")
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject=f"{provider_label} {runtime_subject('audio_format')} {audio_format}",
+                allowed=supported,
+            )
+        )
     return PreparedAudio(
         audio_format=audio_format,
         mime_type=_AUDIO_MIME_TYPES[audio_format],
@@ -122,12 +176,31 @@ def _explicit_audio_format(
         if value is None:
             continue
         if not isinstance(value, str) or not value.strip():
-            raise TypeError(f"{provider_label} {key} 必须是非空字符串")
+            raise TypeError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject=f"{provider_label} {key}",
+                    expected=runtime_expected("non_empty_string"),
+                    actual=type(value).__name__,
+                )
+            )
         normalized = _AUDIO_FORMAT_ALIASES.get(value.strip().lower())
         if normalized is None:
-            raise ValueError(f"{provider_label} 不支持的显式音频格式: {value}")
+            raise ValueError(
+                translate(
+                    "runtime.error.unsupported_value",
+                    subject=f"{provider_label} {runtime_subject('explicit_audio_format')}",
+                    allowed=", ".join(sorted(_AUDIO_MIME_TYPES)),
+                )
+            )
         if resolved is not None and resolved != normalized:
-            raise ValueError(f"{provider_label} {resolved_key} 与 {key} 指定了不同音频格式")
+            raise ValueError(
+                translate(
+                    "runtime.error.conflict_different",
+                    left=f"{provider_label} {resolved_key}",
+                    right=key,
+                )
+            )
         resolved = normalized
         resolved_key = key
     return resolved
