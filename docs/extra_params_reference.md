@@ -110,10 +110,11 @@ extra_params = {
 文本生成请求中，以下 `extra_params` 顶层字段会进入阿里云百炼 DashScope `parameters`：
 
 - `customized_model_id`（特殊放入 `input.customized_model_id`）
+- `enable_code_interpreter`
 - `enable_search`
 - `enable_thinking`
 - `incremental_output`
-- `max_length`
+- `max_completion_tokens`
 - `max_tokens`
 - `n`
 - `parallel_tool_calls`
@@ -121,21 +122,38 @@ extra_params = {
 - `presence_penalty`
 - `repetition_penalty`
 - `response_format`
+- `reasoning_effort`
 - `result_format`
+- `search_options`
 - `seed`
 - `stop`
 - `temperature`
+- `thinking_budget`
 - `tool_choice`
+- `tool_stream`
 - `tools`
 - `top_k`
 - `top_p`
+- `vl_high_resolution_images`
 
 特殊规则：
 
 - `input`、`model`、`parameters`、`stream` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
+- Host `max_tokens` 是通用的最大输出预算：对官方明确支持的 Qwen3.7-Max+、Qwen3.5-Plus+、Qwen3.5-Flash+、Kimi K2.5+、GLM 5+、MiniMax M2.5+ 与受支持 DeepSeek 系列，自动发送为 `parameters.max_completion_tokens`；未知模型、旧模型和第三方直供模型继续发送为 `parameters.max_tokens`。
+- 显式 `max_completion_tokens` 优先于 Host 通用预算，此时不会同时发送 `max_tokens`；若用户同时显式指定两个原生字段则直接报冲突。`max_tokens`、`max_completion_tokens` 与 `thinking_budget` 均要求正整数。
+- `reasoning_effort` 支持 `low`、`medium`、`high`、`xhigh`、`max`；`search_options` 必须是对象，新布尔字段严格要求布尔值。
+- `tool_choice` 在参数策略和 `tools` 覆写完成后统一处理。思考模式只允许 `auto`/`none`；非思考模式的 `required` 仅在最终恰好一个工具时转换为指定函数对象，否则直接报错。
 - `result_format` 默认设置为 `message`，用于控制阿里云百炼 DashScope API 返回 JSON 结构；Host `response_format` 会单独映射到 `parameters.response_format` 作为模型输出内容格式约束，目前仅确认并支持 `json_object`。
 - 流式请求默认设置 `incremental_output = true` 和 `stream = true`，并发送 `Accept: text/event-stream`、`X-Accel-Buffering: no`、`X-DashScope-SSE: enable`。
-- 阿里云百炼 DashScope Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并额外支持顶层 `dimension`、`encoding_format`、`enable_fusion`、`text_type`、`output_type`、`instruct`、`fps`、`res_level`、`max_video_frames`、`auto_truncation` 写入 `parameters`。阿里云百炼 DashScope native embedding 使用 singular `dimension`，不会接受 OpenAI-compatible 的 `dimensions`。
+- 原生工具流同时兼容增量块与累计块，工具调用没有 `index` 仍是合法响应；只有标识确实冲突或多个未决调用无法判定归属时才报错。
+- 阿里云百炼 DashScope Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并支持顶层 `dimension`、`enable_fusion`、`text_type`、`output_type`、`instruct`、`fps`、`res_level`、`max_video_frames`、`auto_truncation` 写入 `parameters`。原生 API 不发送 OpenAI-compatible 的 `encoding_format`；`dimensions` 会映射为原生 singular `dimension`。文本模型支持 `text-embedding-v*` 与 `qwen3.7-text-embedding*`。
+
+### DashScope Audio Transcription
+
+- 支持 WAV、MP3、AAC、FLAC、OGG；不接受 M4A 或未知格式。
+- `format` / `audio_format` 只作为本地 Data URL 格式提示，经过配置优先级和文件签名冲突检查后会从请求体移除，不发送到 DashScope `parameters`。
+- Base64 必须严格合法，编码后长度上限为 10 MiB。未知签名、显式格式与签名冲突、格式不支持或超限都会直接报错，不会默认按 WAV 发送。
+- 原生 ASR usage 不能准确构造 Host 总 Token，因此 Host usage 保持零；开启原始响应后仍会保留上游 usage。
 
 ## SiliconFlow / Xiaomi Mimo Chat Completions
 

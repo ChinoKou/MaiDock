@@ -81,16 +81,25 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
 }
 
 _PARAMETER_LABEL_KEYS: dict[str, str] = {
+    "max_completion_tokens": "ui.parameter.max_completion_tokens",
+    "thinking_budget": "ui.parameter.thinking_budget",
+    "reasoning_effort": "ui.parameter.reasoning_effort",
     "parallel_tool_calls": "ui.parameter.parallel_tool_calls",
     "store": "ui.parameter.store",
     "stream": "ui.parameter.stream",
     "enable_thinking": "ui.parameter.enable_thinking",
     "enable_search": "ui.parameter.enable_search",
+    "search_options": "ui.parameter.search_options",
     "incremental_output": "ui.parameter.incremental_output",
+    "tool_stream": "ui.parameter.tool_stream",
+    "enable_code_interpreter": "ui.parameter.enable_code_interpreter",
+    "vl_high_resolution_images": "ui.parameter.vl_high_resolution_images",
     "auto_truncation": "ui.parameter.auto_truncation",
     "enable_fusion": "ui.parameter.enable_fusion",
     "enable_itn": "ui.parameter.enable_itn",
     "sparse_embedding": "ui.parameter.sparse_embedding",
+    "format": "ui.parameter.format",
+    "audio_format": "ui.parameter.audio_format",
 }
 
 _STATIC_FIELD_KEYS: dict[str, tuple[str, str | None]] = {

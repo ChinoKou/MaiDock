@@ -64,6 +64,7 @@ ARK 会收取缓存存储费用和缓存命中输入费用。`instructions`、`j
 ### 语音转录与 Mimo 思考回传
 
 - ARK 通过 Responses `input_audio.audio_url` + `input_text` 转录音频，提示词可在 Provider 基础设置中修改。
+- DashScope Qwen3-ASR 支持 WAV/MP3/AAC/FLAC/OGG；Base64 编码后上限为 10 MiB，格式提示只用于本地构造 Data URL。
 - Mimo 专用 ASR 支持 MP3/WAV 和 `auto/zh/en` 语言选项；通用音频理解支持 MP3/WAV/FLAC/M4A/OGG。
 - MaiDock 会校验 Base64、文件签名、显式格式和提供商大小限制，未知格式不会再默认按 WAV 发送。
 - Mimo 仅保存带工具调用轮次的完整思考内容。内容以明文保存在插件数据目录的 SQLite 中，默认保留 30 天并在使用时续期。
@@ -139,5 +140,6 @@ timeout = 30 # 默认值为 30
 | `maidock-volcengine-ark-responses` | `https://ark.cn-beijing.volces.com/api/v3` | ✅ |
 | `maidock-xiaomi-mimo` | 无 | ❌ |
 
-> - 阿里云百炼 DashScope、SiliconFlow、Volcengine Ark 默认使用官方端点，如需自定义地址可在 MaiDock 配置页面中关闭对应开关。
+> - 阿里云百炼 DashScope、SiliconFlow、Volcengine Ark 默认使用官方端点。如需使用百炼工作空间域名或其他自定义地址，请在 MaiDock 配置页面中关闭对应的“强制官方端点”开关。
+> - DashScope 会按模型与实际图片输入选择文本或多模态端点；无图片请求遇到结构化 `InvalidParameter + url error` 时可双向探测一次并缓存成功的端点类型。图片请求不会回退文本端点。
 > - Xiaomi Mimo 无默认端点，始终使用 Host 提供的 base_url。Mimo 官方有按量付费与 Token Plan 两套地址，由 Host 侧按需配置。

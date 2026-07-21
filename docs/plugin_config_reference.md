@@ -120,8 +120,8 @@ force_retry_interval = false
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_agent` | str | `""` | 自定义 User-Agent |
-| `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用阿里云百炼 DashScope 官方 endpoint |
-| `auto_detect_endpoint` | bool | `true` | 是否自动探测模型端点：文本端点返回 url error 时自动切换多模态端点并在内存中记录 |
+| `force_official_endpoint` | bool | `true` | 是否忽略 Host 提供的 `base_url`，强制使用阿里云百炼 DashScope 官方 endpoint；使用百炼工作空间域名时需关闭 |
+| `auto_detect_endpoint` | bool | `true` | 无图片请求遇到结构化 `InvalidParameter + url error` 时，是否向文本/多模态的相反端点重试一次，并在内存中记录成功的端点类型 |
 | `max_retries` | int | `3` | 最大重试次数。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
 | `force_max_retries` | bool | `false` | 关闭=回退模式，开启=强制使用上方的值 |
 | `retry_interval` | float | `5.0` | 重试间隔（秒）。关闭下方开关时为回退值，开启时强制覆写 Host 值 |
@@ -133,6 +133,8 @@ force_retry_interval = false
 | `[dashscope.embeddings]` | Embeddings（文本 / 多模态） |
 | `[dashscope.audio_transcription]` | 语音转录（多模态生成端点） |
 | `[dashscope.image_generation]` | 图像生成（**占位**） |
+
+DashScope 的端点类型缓存不保存绝对 URL，每次请求都会基于当前 Host `base_url` 重新拼接路径，因此切换工作空间域名后不会复用旧域名。实际含图片的请求固定使用多模态端点，已知纯文本模型会在本地拒绝图片，任何图片请求都不会回退文本端点。
 
 ### `[siliconflow]`
 

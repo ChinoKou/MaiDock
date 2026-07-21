@@ -55,6 +55,11 @@ extra_params = { enable_thinking = true, result_format = "message" }
 name = "Tongyi-Embedding-Vision"
 model_identifier = "tongyi-embedding-vision-flash-2026-03-06"
 api_provider = "dashscope"
+
+[[models]]
+name = "Qwen3.7-Text-Embedding"
+model_identifier = "qwen3.7-text-embedding"
+api_provider = "dashscope"
 ```
 
 ### SiliconFlow

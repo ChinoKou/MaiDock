@@ -1,5 +1,7 @@
 import logging
+import re
 from collections.abc import Mapping
+from typing import Literal
 
 from ...core.common import (
     ProviderRuntimeOptions,
@@ -8,7 +10,7 @@ from ...core.common import (
     message_text,
     read_model_identifier,
 )
-from ...core.diagnostics import build_parse_error_message, sanitize_for_log
+from ...core.diagnostics import build_parse_error_message
 from ...core.json_types import JsonValue, json_mapping_or_none, list_field, mapping_field, mapping_to_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
@@ -27,7 +29,8 @@ from ..common.httpx import HttpxClientConfig, HttpxProviderParseError, build_htt
 from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from ..common.payloads import raw_data_or_none
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
-from .parameter_translation import apply_dashscope_chat_parameters
+from .errors import raise_for_dashscope_error
+from .parameter_translation import apply_dashscope_chat_parameters, normalize_dashscope_chat_body
 from .tools import convert_history_tool_call, convert_tools, extract_tool_calls
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
@@ -36,6 +39,17 @@ DASHSCOPE_PROVIDER_LABEL = "阿里云百炼 DashScope"
 DASHSCOPE_GENERATION_ENDPOINT = "services/aigc/text-generation/generation"
 DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT = "services/aigc/multimodal-generation/generation"
 DASHSCOPE_DEFAULT_TIMEOUT = 300.0
+type DashScopeEndpointKind = Literal["text", "multimodal"]
+
+_DASHSCOPE_TEXT_ONLY_MODELS = frozenset(
+    {
+        "qwen3.7-max",
+        "qwen3.7-max-2026-05-20",
+        "qwen3.6-max-preview",
+    }
+)
+_DASHSCOPE_EXPLICIT_MULTIMODAL_MODELS = frozenset({"qwen3.7-max-2026-06-08"})
+_DASHSCOPE_MULTIMODAL_TOKEN_PATTERN = re.compile(r"(?:^|[-_/])(vl|audio|omni)(?:$|[-_/])", re.IGNORECASE)
 
 
 def build_client_config(
@@ -63,6 +77,32 @@ def build_client_config(
 
 def resolve_path(config: HttpxClientConfig, endpoint: str) -> str:
     return resolve_endpoint_path(config.base_url, api_prefix=DASHSCOPE_API_PREFIX, endpoint_path=endpoint)
+
+
+def normalize_dashscope_model(model: str) -> str:
+    return model.strip().lower()
+
+
+def is_dashscope_text_only_model(model: str) -> bool:
+    return normalize_dashscope_model(model) in _DASHSCOPE_TEXT_ONLY_MODELS
+
+
+def is_dashscope_multimodal_model(model: str) -> bool:
+    normalized = normalize_dashscope_model(model)
+    if normalized in _DASHSCOPE_EXPLICIT_MULTIMODAL_MODELS:
+        return True
+    if normalized.startswith(("qwen3.7-plus", "qwen3.6-", "qwen3.5-", "qvq")):
+        return normalized not in _DASHSCOPE_TEXT_ONLY_MODELS
+    return _DASHSCOPE_MULTIMODAL_TOKEN_PATTERN.search(normalized) is not None
+
+
+def dashscope_endpoint_path(config: HttpxClientConfig, kind: DashScopeEndpointKind) -> str:
+    endpoint = DASHSCOPE_GENERATION_ENDPOINT if kind == "text" else DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT
+    return resolve_path(config, endpoint)
+
+
+def request_has_image(messages: list[MessageSnapshot]) -> bool:
+    return any(message.role == "user" and _has_image_part(message) for message in messages)
 
 
 def first_choice(payload: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
@@ -95,6 +135,8 @@ def is_multimodal_endpoint(path: str) -> bool:
 
 def extract_content_text(content: object, *, is_multimodal: bool) -> str | None:
     """从 message.content 中提取文本，兼容多模态端点与文本端点的不同格式。"""
+    if isinstance(content, str):
+        return content or None
     if is_multimodal:
         if isinstance(content, list):
             parts = [
@@ -104,7 +146,7 @@ def extract_content_text(content: object, *, is_multimodal: bool) -> str | None:
             ]
             return "\n".join(parts) if parts else None
         return None
-    return content if isinstance(content, str) and content else None
+    return None
 
 
 def extract_reasoning_from_mapping(mapping: Mapping[str, JsonValue]) -> str | None:
@@ -167,7 +209,9 @@ def build_generation_body(
         provider_label=DASHSCOPE_PROVIDER_LABEL,
         capability="chat_completion",
     )
-    return transport.body, transport.headers, transport.query
+    normalized_body = dict(transport.body)
+    normalize_dashscope_chat_body(normalized_body, context=context)
+    return normalized_body, transport.headers, transport.query
 
 
 def count_tools(body: dict) -> int:
@@ -245,32 +289,10 @@ def dashscope_usage(payload: Mapping[str, JsonValue]) -> GenericUsageSnapshot:
     return GenericUsageSnapshot()
 
 
-def _payload_error_message(payload: dict) -> str | None:
-    code = payload.get("code")
-    message = payload.get("message")
-    status_code = payload.get("status_code")
-    if isinstance(code, str) and code.strip() and code.strip().lower() not in {"success", "ok"}:
-        request_id = payload.get("request_id") or payload.get("requestId")
-        details = {
-            "status_code": status_code,
-            "request_id": request_id,
-            "code": code,
-            "message": message,
-        }
-        return translate(
-            "runtime.error.upstream_status",
-            provider=DASHSCOPE_PROVIDER_LABEL,
-            details=sanitize_for_log(details),
-        )
-    return None
-
-
 def convert_response(
     payload: dict, *, options: ProviderRuntimeOptions, is_multimodal: bool = False
 ) -> ProviderResponse:
-    error_message = _payload_error_message(payload)
-    if error_message is not None:
-        raise ValueError(error_message)
+    raise_for_dashscope_error(payload)
     payload_mapping = payload
     message = first_choice_message(payload_mapping)
     content: str | None = None

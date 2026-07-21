@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -54,6 +54,9 @@ class HttpxProviderError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+type HttpxJsonErrorFactory = Callable[[dict, int | None, str | None], HttpxProviderError | None]
 
 
 class HttpxProviderParseError(ValueError):
@@ -197,15 +200,20 @@ def _status_error_message(provider_label: str, response: httpx.Response) -> str:
     )
 
 
-def _json_response_payload(provider_label: str, response: httpx.Response) -> dict:
-    if response.status_code >= 400:
-        raise HttpxProviderError(
-            _status_error_message(provider_label, response),
-            status_code=response.status_code,
-        )
+def _json_response_payload(
+    provider_label: str,
+    response: httpx.Response,
+    *,
+    error_factory: HttpxJsonErrorFactory | None = None,
+) -> dict:
     try:
         raw_payload: object = response.json()
     except ValueError as exc:
+        if response.status_code >= 400:
+            raise HttpxProviderError(
+                _status_error_message(provider_label, response),
+                status_code=response.status_code,
+            ) from exc
         message = translate(
             "runtime.error.expected_type",
             subject=runtime_subject("response"),
@@ -215,6 +223,11 @@ def _json_response_payload(provider_label: str, response: httpx.Response) -> dic
         raise HttpxProviderParseError(build_parse_error_message(provider_label, message)) from exc
     payload = json_mapping_or_none(raw_payload)
     if payload is None:
+        if response.status_code >= 400:
+            raise HttpxProviderError(
+                _status_error_message(provider_label, response),
+                status_code=response.status_code,
+            )
         message = translate(
             "runtime.error.expected_type",
             subject=runtime_subject("json_response"),
@@ -222,7 +235,17 @@ def _json_response_payload(provider_label: str, response: httpx.Response) -> dic
             actual=type(raw_payload).__name__,
         )
         raise HttpxProviderParseError(build_parse_error_message(provider_label, message))
-    return mapping_to_json_object(payload)
+    normalized_payload = mapping_to_json_object(payload)
+    if error_factory is not None:
+        provider_error = error_factory(normalized_payload, response.status_code, None)
+        if provider_error is not None:
+            raise provider_error
+    if response.status_code >= 400:
+        raise HttpxProviderError(
+            _status_error_message(provider_label, response),
+            status_code=response.status_code,
+        )
+    return normalized_payload
 
 
 def _header_retry_override(response: httpx.Response) -> bool | None:
@@ -254,6 +277,7 @@ async def post_json(
     provider_label: str,
     max_retries: int = 0,
     retry_interval: float = 0.0,
+    error_factory: HttpxJsonErrorFactory | None = None,
 ) -> dict:
     """POST JSON 并返回已验证的 JSON object 响应。"""
 
@@ -330,7 +354,7 @@ async def post_json(
             if retry_interval > 0:
                 await asyncio.sleep(retry_interval)
             continue
-        return _json_response_payload(provider_label, response)
+        return _json_response_payload(provider_label, response, error_factory=error_factory)
     raise HttpxProviderError(translate("runtime.error.call_retried", provider=provider_label, retries=retries))
 
 
@@ -489,6 +513,7 @@ async def stream_sse_json(
     provider_label: str,
     max_retries: int = 0,
     retry_interval: float = 0.0,
+    error_factory: HttpxJsonErrorFactory | None = None,
 ) -> AsyncIterator[SseJsonEvent]:
     """POST JSON 并解析 JSON SSE 事件。"""
 
@@ -520,6 +545,20 @@ async def stream_sse_json(
                         if retry_interval > 0:
                             await asyncio.sleep(retry_interval)
                         continue
+                    if error_factory is not None:
+                        try:
+                            raw_payload: object = response.json()
+                        except ValueError:
+                            raw_payload = None
+                        payload = json_mapping_or_none(raw_payload)
+                        if payload is not None:
+                            provider_error = error_factory(
+                                mapping_to_json_object(payload),
+                                response.status_code,
+                                None,
+                            )
+                            if provider_error is not None:
+                                raise provider_error
                     raise HttpxProviderError(
                         _status_error_message(provider_label, response),
                         status_code=response.status_code,
@@ -535,6 +574,10 @@ async def stream_sse_json(
                             if data_lines and "\n".join(data_lines).strip() == "[DONE]":
                                 break
                         else:
+                            if error_factory is not None:
+                                provider_error = error_factory(payload, status, event_name)
+                                if provider_error is not None:
+                                    raise provider_error
                             emitted_event = True
                             yield SseJsonEvent(event=event_name, data=payload, status=status)
                         event_name = None
@@ -552,6 +595,10 @@ async def stream_sse_json(
                 if data_lines:
                     payload = _parse_sse_data(provider_label, "\n".join(data_lines))
                     if payload is not None:
+                        if error_factory is not None:
+                            provider_error = error_factory(payload, status, event_name)
+                            if provider_error is not None:
+                                raise provider_error
                         emitted_event = True
                         yield SseJsonEvent(event=event_name, data=payload, status=status)
                 return

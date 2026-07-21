@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ...core.common import ProviderRuntimeOptions, tool_arguments_to_json
 from ...core.json_types import json_list_or_none, json_mapping_or_none, mapping_to_json_object
@@ -8,19 +8,75 @@ from ...schemas import ProviderFunctionCall, ProviderToolCall, ToolCallSnapshot,
 from ..common.tools import normalize_tool_arguments_value, resolve_tool_call_id
 
 
-@dataclass(slots=True)
-class DashScopeToolCallChunk:
-    call_id: str | None = None
+def merge_dashscope_stream_text(current: str, incoming: str) -> str:
+    """兼容 DashScope 增量块与累计块。"""
+
+    if not incoming:
+        return current
+    if incoming.startswith(current):
+        return incoming
+    return current + incoming
+
+
+@dataclass(frozen=True, slots=True)
+class DashScopeToolCallFragment:
+    sequence: int
+    call_id: str = ""
     name: str = ""
     arguments: str = ""
 
-    def merge_arguments(self, arguments: str) -> None:
-        if not arguments:
-            return
-        if arguments.startswith(self.arguments):
-            self.arguments = arguments
-        else:
-            self.arguments += arguments
+
+@dataclass(slots=True)
+class DashScopeToolCallChunk:
+    slot_id: int = 0
+    created_order: int = 0
+    explicit_index: int | None = None
+    call_id: str | None = None
+    name: str = ""
+    arguments: str = ""
+    fragments: list[DashScopeToolCallFragment] = field(default_factory=list)
+
+    @property
+    def has_explicit_identity(self) -> bool:
+        return self.explicit_index is not None or bool(self.call_id)
+
+    def add_fragment(
+        self,
+        *,
+        sequence: int,
+        call_id: str = "",
+        name: str = "",
+        arguments: str = "",
+    ) -> None:
+        self.fragments.append(
+            DashScopeToolCallFragment(
+                sequence=sequence,
+                call_id=call_id,
+                name=name,
+                arguments=arguments,
+            )
+        )
+        self._rebuild_text()
+
+    def absorb(self, other: "DashScopeToolCallChunk") -> None:
+        self.created_order = min(self.created_order, other.created_order)
+        if self.explicit_index is None:
+            self.explicit_index = other.explicit_index
+        self.fragments.extend(other.fragments)
+        self.fragments.sort(key=lambda fragment: fragment.sequence)
+        self._rebuild_text()
+
+    def _rebuild_text(self) -> None:
+        call_id = ""
+        name = ""
+        arguments = ""
+        for fragment in self.fragments:
+            call_id = merge_dashscope_stream_text(call_id, fragment.call_id)
+            name = merge_dashscope_stream_text(name, fragment.name)
+            arguments = merge_dashscope_stream_text(arguments, fragment.arguments)
+        self.call_id = call_id or None
+        self.name = name
+        self.arguments = arguments
 
     def to_tool_call(self, index: int, parse_mode: ToolArgumentParseMode) -> ProviderToolCall:
         call_id = resolve_tool_call_id(self.call_id, fallback_prefix="dashscope_tool", index=index)

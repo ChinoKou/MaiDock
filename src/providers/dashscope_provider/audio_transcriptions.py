@@ -1,34 +1,18 @@
-import base64
-
-from ...core.common import ProviderRuntimeOptions, build_audio_file, read_model_identifier
+from ...core.common import ProviderRuntimeOptions, read_model_identifier
 from ...core.diagnostics import build_parse_error_message, sanitize_json_object
 from ...core.json_types import json_mapping_or_none, list_field, mapping_field, string_field
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
 from ...i18n import runtime_item, translate
 from ...schemas import AudioTranscriptionRequestSnapshot
+from ..common.audio import AudioFormat, prepare_base64_audio
 from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from .chat import DASHSCOPE_PROVIDER_LABEL
+from .errors import raise_for_dashscope_error
 from .parameter_translation import apply_dashscope_audio_parameters
 
-# 常见音频格式魔数 → MIME 类型映射
-_AUDIO_MIME_BY_MAGIC: dict[bytes, str] = {
-    b"RIFF": "audio/wav",
-    b"ID3": "audio/mpeg",
-    b"\xff\xfb": "audio/mpeg",
-    b"\xff\xf3": "audio/mpeg",
-    b"\xff\xf2": "audio/mpeg",
-    b"fLaC": "audio/flac",
-    b"OggS": "audio/ogg",
-}
-
-
-def _detect_audio_mime(audio_bytes: bytes) -> str:
-    """根据魔数字节检测音频 MIME 类型，默认回退到 audio/wav。"""
-    for magic, mime in _AUDIO_MIME_BY_MAGIC.items():
-        if audio_bytes.startswith(magic):
-            return mime
-    return "audio/wav"
+_DASHSCOPE_ASR_FORMATS: frozenset[AudioFormat] = frozenset({"wav", "mp3", "aac", "flac", "ogg"})
+_DASHSCOPE_ASR_MAX_BASE64_CHARS = 10 * 1024 * 1024
 
 
 def build_audio_transcription_request(
@@ -62,14 +46,18 @@ def build_audio_transcription_request(
         capability="audio_transcription",
     )
 
-    audio_filename, audio_buffer = build_audio_file(request)
-    del audio_filename
-    audio_bytes = audio_buffer.getvalue()
-    mime_type = _detect_audio_mime(audio_bytes)
-    base64_str = base64.b64encode(audio_bytes).decode()
-    data_uri = f"data:{mime_type};base64,{base64_str}"
-
     body = dict(transport.body)
+    format_hints = {
+        "format": body.pop("format", None),
+        "audio_format": body.pop("audio_format", None),
+    }
+    audio = prepare_base64_audio(
+        request.audio_base64,
+        format_hints,
+        provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Audio Transcriptions",
+        allowed_formats=_DASHSCOPE_ASR_FORMATS,
+        max_base64_chars=_DASHSCOPE_ASR_MAX_BASE64_CHARS,
+    )
     parameters = json_mapping_or_none(body.get("parameters"))
     if parameters is not None:
         parameters = dict(parameters)
@@ -77,7 +65,7 @@ def build_audio_transcription_request(
         parameters = {}
     parameters.setdefault("result_format", "message")
     body["parameters"] = parameters
-    body["input"] = {"messages": [{"role": "user", "content": [{"audio": data_uri}]}]}
+    body["input"] = {"messages": [{"role": "user", "content": [{"audio": audio.data_url}]}]}
 
     return body, transport.headers, transport.query
 
@@ -88,6 +76,7 @@ def parse_audio_transcription_response(
     options: ProviderRuntimeOptions,
 ) -> tuple[str, dict | None]:
     """解析阿里云百炼 DashScope 多模态生成响应，提取转录文本。"""
+    raise_for_dashscope_error(payload)
     output = mapping_field(payload, "output")
     choices = list_field(output, "choices") if output is not None else None
     first_choice = json_mapping_or_none(choices[0]) if choices else None

@@ -11,6 +11,7 @@ from ..common.embeddings import coerce_embedding_vector
 from ..common.parameter_translation import TranslationEnvelope, build_translation_context
 from ..common.payloads import raw_data_or_none
 from .chat import DASHSCOPE_PROVIDER_LABEL
+from .errors import raise_for_dashscope_error
 from .parameter_translation import apply_dashscope_embedding_parameters
 
 DASHSCOPE_TEXT_EMBEDDING_ENDPOINT = "services/embeddings/text-embedding/text-embedding"
@@ -29,7 +30,7 @@ EmbeddingEndpoint = Literal[
 
 def dashscope_embedding_endpoint(model: str) -> EmbeddingEndpoint:
     normalized = model.strip().lower()
-    if normalized.startswith("text-embedding-v"):
+    if normalized.startswith(("text-embedding-v", "qwen3.7-text-embedding")):
         return DASHSCOPE_TEXT_EMBEDDING_ENDPOINT
     if normalized in DASHSCOPE_MULTIMODAL_EMBEDDING_MODELS:
         return DASHSCOPE_MULTIMODAL_EMBEDDING_ENDPOINT
@@ -41,7 +42,10 @@ def dashscope_embedding_endpoint(model: str) -> EmbeddingEndpoint:
         translate(
             "runtime.error.unsupported_value",
             subject=f"{DASHSCOPE_PROVIDER_LABEL} embedding model",
-            allowed="text-embedding-v*/multimodal-embedding-*/qwen*-vl-embedding/tongyi-embedding-vision-*",
+            allowed=(
+                "text-embedding-v*/qwen3.7-text-embedding*/multimodal-embedding-*/"
+                "qwen*-vl-embedding/tongyi-embedding-vision-*"
+            ),
         )
     )
 
@@ -50,7 +54,7 @@ def build_embedding_request(
     request: EmbeddingRequestSnapshot,
     *,
     options: ProviderRuntimeOptions,
-) -> tuple[EmbeddingEndpoint, dict, dict[str, str], dict, str]:
+) -> tuple[EmbeddingEndpoint, dict, dict[str, str], dict]:
     model = read_model_identifier(request.model_info)
     endpoint = dashscope_embedding_endpoint(model)
     policy = options.parameter_policies.get("dashscope", "embeddings")
@@ -87,17 +91,15 @@ def build_embedding_request(
         provider_label=DASHSCOPE_PROVIDER_LABEL,
         capability="embeddings",
     )
-    params = json_mapping_or_none(transport.body.get("parameters"))
-    encoding_format = str(params.get("encoding_format", "float")) if params is not None else "float"
-    return endpoint, transport.body, transport.headers, transport.query, encoding_format
+    return endpoint, transport.body, transport.headers, transport.query
 
 
 def build_dashscope_embedding_response(
     payload: dict,
     *,
     options: ProviderRuntimeOptions,
-    encoding_format: str = "float",
 ) -> ProviderResponse:
+    raise_for_dashscope_error(payload)
     output = json_mapping_or_none(payload.get("output"))
     embeddings = json_list_or_none(output.get("embeddings")) if output is not None else None
     first_embedding = json_mapping_or_none(embeddings[0]) if embeddings else None
@@ -106,7 +108,6 @@ def build_dashscope_embedding_response(
         embedding=coerce_embedding_vector(
             candidate,
             provider_label=f"{DASHSCOPE_PROVIDER_LABEL} Embeddings",
-            encoding_format=encoding_format,
         ),
         usage=build_usage_from_snapshot(GenericUsageSnapshot.model_validate(payload.get("usage") or {})),
         raw_data=raw_data_or_none(payload, options=options),
