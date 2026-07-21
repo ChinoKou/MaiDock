@@ -52,7 +52,7 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "UP"]
-ignore = ["E711", "E501"]
+ignore = ["E501"]
 
 [tool.ruff.format]
 docstring-code-format = true
