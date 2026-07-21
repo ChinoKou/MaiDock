@@ -1,5 +1,5 @@
 import logging
-from typing import Literal
+from typing import Literal, cast
 
 from ...core.common import (
     ProviderRuntimeOptions,
@@ -42,7 +42,7 @@ from ..common.parameter_translation import (
 )
 from ..common.reasoning import merge_reasoning_and_xml_tool_fallback
 from .multimodal import convert_content_blocks
-from .parameter_translation import apply_anthropic_parameters
+from .parameter_translation import apply_anthropic_parameters, reject_anthropic_response_format_params
 from .tools import (
     convert_assistant_tool_calls,
     convert_tools,
@@ -119,6 +119,7 @@ def build_request(
     options: ProviderRuntimeOptions,
     logger: logging.Logger,
 ) -> AnthropicMessagesRequest:
+    reject_anthropic_response_format_params(request)
     model = read_model_identifier(request.model_info)
     policy = options.parameter_policies.get("anthropic_messages", "chat_completion")
     catalog = get_parameter_catalog("anthropic_messages", "chat_completion")
@@ -272,8 +273,8 @@ def convert_response(response: object, *, options: ProviderRuntimeOptions) -> Pr
         elif block.type == "tool_use":
             tool_calls.append(
                 ProviderToolCall(
-                    id=block.id or "",
-                    function=ProviderFunctionCall(name=block.name or "", arguments=block.input),
+                    id=cast(str, block.id),
+                    function=ProviderFunctionCall(name=cast(str, block.name), arguments=block.input),
                     extra_content={"provider": "anthropic_messages"},
                 )
             )

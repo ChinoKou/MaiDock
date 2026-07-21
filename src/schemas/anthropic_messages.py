@@ -1,8 +1,9 @@
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
-from ..core.json_types import is_json_list
+from ..core.json_types import is_json_list, is_json_mapping
+from ..i18n import runtime_expected, translate
 from .base import (
     AnthropicImageMediaType,
     HostDumpModel,
@@ -150,6 +151,32 @@ class AnthropicResponseContentBlock(IgnoreExtraModel):
     id: str | None = None
     name: str | None = None
     input: dict = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_tool_use_fields(cls, value: object) -> object:
+        if not is_json_mapping(value) or value.get("type") != "tool_use":
+            return value
+        for field_name in ("id", "name", "input"):
+            if value.get(field_name) is None:
+                raise ValueError(
+                    translate(
+                        "runtime.error.required",
+                        subject="Anthropic Messages tool_use",
+                        field=field_name,
+                    )
+                )
+        input_value = value["input"]
+        if not is_json_mapping(input_value):
+            raise ValueError(
+                translate(
+                    "runtime.error.expected_type",
+                    subject="Anthropic Messages tool_use.input",
+                    expected=runtime_expected("mapping"),
+                    actual=type(input_value).__name__,
+                )
+            )
+        return value
 
     @field_validator("input", mode="before")
     @classmethod

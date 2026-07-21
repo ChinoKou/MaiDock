@@ -1,5 +1,6 @@
 from ...core.json_types import json_mapping_or_none
 from ...i18n import translate
+from ...schemas import ResponseRequestSnapshot
 from ..common.parameter_translation import (
     FieldTranslator,
     TranslationContext,
@@ -42,12 +43,8 @@ def translate_anthropic_identity(target_path: tuple[str, ...], *, field_name: st
     return _translator
 
 
-def reject_anthropic_response_format_params(context: TranslationContext) -> None:
-    request = context.request
-    if request is None:
-        return
-    response_format = getattr(request, "response_format", None)
-    if response_format is not None:
+def reject_anthropic_response_format_params(request: ResponseRequestSnapshot) -> None:
+    if request.response_format is not None:
         raise ValueError(
             translate(
                 "runtime.error.unsupported_value",
@@ -92,5 +89,4 @@ ANTHROPIC_TRANSLATORS: dict[str, FieldTranslator] = {
 
 
 def apply_anthropic_parameters(context: TranslationContext, envelope: TranslationEnvelope) -> None:
-    reject_anthropic_response_format_params(context)
     run_translators(context, envelope, ANTHROPIC_TRANSLATORS)
