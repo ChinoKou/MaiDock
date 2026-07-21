@@ -1,0 +1,510 @@
+import base64
+import json
+from typing import cast
+
+import httpx
+import pytest
+
+from src.config import MaiDockConfig, build_runtime_options
+from src.core.common import ProviderRuntimeOptions
+from src.core.state_store import PluginStateStore
+from src.providers.xiaomi_mimo_provider.chat import MIMO_CHAT_COMPLETIONS_ENDPOINT
+from src.providers.xiaomi_mimo_provider.provider import XiaomiMimoProvider
+
+
+def _api_provider(*, base_url: str | None = "https://relay.example/v1") -> dict:
+    return {
+        "api_key": "mimo-key",
+        "auth_type": "header",
+        "base_url": base_url,
+        "default_headers": {},
+        "default_query": {},
+    }
+
+
+def _response_request(
+    *,
+    base_url: str | None = "https://relay.example/v1",
+    model_extra_params: dict | None = None,
+    request_extra_params: dict | None = None,
+    with_image: bool = False,
+) -> dict:
+    user_parts: list[dict] = [{"type": "text", "text": "你好"}]
+    if with_image:
+        user_parts.append(
+            {
+                "type": "image",
+                "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+lm8cAAAAASUVORK5CYII=",
+                "image_format": "png",
+            }
+        )
+    return {
+        "model_info": {
+            "model_identifier": "mimo-vl",
+            "extra_params": model_extra_params or {},
+        },
+        "api_provider": _api_provider(base_url=base_url),
+        "message_list": [{"role": "user", "parts": user_parts}],
+        "tool_options": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "description": "look up data",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"q": {"type": "string"}},
+                    },
+                },
+            }
+        ],
+        "extra_params": request_extra_params or {},
+        "temperature": 0.2,
+        "max_tokens": 64,
+    }
+
+
+def _audio_request(
+    *,
+    extra_params: dict | None = None,
+    model_extra_params: dict | None = None,
+    model: str = "mimo-v2.5",
+    audio_bytes: bytes = b"RIFF\x00\x00\x00\x00WAVEfmt ",
+) -> dict:
+    return {
+        "model_info": {
+            "model_identifier": model,
+            "extra_params": model_extra_params or {},
+        },
+        "api_provider": _api_provider(),
+        "extra_params": extra_params or {},
+        "audio_base64": base64.b64encode(audio_bytes).decode(),
+    }
+
+
+def _as_mapping(value: object) -> dict:
+    assert isinstance(value, dict)
+    return cast(dict, value)
+
+
+def _as_list(value: object) -> list:
+    assert isinstance(value, list)
+    return cast(list, value)
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_uses_api_key_header_and_forces_thinking_after_extra_params() -> None:
+    captured_url: list[str] = []
+    captured_headers: list[dict[str, str]] = []
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_url.append(str(request.url))
+        captured_headers.append(
+            {
+                "api-key": request.headers["api-key"],
+                "User-Agent": request.headers["User-Agent"],
+            }
+        )
+        body = json.loads(request.content.decode("utf-8"))
+        assert isinstance(body, dict)
+        captured_body.append(cast(dict, body))
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl_1",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "回答",
+                            "reasoning_content": "先想",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "lookup",
+                                        "arguments": '{"q":"x"}',
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"total_tokens": 7},
+            },
+        )
+
+    provider = XiaomiMimoProvider(
+        options=ProviderRuntimeOptions(mimo_user_agent="Mimo-UA/1"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await provider.get_response(
+        _response_request(
+            request_extra_params={"thinking": {"type": "enabled"}},
+            with_image=True,
+        )
+    )
+
+    assert captured_url == [f"https://relay.example/v1/{MIMO_CHAT_COMPLETIONS_ENDPOINT}"]
+    assert captured_headers == [{"api-key": "mimo-key", "User-Agent": "Mimo-UA/1"}]
+    body = captured_body[0]
+    assert body["thinking"] == {"type": "disabled"}
+    assert body["temperature"] == 0.2
+    assert body["max_completion_tokens"] == 64
+    assert "max_tokens" not in body
+    content = _as_list(_as_mapping(_as_list(body["messages"])[0])["content"])
+    assert content[0] == {"type": "text", "text": "你好"}
+    assert _as_mapping(content[1])["type"] == "image_url"
+    assert _as_list(body["tools"])[0]["function"]["name"] == "lookup"
+    assert result["content"] == "回答"
+    first_tool_call = _as_mapping(_as_list(result["tool_calls"])[0])
+    assert first_tool_call["extra_content"] == {
+        "provider": "xiaomi_mimo",
+        "xiaomi_mimo": {"raw_arguments": '{"q":"x"}'},
+    }
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_allows_native_thinking_when_force_disable_is_false(
+    tmp_path,
+) -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        assert isinstance(body, dict)
+        captured_body.append(cast(dict, body))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    provider = XiaomiMimoProvider(
+        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        transport=httpx.MockTransport(handler),
+        state_store=PluginStateStore(tmp_path / "state.sqlite3"),
+    )
+
+    await provider.get_response(_response_request(request_extra_params={"thinking": {"type": "enabled"}}))
+
+    assert captured_body[0]["thinking"] == {"type": "enabled"}
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_uses_host_base_url() -> None:
+    captured_url: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_url.append(str(request.url))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    provider = XiaomiMimoProvider(
+        options=ProviderRuntimeOptions(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(_response_request(base_url="https://relay.example/v1"))
+
+    assert captured_url == [f"https://relay.example/v1/{MIMO_CHAT_COMPLETIONS_ENDPOINT}"]
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_accepts_official_max_completion_tokens_alias() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    request = _response_request(request_extra_params={"max_completion_tokens": 96})
+    request["max_tokens"] = None
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    await provider.get_response(request)
+
+    assert captured_body[0]["max_completion_tokens"] == 96
+    assert "max_tokens" not in captured_body[0]
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_rejects_conflicting_legacy_max_tokens() -> None:
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+    with pytest.raises(ValueError, match="request.max_tokens.*body.max_completion_tokens"):
+        await provider.get_response(
+            _response_request(
+                request_extra_params={"body": {"max_completion_tokens": 96}},
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_rejects_conflicting_typed_and_official_max_tokens() -> None:
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+    with pytest.raises(ValueError, match="request.max_tokens.*extra_params.max_completion_tokens"):
+        await provider.get_response(
+            _response_request(
+                request_extra_params={"max_completion_tokens": 96},
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_field_override_uses_official_target_and_keeps_legacy_config_key() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    config = MaiDockConfig.model_validate(
+        {
+            "xiaomi_mimo": {
+                "chat_completion": {
+                    "fields": {
+                        "body_max_tokens_override_enabled": True,
+                        "body_max_tokens_override_value": "128",
+                    }
+                }
+            }
+        }
+    )
+    provider = XiaomiMimoProvider(
+        options=build_runtime_options(config),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(_response_request())
+
+    assert captured_body[0]["max_completion_tokens"] == 128
+    assert "max_tokens" not in captured_body[0]
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_disabled_max_tokens_removes_official_body_field() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    config = MaiDockConfig.model_validate(
+        {
+            "xiaomi_mimo": {
+                "chat_completion": {
+                    "fields": {
+                        "body_max_tokens_enabled": False,
+                    }
+                }
+            }
+        }
+    )
+    request = _response_request(
+        request_extra_params={"body": {"max_completion_tokens": 96}},
+    )
+    request["max_tokens"] = None
+    provider = XiaomiMimoProvider(
+        options=build_runtime_options(config),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(request)
+
+    assert "max_completion_tokens" not in captured_body[0]
+    assert "max_tokens" not in captured_body[0]
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_ignored_request_extra_does_not_reinject_max_tokens() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    config = MaiDockConfig.model_validate(
+        {
+            "xiaomi_mimo": {
+                "chat_completion": {
+                    "accept_request_extra_params": False,
+                }
+            }
+        }
+    )
+    request = _response_request(
+        request_extra_params={"max_completion_tokens": 96},
+    )
+    request["max_tokens"] = None
+    provider = XiaomiMimoProvider(
+        options=build_runtime_options(config),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(request)
+
+    assert "max_completion_tokens" not in captured_body[0]
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_ignored_model_extra_does_not_reinject_max_tokens() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    config = MaiDockConfig.model_validate(
+        {
+            "xiaomi_mimo": {
+                "chat_completion": {
+                    "accept_model_extra_params": False,
+                }
+            }
+        }
+    )
+    request = _response_request(
+        model_extra_params={"max_completion_tokens": 96},
+    )
+    request["max_tokens"] = None
+    provider = XiaomiMimoProvider(
+        options=build_runtime_options(config),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(request)
+
+    assert "max_completion_tokens" not in captured_body[0]
+
+
+@pytest.mark.asyncio
+async def test_mimo_chat_legacy_disabled_and_rejected_paths_remain_compatible() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    disabled_config = MaiDockConfig.model_validate(
+        {
+            "xiaomi_mimo": {
+                "chat_completion": {
+                    "disabled_paths": ["body.max_tokens"],
+                }
+            }
+        }
+    )
+    disabled_provider = XiaomiMimoProvider(
+        options=build_runtime_options(disabled_config),
+        transport=httpx.MockTransport(handler),
+    )
+    await disabled_provider.get_response(_response_request())
+    assert "max_completion_tokens" not in captured_body[0]
+
+    rejected_config = MaiDockConfig.model_validate(
+        {
+            "xiaomi_mimo": {
+                "chat_completion": {
+                    "rejected_paths": ["body.max_tokens"],
+                }
+            }
+        }
+    )
+    rejected_provider = XiaomiMimoProvider(options=build_runtime_options(rejected_config))
+    with pytest.raises(ValueError, match="body.max_tokens"):
+        await rejected_provider.get_response(_response_request())
+
+
+@pytest.mark.asyncio
+async def test_mimo_audio_transcription_uses_default_prompt_and_input_audio() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        assert isinstance(body, dict)
+        captured_body.append(cast(dict, body))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "你好世界"}}], "usage": {}})
+
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+
+    result = await provider.get_audio_transcriptions(_audio_request())
+
+    assert result["content"] == "你好世界"
+    body = captured_body[0]
+    assert body["model"] == "mimo-v2.5"
+    assert body["stream"] is False
+    content = _as_list(_as_mapping(_as_list(body["messages"])[0])["content"])
+    assert content[0] == {
+        "type": "input_audio",
+        "input_audio": {"data": f"data:audio/wav;base64,{_audio_request()['audio_base64']}"},
+    }
+    assert content[1] == {"type": "text", "text": "请转写这段音频"}
+    assert body["thinking"] == {"type": "disabled"}
+
+
+@pytest.mark.asyncio
+async def test_mimo_audio_transcription_uses_custom_prompt_from_config() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        assert isinstance(body, dict)
+        captured_body.append(cast(dict, body))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": [{"text": "转写"}]}}],
+                "usage": {},
+            },
+        )
+
+    provider = XiaomiMimoProvider(
+        options=ProviderRuntimeOptions(mimo_audio_transcription_prompt="自定义提示"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await provider.get_audio_transcriptions(
+        _audio_request(
+            extra_params={"format": "mp3"},
+            audio_bytes=b"ID3\x04\x00\x00\x00\x00\x00\x00",
+        )
+    )
+
+    assert result["content"] == "转写"
+    body = captured_body[0]
+    content = _as_list(_as_mapping(_as_list(body["messages"])[0])["content"])
+    assert _as_mapping(_as_mapping(content[0])["input_audio"])["data"].startswith("data:audio/mpeg;base64,")
+    assert content[1] == {"type": "text", "text": "自定义提示"}
+    assert "format" not in body
+    assert "audio_format" not in body
+    assert "prompt" not in body
+
+
+@pytest.mark.asyncio
+async def test_mimo_audio_transcription_rejects_empty_prompt() -> None:
+    provider = XiaomiMimoProvider(
+        options=ProviderRuntimeOptions(mimo_audio_transcription_prompt="   "),
+        transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+    )
+
+    with pytest.raises(ValueError, match="audio_transcription_prompt"):
+        await provider.get_audio_transcriptions(_audio_request())
+
+
+@pytest.mark.asyncio
+async def test_mimo_audio_transcription_rejects_missing_or_invalid_audio_base64() -> None:
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+
+    with pytest.raises(ValueError, match="audio_base64"):
+        await provider.get_audio_transcriptions(
+            {
+                "model_info": {"model_identifier": "mimo-audio"},
+                "api_provider": _api_provider(),
+            }
+        )
+
+    with pytest.raises(ValueError, match="Base64"):
+        await provider.get_audio_transcriptions(
+            {
+                "model_info": {"model_identifier": "mimo-audio"},
+                "api_provider": _api_provider(),
+                "audio_base64": "not-base64",
+            }
+        )

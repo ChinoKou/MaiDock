@@ -1,0 +1,55 @@
+{
+  "_contract": {
+    "version": 1,
+    "sanitized": true,
+    "source_symbols": [
+      "src.llm_models.request_snapshot.LLMEmbeddingRequest",
+      "src.llm_models.model_client.plugin_client",
+      "src.plugin_runtime.protocol.envelope.LLMProviderInvokePayload"
+    ]
+  },
+  "request_kind": "embedding",
+  "model_info": {
+    "model_identifier": "contract-embedding-model",
+    "name": "脱敏向量模型",
+    "api_provider": "contract-provider",
+    "temperature": null,
+    "max_tokens": null,
+    "force_stream_mode": false,
+    "visual": false,
+    "extra_params": {
+      "dimensions": 256,
+      "encoding_format": "float"
+    }
+  },
+  "api_provider": {
+    "name": "contract-provider",
+    "api_key": "<redacted>",
+    "base_url": "https://gateway.example/v1",
+    "client_type": "openai",
+    "auth_type": "bearer",
+    "auth_header_name": "Authorization",
+    "auth_header_prefix": "Bearer",
+    "auth_query_name": "api_key",
+    "default_headers": {
+      "X-Contract": "embedding"
+    },
+    "default_query": {
+      "region": "test"
+    },
+    "organization": null,
+    "project": null,
+    "model_list_endpoint": "/models",
+    "reasoning_parse_mode": "auto",
+    "tool_argument_parse_mode": "auto",
+    "timeout": 30,
+    "max_retry": 1,
+    "retry_interval": 0
+  },
+  "embedding_input": "脱敏向量文本",
+  "extra_params": {
+    "dimensions": 384,
+    "user": "contract-user"
+  },
+  "future_request_field": "ignored"
+}

@@ -1,0 +1,169 @@
+{
+  "_contract": {
+    "version": 1,
+    "sanitized": true,
+    "source_symbols": [
+      "src.llm_models.request_snapshot.LLMRequest",
+      "src.llm_models.model_client.plugin_client",
+      "src.plugin_runtime.protocol.envelope.LLMProviderInvokePayload"
+    ]
+  },
+  "request_kind": "response",
+  "model_info": {
+    "model_identifier": "contract-response-model",
+    "name": "脱敏响应模型",
+    "api_provider": "contract-provider",
+    "temperature": 0.25,
+    "max_tokens": 512,
+    "force_stream_mode": true,
+    "visual": true,
+    "extra_params": {
+      "top_p": 0.9,
+      "provider_extension": {
+        "enabled": true
+      }
+    }
+  },
+  "api_provider": {
+    "name": "contract-provider",
+    "api_key": "<redacted>",
+    "base_url": "https://gateway.example/v1",
+    "client_type": "openai_responses",
+    "auth_type": "header",
+    "auth_header_name": "X-API-Key",
+    "auth_header_prefix": "",
+    "auth_query_name": "key",
+    "default_headers": {
+      "X-Contract": "snapshot"
+    },
+    "default_query": {
+      "api-version": "2026-01-01"
+    },
+    "organization": "org-redacted",
+    "project": "project-redacted",
+    "model_list_endpoint": "/models",
+    "reasoning_parse_mode": "strict",
+    "tool_argument_parse_mode": "repair",
+    "timeout": 42.5,
+    "max_retry": 2,
+    "retry_interval": 1
+  },
+  "message_list": [
+    {
+      "role": "system",
+      "parts": [
+        {
+          "type": "text",
+          "text": "脱敏系统消息"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "脱敏用户消息"
+        },
+        {
+          "type": "image",
+          "image_base64": "aW1hZ2U=",
+          "image_format": "png"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "future_part",
+          "future_payload": "ignored"
+        }
+      ],
+      "tool_calls": [
+        {
+          "id": "tool-id-wins",
+          "call_id": "legacy-call-id",
+          "function": {
+            "name": "lookup_weather",
+            "arguments": {
+              "city": "上海"
+            }
+          },
+          "extra_content": {
+            "trace": "redacted"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "text",
+          "text": "晴"
+        }
+      ],
+      "tool_call_id": "tool-id-wins",
+      "tool_name": "lookup_weather"
+    }
+  ],
+  "tool_options": [
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_weather",
+        "description": "查询天气",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ]
+        }
+      }
+    },
+    {
+      "name": "read_clock",
+      "description": "读取时间",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "temperature": 0.4,
+  "max_tokens": 1024,
+  "response_format": {
+    "format_type": "json_schema",
+    "schema": {
+      "name": "weather_result",
+      "description": "结构化天气结果",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      },
+      "strict": true
+    }
+  },
+  "extra_params": {
+    "seed": 7,
+    "metadata": {
+      "request": "contract"
+    }
+  },
+  "future_request_field": {
+    "ignored": true
+  }
+}

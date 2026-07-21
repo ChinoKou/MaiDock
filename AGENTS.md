@@ -200,7 +200,6 @@ type JsonValue = (
 - `docs/model_config_examples.md`：`model_config.toml` 的供应商示例。
 - `docs/provider_architecture.md`：分层边界和新增 Provider 接入规则。
 - `docs/development/scripts.md`：开发依赖、配置生成器和供应商文档同步器的维护方式。
-- `docs/development/testing.md`：测试矩阵、覆盖结果、缺口和生产代码问题审计。
 - `docs/provider_docs/`：通过开发脚本按需下载的本地供应商资料，不进入版本管理。
 
 需要供应商协议资料辅助开发时，按 `docs/development/scripts.md` 执行对应同步器，在本地生成 `docs/provider_docs/`。同步器的范围、网络参数和安全选项使用脚本顶部的模块常量配置。`docs/provider_docs/` 和 `downloads/` 均不提交。

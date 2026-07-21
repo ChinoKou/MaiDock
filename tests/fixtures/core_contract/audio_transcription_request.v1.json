@@ -1,0 +1,58 @@
+{
+  "_contract": {
+    "version": 1,
+    "sanitized": true,
+    "source_symbols": [
+      "src.llm_models.request_snapshot.LLMAudioTranscriptionRequest",
+      "src.llm_models.model_client.plugin_client",
+      "src.plugin_runtime.protocol.envelope.LLMProviderInvokePayload"
+    ]
+  },
+  "request_kind": "audio_transcription",
+  "model_info": {
+    "model_identifier": "contract-audio-model",
+    "name": "脱敏转写模型",
+    "api_provider": "contract-provider",
+    "temperature": 0,
+    "max_tokens": 128,
+    "force_stream_mode": false,
+    "visual": false,
+    "extra_params": {
+      "language": "zh",
+      "response_format": "json"
+    }
+  },
+  "api_provider": {
+    "name": "contract-provider",
+    "api_key": "<redacted>",
+    "base_url": "https://gateway.example/v1",
+    "client_type": "openai",
+    "auth_type": "query",
+    "auth_header_name": "Authorization",
+    "auth_header_prefix": "Bearer",
+    "auth_query_name": "token",
+    "default_headers": {
+      "X-Contract": "audio"
+    },
+    "default_query": {
+      "locale": "zh-CN"
+    },
+    "organization": null,
+    "project": null,
+    "model_list_endpoint": "/models",
+    "reasoning_parse_mode": "none",
+    "tool_argument_parse_mode": "strict",
+    "timeout": 60,
+    "max_retry": 0,
+    "retry_interval": 2
+  },
+  "audio_base64": "UklGRgAAAABXQVZF",
+  "max_tokens": 96,
+  "extra_params": {
+    "prompt": "脱敏词汇",
+    "temperature": 0.1
+  },
+  "future_request_field": [
+    "ignored"
+  ]
+}
