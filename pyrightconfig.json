@@ -1,0 +1,27 @@
+{
+  "include": [
+    "plugin.py",
+    "src",
+    "scripts",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.*",
+    ".venv"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "scripts"
+      ]
+    }
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false
+}

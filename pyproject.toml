@@ -14,8 +14,54 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "beautifulsoup4>=4.15.0",
+    "markdownify>=1.2.3",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.22",
 ]
+sdk = [
+    "anthropic>=0.117.0",
+    "dashscope>=1.26.4",
+    "openai>=2.46.0",
+    "volcengine-python-sdk>=5.0.41",
+]
+
+[tool.uv]
+default-groups = ["dev", "sdk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "scripts"]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--cov=.",
+]
+asyncio_mode = "strict"
+
+[tool.coverage.run]
+branch = true
+omit = [
+    ".venv/*",
+    "docs/*",
+    "downloads/*",
+    "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP"]
+ignore = ["E711", "E501"]
+
+[tool.ruff.format]
+docstring-code-format = true

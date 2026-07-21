@@ -217,13 +217,13 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# tests
-tests/
-
-# scripts
-scripts/
+# Pytest temporary directories
+tests/.pytest*/
 
 # config_back
 config_back/
+# Locally downloaded provider documentation
+docs/provider_docs/
 # Local agent state
+.claude/
 .omc/
