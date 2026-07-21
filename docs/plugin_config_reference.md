@@ -24,6 +24,8 @@
 | `log_payload_summary` | bool | `true` | 是否记录脱敏后的请求/响应摘要日志 |
 | `log_payload_debug` | bool | `false` | 是否记录脱敏后的详细请求载荷 |
 
+脱敏会移除凭据、认证头和 Base64 数据，但不是“完全不保留内容”：prompt、instruction、content、text 等文本字段最多保留前 300 个字符，超出部分才截断。生产环境开启 `include_raw_data` 或 `log_payload_debug` 前，应确认 Host 返回值和日志的访问权限满足隐私要求。
+
 ---
 
 ## `[compatibility]`
@@ -43,12 +45,12 @@
 
 ## Provider 配置
 
-每个 Provider 有两层配置：
+每个 Provider 的配置分为四类：
 
 1. **Provider 级**字段：`user_agent` + 重试配置（所有 Provider），部分含 `force_official_endpoint`；ARK/Mimo 额外提供各自的 ASR 与持久化配置
 2. **能力子段**：`[{provider}.{capability}]` — 控制该 Provider 某项能力的 `extra_params` 参数策略
 3. **字段开关子段**：`[{provider}.{capability}.fields]` — 由 WebUI 自动生成，控制单个 `extra_params` 字段的启用/禁用/覆写
-4. **默认参数 / 覆写参数**：`[{provider}.{capability}.default_params]` 和 `[{provider}.{capability}.override_params]` — 空的 inline table，可手动填入 JSON
+4. **默认参数 / 覆写参数子表**：`[{provider}.{capability}.default_params]` 和 `[{provider}.{capability}.override_params]` — 仅供手动编辑 TOML，内容必须是 JSON object 语义的键值结构
 
 能力子段和能力参数策略的完整字段说明见 [能力参数策略](#能力参数策略-capabilityparameterpolicyconfig)。
 
@@ -290,8 +292,8 @@ user_agent = "Mozilla/5.0"
 | 子段 | 说明 |
 | --- | --- |
 | `[{provider}.{capability}.fields]` | 逐字段启用/禁用与强制覆写开关（WebUI 自动生成） |
-| `[{provider}.{capability}.default_params]` | 低优先级默认参数（inline table，可填入任意 JSON） |
-| `[{provider}.{capability}.override_params]` | 最高优先级强制覆写参数（inline table，支持 `body`/`headers`/`query` 子对象） |
+| `[{provider}.{capability}.default_params]` | 低优先级默认参数 TOML 子表，内容必须是 object |
+| `[{provider}.{capability}.override_params]` | 最高优先级强制覆写参数 TOML 子表，支持 `body`/`headers`/`query` 子对象 |
 
 ### fields 子段
 
@@ -323,7 +325,7 @@ body_temperature_override_enabled = true
 body_temperature_override_value = "0.7"
 ```
 
-> 💡 `fields` / `default_params` / `override_params` 由 WebUI 自动管理，手动编辑 TOML 时通常无需自行填写。
+> 💡 WebUI 管理 `accept_model_extra_params`、`accept_request_extra_params`、`unknown_extra_params` 三个策略字段和 `fields` 开关；`disabled_paths`、`rejected_paths`、`default_params`、`override_params` 不在 WebUI Schema 中，需要时必须手动编辑 TOML。
 
 ### default_params 与 override_params
 
@@ -333,14 +335,16 @@ body_temperature_override_value = "0.7"
 [openai_responses.response.override_params]
 ```
 
-两者均为空的 inline table，可填入任意 JSON。差异在于优先级：
+两者在生成模板中是空的标准 TOML 子表，解析后必须是 JSON object，不能填写数组或标量。差异在于优先级：
 
 | 层级 | 优先级 | 说明 |
 |------|--------|------|
-| `default_params` | 最低 | 会被模型级和请求级 `extra_params` 覆盖 |
-| 模型级 `extra_params` | 中 | `model_config.toml` 中 `[[models]]` 的 `extra_params` |
-| 请求级 `extra_params` | 高 | Host 单次调用传入的 `extra_params`，覆盖模型级同名字段 |
-| `override_params` | 最高 | 不受其他任何配置影响，强制写入最终请求 |
+| `default_params` | 1（最低） | 能力策略的默认参数 |
+| 模型级 `extra_params` | 2 | `model_config.toml` 中 `[[models]]` 的额外参数 |
+| 模型 typed fields | 3 | Host 模型信息中的 `temperature`、`max_tokens` 等明确字段 |
+| 请求级 `extra_params` | 4 | Host 单次调用传入的额外参数 |
+| 请求 typed fields | 5 | 单次请求中的 `temperature`、`max_tokens`、`response_format`、`dimensions` 等明确字段；部分字段冲突时会报错而非静默覆盖 |
+| `override_params` | 6（最终强制） | 参数转译完成后写入最终 body/headers/query，不受上述来源影响 |
 
 `override_params` 支持 `body` / `headers` / `query` 子对象：
 

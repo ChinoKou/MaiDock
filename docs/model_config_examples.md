@@ -1,6 +1,6 @@
 # model_config.toml 源文件编辑示例
 
-### OpenAI Responses
+## OpenAI Responses
 
 ```toml
 [[api_providers]]
@@ -15,9 +15,21 @@ name = "GPT-5.5"
 model_identifier = "gpt-5.5"
 api_provider = "openai"
 extra_params = { reasoning = { effort = "medium" } }
+
+[[models]]
+name = "Text-Embedding-3-Small"
+model_identifier = "text-embedding-3-small"
+api_provider = "openai"
+extra_params = { dimensions = 1536 }
+
+[[models]]
+name = "GPT-4o-Mini-Transcribe"
+model_identifier = "gpt-4o-mini-transcribe"
+api_provider = "openai"
+extra_params = { language = "zh", response_format = "json" }
 ```
 
-### Anthropic Messages
+## Anthropic Messages
 
 ```toml
 [[api_providers]]
@@ -37,7 +49,7 @@ api_provider = "anthropic"
 extra_params = { thinking = { type = "enabled", budget_tokens = 1024 } }
 ```
 
-### 阿里云百炼 DashScope
+## 阿里云百炼 DashScope
 
 ```toml
 [[api_providers]]
@@ -60,9 +72,15 @@ api_provider = "dashscope"
 name = "Qwen3.7-Text-Embedding"
 model_identifier = "qwen3.7-text-embedding"
 api_provider = "dashscope"
+
+[[models]]
+name = "Qwen3-ASR-Flash"
+model_identifier = "qwen3-asr-flash"
+api_provider = "dashscope"
+extra_params = { language = "zh", enable_itn = true }
 ```
 
-### SiliconFlow
+## SiliconFlow
 
 ```toml
 [[api_providers]]
@@ -79,9 +97,14 @@ api_provider = "siliconflow"
 name = "BGE-M3"
 model_identifier = "BAAI/bge-m3"
 api_provider = "siliconflow"
+
+[[models]]
+name = "SenseVoice-Small"
+model_identifier = "FunAudioLLM/SenseVoiceSmall"
+api_provider = "siliconflow"
 ```
 
-### Volcengine Ark
+## Volcengine Ark
 
 ```toml
 [[api_providers]]
@@ -94,15 +117,29 @@ name = "Doubao-Seed-2.0-Lite"
 model_identifier = "doubao-seed-2-0-lite-260428"
 api_provider = "volcengine"
 extra_params = { reasoning = { effort = "medium" } }
+
+[[models]]
+name = "Doubao-Embedding-Vision"
+model_identifier = "doubao-embedding-vision-251215"
+api_provider = "volcengine"
+extra_params = { dimensions = 2048 }
+
+[[models]]
+name = "Doubao-Seed-2.0-Lite-ASR"
+model_identifier = "doubao-seed-2-0-lite-260428"
+api_provider = "volcengine"
+extra_params = { prompt = "请准确转录音频内容" }
 ```
 
-### Xiaomi Mimo
+## Xiaomi Mimo
 
 ```toml
 [[api_providers]]
 name = "mimo"
 client_type = "maidock-xiaomi-mimo"
+base_url = "https://api.xiaomimimo.com/v1"
 api_key = "sk-..."
+# Token Plan 请把 base_url 和 api_key 替换为控制台提供的集群地址与 tp-... 凭据。
 
 [[models]]
 name = "MIMO-2.5-PRO"

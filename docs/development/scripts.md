@@ -16,7 +16,7 @@ uv run scripts/update_xiaomi_mimo_docs.py
 | `update_volcengine_ark_docs.py` | `docs/provider_docs/volcengine_ark/` |
 | `update_xiaomi_mimo_docs.py` | `docs/provider_docs/xiaomi_mimo/` |
 
-`docs/provider_docs/` 已被 Git 忽略，不应提交。默认配置会同步该供应商目录中的全部文档；同步器只会在正文或清单元数据发生变化时更新时间戳，因此重复执行不会反复改写未变化的清单。
+`docs/provider_docs/` 已被 Git 忽略，不应提交。默认配置会同步该供应商目录中的全部文档。正文内容相同时不会改写 Markdown；清单每次都通过临时文件原子替换，但只有正文或元数据发生实质变化时才更新 `generated_at`，因此重复执行得到的清单内容保持稳定。
 
 ## 调整同步范围
 
@@ -25,6 +25,7 @@ uv run scripts/update_xiaomi_mimo_docs.py
 | 常量 | 用途 |
 | --- | --- |
 | `SOURCE_URL` | 供应商文档入口 |
+| `FETCH_ORIGIN` | 仅百炼使用；当目录入口和实际拉取域名不同时指定请求 origin |
 | `OUTPUT_DIRECTORY` | 输出目录，必须位于 MaiDock 仓库内 |
 | `WORKERS` | 并发下载数 |
 | `ATTEMPTS` | 单次请求的最大尝试次数 |
@@ -48,7 +49,7 @@ uv run scripts/update_xiaomi_mimo_docs.py
 
 将 `DRY_RUN` 改为 `True` 后，脚本只读取远端目录并输出选中的文档，不下载正文、不创建目录，也不修改现有清单。
 
-将 `PRUNE` 改为 `True` 后，脚本会清理远端目录中已经不存在的旧文档。删除前会核对清单中的 SHA-256；本地内容被修改过的文件会保留。只要有文档下载失败，本次执行就不会清理旧文件。
+将 `PRUNE` 改为 `True` 后，脚本会清理远端目录中已经不存在的旧文档。删除前会核对清单中的 SHA-256；本地内容被修改过的文件会保留，但对应的旧清单记录仍会删除，避免后续同步继续把它当作受管理快照。只要有文档下载失败，本次执行就不会清理旧文件。
 
 执行清理前应先检查 Git 工作树，并通过 dry-run 确认选择范围。
 
@@ -71,6 +72,8 @@ uv sync
 ```
 
 该命令会安装 `dev` 和 `sdk` 两个默认依赖组。`beautifulsoup4` 和 `markdownify` 用于文档同步；`sdk` 组包含 `anthropic`、`openai`、`dashscope` 和 `volcengine-python-sdk`，用于在本地环境中检索和阅读供应商 SDK 源码。这些包都不属于插件运行依赖，生产代码不得导入供应商 SDK。
+
+依赖文件有不同职责：`_manifest.json` 是 Core 安装插件时使用的实际运行依赖清单，其兼容下限与 Core 主程序保持一致；`pyproject.toml` 用于 MaiDock 本地开发、测试和 SDK 源码检索，可以使用更新版本并包含 `dev`、`sdk` 依赖组。两边版本下限不要求机械相同。禁止手工编辑 `uv.lock`；运行 `uv sync`、`uv add`、`uv remove` 或 `uv lock` 时由 UV 自动解析和维护锁文件。
 
 修改脚本或测试后运行：
 

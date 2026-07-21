@@ -5,6 +5,7 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 **最低支持的 MaiBot 版本: 1.0.9**
 
 目前已实现：
+
 - `maidock-openai-responses` — OpenAI Responses API
 - `maidock-anthropic-messages` — Anthropic Messages API
 - `maidock-dashscope` — 阿里云百炼 DashScope API
@@ -49,9 +50,7 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 ### 火山方舟 Responses 前缀缓存
 
-在插件配置的 **Volcengine Ark 基础设置** 中可开启显式前缀缓存。该功能默认关闭；开启后，MaiDock 会：
-该功能需要 MaiBot Core 1.0.9 或更高版本，并需先在火山方舟开通管理中开启“推理（缓存）”计价。
-
+在插件配置的 **Volcengine Ark 基础设置** 中可开启显式前缀缓存。该功能默认关闭，需要 MaiBot Core 1.0.9 或更高版本，并需先在火山方舟开通管理中开启“推理（缓存）”计价。开启后，MaiDock 会：
 
 - 使用 ARK 分词 API 确认开头的 system 前缀不少于 256 tokens。
 - 将固定 system 前缀与 function tools 创建为非流式缓存，真实请求只发送剩余历史。
@@ -143,3 +142,11 @@ timeout = 30 # 默认值为 30
 > - 阿里云百炼 DashScope、SiliconFlow、Volcengine Ark 默认使用官方端点。如需使用百炼工作空间域名或其他自定义地址，请在 MaiDock 配置页面中关闭对应的“强制官方端点”开关。
 > - DashScope 会按模型与实际图片输入选择文本或多模态端点；无图片请求遇到结构化 `InvalidParameter + url error` 时可双向探测一次并缓存成功的端点类型。图片请求不会回退文本端点。
 > - Xiaomi Mimo 无默认端点，始终使用 Host 提供的 base_url。Mimo 官方有按量付费与 Token Plan 两套地址，由 Host 侧按需配置。
+
+---
+
+## 开发文档
+
+- [Provider 架构](docs/development/provider_architecture.md)
+- [Python 导入规范](docs/development/imports.md)
+- [开发脚本使用说明](docs/development/scripts.md)

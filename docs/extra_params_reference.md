@@ -1,15 +1,20 @@
 # extra_params 参考
 
-`extra_params` 用来把模型级和请求级的额外参数传给上游 HTTP API。MaiDock 会先合并两处配置：
+`extra_params` 用来把模型级和请求级的额外参数传给上游 HTTP API。MaiDock 按以下顺序合并参数，后面的来源优先级更高：
 
-1. `model_config.toml` 中 `[[models]]` 的 `extra_params`。
-2. Host 在单次调用里传入的 `extra_params`。
+本页对字段用途和值域的说明会参考本地供应商资料与对应 SDK；MaiDock 实际接受的字段、来源优先级、目标路径和转译行为只以当前 `src/core/parameter_catalog.py`、参数管线及各 Provider `parameter_translation.py` 的代码链路为准。
 
-如果两边有同名字段，单次调用里的值优先生效；值为 `null` 的字段会被忽略。
+1. 插件能力策略中的 `default_params`。
+2. `model_config.toml` 中 `[[models]]` 的 `extra_params`。
+3. Host 模型信息中的 typed fields，例如模型 `temperature`、`max_tokens`。
+4. Host 单次调用传入的 `extra_params`。
+5. Host 单次请求中的 typed fields，例如请求 `temperature`、`max_tokens`、`response_format`、`dimensions`。
+
+值为 `null` 的额外参数会被忽略。`response_format`、`dimensions` 等需要保持唯一语义的 typed fields 与较低优先级来源冲突时会直接报错，不会静默覆盖。参数完成 Provider 转译后，能力策略的 `rejected_paths`、`disabled_paths` 和 `override_params` 依次作用于最终 body、headers、query；`override_params` 是最终强制值。
 
 ## 通用规则
 
-在 `model_config.toml` 的 `[[models]].extra_params` 中，MaiBot 对以下三个特殊键做 transport 层拆分：`headers` 作为请求头传入，`query` 追加到 URL 查询参数，`body` 合并到请求体。其余顶层键均作为请求体额外字段传入。
+在 `model_config.toml` 的 `[[models]].extra_params` 中，MaiDock 对以下三个特殊键做 transport 层拆分：`headers` 作为请求头传入，`query` 追加到 URL 查询参数，`body` 合并到请求体。其他已登记字段由 Provider 翻译器写入明确目标；未登记字段只有在 `unknown_extra_params = "forward"` 时才作为请求体额外字段发送，`drop` 会丢弃，`reject` 会报错。
 
 ```toml
 extra_params = {
@@ -29,18 +34,21 @@ extra_params = {
 - `expire_at`
 - `include`
 - `instructions`
-- `max_output_tokens`
+- `max_tokens` / `max_output_tokens`
 - `max_tool_calls`
 - `metadata`
 - `parallel_tool_calls`
 - `previous_response_id`
 - `reasoning`
+- `response_format`
 - `session`
 - `service_tier`
 - `store`
 - `text`
 - `thinking`
+- `temperature`
 - `tool_choice`
+- `tools`
 - `top_p`
 - `truncation`
 - `user`
@@ -57,15 +65,47 @@ extra_params = {
 
 特殊规则：
 
-- `input`、`model`、`stream`、`temperature` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
+- `input`、`model`、`stream` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
 - `tools` 可作为 Ark Responses 原生工具列表传入；MaiDock 会与 Host function tools 合并，并按工具类型自动补 `ark-beta-*` header（`web_search`、`mcp`、`knowledge_search`、`doubao_app`、`image_process`）。
-- `max_output_tokens` 如果写在 `extra_params` 顶层，会覆盖 MaiBot 的 `max_tokens` / 模型 `max_tokens` 换算结果。
-- `text` 会和 MaiBot 的 `response_format` 合并；如果两边同时设置了冲突的格式字段，会直接报错。
-- Ark Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并额外支持顶层 `encoding_format`、`dimensions`、`sparse_embedding`；`encoding_format = "base64"` 会直接报错，因为 MaiBot Host 当前只接受 float 向量。
+- `max_tokens` 是 MaiDock 的规范字段，`max_output_tokens` 是同一字段的上游别名，最终都发送为 `body.max_output_tokens`。它们仍遵守上面的来源优先级；同一来源同时给出不同值会报冲突。
+- `response_format` 会转译到 `text.format`；原生 `text` 对象会与它合并，如果格式字段冲突则直接报错。
 - 启用 ARK 自动前缀缓存后，显式 `caching` 或 `previous_response_id` 仍优先，MaiDock 不会覆盖手动缓存链。
 - 自动缓存只处理至少 256 tokens 的开头 system 前缀；`instructions`、`json_schema`、`store=false` 或非 function tools 会让当前请求直接按普通 Responses 请求发送。
 
-OpenAI Embeddings 和 Audio Transcriptions 也会使用同一套 `headers` / `query` / `body` 拆分规则；除这些分组外，其他顶层字段默认进入 `extra_body`。如需严格模式，在对应能力的 `[{provider}.{capability}]` 子段设置 `unknown_extra_params = "reject"`。
+### OpenAI Embedding
+
+内置字段：
+
+- `dimensions`：请求向量维度。
+- `encoding_format`：上游返回格式，支持代码当前能够解析的 `float` 与 `base64`。
+- `user`：上游最终用户标识。
+
+`input`、`model` 由 MaiDock 构造。其他未知顶层字段在默认 `forward` 策略下进入 body；如需严格模式，在 `[openai_responses.embeddings]` 中设置 `unknown_extra_params = "reject"`。
+
+### OpenAI Audio Transcription
+
+内置字段：
+
+- `language`：输入音频语言，OpenAI SDK 定义为 ISO-639-1 代码。
+- `prompt`：转录风格或前文提示。
+- `response_format`：上游返回格式。
+- `temperature`：采样温度。
+- `timestamp_granularities`：`word`、`segment` 时间戳粒度列表。
+- `chunking_strategy`：`auto` 或服务端 VAD 配置对象。
+- `include`：附加转录信息列表。
+- `stream`：传入上游 multipart 字段。当前 Provider 仍等待并解析单个 HTTP 响应，不消费转录 SSE，因此通常应保持 `false`。
+
+`file`、`model` 由 MaiDock 构造。该能力使用 multipart 请求，并同样支持能力策略提供的 headers/query 覆写。
+
+### Volcengine Ark Embedding
+
+内置字段：
+
+- `dimensions`：请求稠密向量维度。
+- `sparse_embedding`：布尔值会转成官方 `{ "type": "enabled|disabled" }` 对象。
+- `encoding_format`：上游向量编码格式；`base64` float32 向量会在返回 Host 前解码为浮点数组。
+
+`input`、`model` 由 MaiDock 构造。ARK 使用 `/embeddings/multimodal` 的对象数组输入，字段能否用于特定模型仍以上游模型能力为准。
 
 ### Volcengine Ark Audio Transcription
 
@@ -82,9 +122,11 @@ ARK 语音转录使用 Responses `input_audio.audio_url` + `input_text`，固定
 响应请求中，以下 `extra_params` 顶层字段会作为 Anthropic Messages HTTP body 字段传入：
 
 - `metadata`
+- `max_tokens`
 - `service_tier`
 - `stop_sequences`
 - `thinking`
+- `temperature`
 - `tool_choice`
 - `top_k`
 - `top_p`
@@ -101,7 +143,8 @@ extra_params = {
 
 特殊规则：
 
-- `max_tokens`、`messages`、`model`、`stream`、`system`、`temperature`、`tools` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
+- `messages`、`model`、`stream`、`system`、`tools` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
+- `max_tokens` 与 `temperature` 是正式参数目录字段；请求 typed fields 仍按通用优先级参与合并。
 - `tool_choice` 可以覆盖 MaiDock 自动生成的默认工具选择策略。
 - 其他未识别顶层字段默认进入 `extra_body`。如需严格模式，在 `[anthropic_messages.chat_completion]` 中设置 `unknown_extra_params = "reject"`。
 
@@ -126,6 +169,7 @@ extra_params = {
 - `result_format`
 - `search_options`
 - `seed`
+- `stream`
 - `stop`
 - `temperature`
 - `thinking_budget`
@@ -138,7 +182,8 @@ extra_params = {
 
 特殊规则：
 
-- `input`、`model`、`parameters`、`stream` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
+- `input`、`model`、`parameters` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
+- `stream` 会写入 DashScope `parameters`，但插件选择 SSE 或普通响应解析链路仍以 Host 的 `force_stream_mode` 为准；两者不得配置成相反值。
 - Host `max_tokens` 是通用的最大输出预算：对官方明确支持的 Qwen3.7-Max+、Qwen3.5-Plus+、Qwen3.5-Flash+、Kimi K2.5+、GLM 5+、MiniMax M2.5+ 与受支持 DeepSeek 系列，自动发送为 `parameters.max_completion_tokens`；未知模型、旧模型和第三方直供模型继续发送为 `parameters.max_tokens`。
 - 显式 `max_completion_tokens` 优先于 Host 通用预算，此时不会同时发送 `max_tokens`；若用户同时显式指定两个原生字段则直接报冲突。`max_tokens`、`max_completion_tokens` 与 `thinking_budget` 均要求正整数。
 - `reasoning_effort` 支持 `low`、`medium`、`high`、`xhigh`、`max`；`search_options` 必须是对象，新布尔字段严格要求布尔值。
@@ -146,12 +191,29 @@ extra_params = {
 - `result_format` 默认设置为 `message`，用于控制阿里云百炼 DashScope API 返回 JSON 结构；Host `response_format` 会单独映射到 `parameters.response_format` 作为模型输出内容格式约束，目前仅确认并支持 `json_object`。
 - 流式请求默认设置 `incremental_output = true` 和 `stream = true`，并发送 `Accept: text/event-stream`、`X-Accel-Buffering: no`、`X-DashScope-SSE: enable`。
 - 原生工具流同时兼容增量块与累计块，工具调用没有 `index` 仍是合法响应；只有标识确实冲突或多个未决调用无法判定归属时才报错。
-- 阿里云百炼 DashScope Embedding 使用同一套 `headers` / `query` / `body` 拆分规则，并支持顶层 `dimension`、`enable_fusion`、`text_type`、`output_type`、`instruct`、`fps`、`res_level`、`max_video_frames`、`auto_truncation` 写入 `parameters`。原生 API 不发送 OpenAI-compatible 的 `encoding_format`；`dimensions` 会映射为原生 singular `dimension`。文本模型支持 `text-embedding-v*` 与 `qwen3.7-text-embedding*`。
+
+### DashScope Embedding
+
+内置字段：
+
+- `dimensions` / `dimension`：统一映射为原生 `parameters.dimension`。
+- `output_type`
+- `instruct`
+- `text_type`
+- `auto_truncation`
+- `enable_fusion`
+- `fps`
+- `max_video_frames`
+- `res_level`
+
+原生 API 不发送 OpenAI-compatible 的 `encoding_format`。文本模型支持 `text-embedding-v*` 与 `qwen3.7-text-embedding*`，多模态字段是否生效取决于具体模型。
 
 ### DashScope Audio Transcription
 
+- `language`：发送为 `parameters.asr_options.language`，用于指定单一识别语种。
+- `enable_itn`：发送为 `parameters.asr_options.enable_itn`，控制逆文本正则化。
+- `format` / `audio_format`：仅作为本地音频格式提示，不发送给上游。
 - 支持 WAV、MP3、AAC、FLAC、OGG；不接受 M4A 或未知格式。
-- `format` / `audio_format` 只作为本地 Data URL 格式提示，经过配置优先级和文件签名冲突检查后会从请求体移除，不发送到 DashScope `parameters`。
 - Base64 必须严格合法，编码后长度上限为 10 MiB。未知签名、显式格式与签名冲突、格式不支持或超限都会直接报错，不会默认按 WAV 发送。
 - 原生 ASR usage 不能准确构造 Host 总 Token，因此 Host usage 保持零；开启原始响应后仍会保留上游 usage。
 
@@ -171,12 +233,36 @@ extra_params = {
 - `stop`
 - `n`
 
+Mimo Chat 额外支持：
+
+- `thinking`：发送为官方 `thinking` 对象，用于控制思维链。
+
 特殊规则：
 
 - `messages`、`model`、`stream` 是 MaiDock 自己构造的保留字段，不会从 `extra_params` 透传。
 - Xiaomi Mimo 会把 Host `max_tokens`、顶层 `max_completion_tokens` 和旧的 `body.max_tokens` 统一发送为官方 `max_completion_tokens`；多个来源值不一致时直接报错。
 - Xiaomi Mimo 默认由 `[xiaomi_mimo].force_disable_thinking = true` 强制关闭思考。关闭后，带工具调用轮次的 `reasoning_content` 会通过 `extra_content` 和 SQLite 完整回传。
 - SiliconFlow 和 Mimo 的工具调用、多模态图片均通过各自 Provider 入口委托 Chat Completions family 标准实现。
+
+### SiliconFlow Embedding / Audio Transcription
+
+SiliconFlow Embedding 内置支持：
+
+- `dimensions`：向量维度。
+- `encoding_format`：`float` 或 `base64`；MaiDock 会按最终格式解析返回向量。
+
+SiliconFlow Audio Transcription 内置支持：
+
+- `language`
+- `prompt`
+- `response_format`
+- `temperature`
+- `timestamp_granularities`
+- `chunking_strategy`
+- `include`
+- `stream`
+
+这些字段沿用 OpenAI-compatible multipart 协议，但实际可用值仍受所选 SiliconFlow 模型限制。与 OpenAI 路径相同，`stream` 只会作为 multipart 字段发送，当前 Provider 不消费转录 SSE，通常应保持 `false`。
 
 ## Xiaomi Mimo Audio Transcription
 

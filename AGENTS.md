@@ -7,7 +7,7 @@ MaiDock 是 MaiBot 的独立 LLM Provider 插件，为 OpenAI、Anthropic、Volc
 - 只修改本仓库。父级 MaiBot Core 及其 Git 历史只读；需要 Core 改动时先说明原因并请求许可。
 - 保留用户现有工作树，不使用 `git checkout --`、`git reset --hard` 等命令覆盖未知修改。
 - 文件内容只能通过 Edit、Write 或 `apply_patch` 修改。禁止使用重定向、`Set-Content`、`Out-File`、`WriteAllText` 或临时脚本覆写源码。
-- 未经明确要求，不执行 `git add`、commit、push、merge，不修改版本号、`uv.lock` 或 `_manifest.json`。依赖变更明确要求更新锁文件时除外；manifest 始终需要用户明确确认。
+- 未经明确要求，不执行 `git add`、commit、push、merge，不修改版本号或 `_manifest.json`。禁止手工编辑 `uv.lock`；依赖解析与锁文件更新必须通过 `uv add`、`uv remove`、`uv lock`、`uv sync` 等 UV CLI 完成。manifest 始终需要用户明确确认。
 - `.claude/`、`.omc/`、`config_back/`、`downloads/`、`docs/provider_docs/` 和本地缓存不得进入提交。
 
 ## Project Structure & Module Organization
@@ -41,15 +41,16 @@ Provider 首次使用时惰性创建，配置热更新只使 Provider 实例失�
 
 Family Provider 不得绕过 Family 直接导入 `providers.common`；`common` 不得反向依赖 Family 或具体 Provider；Family 不得依赖具体 Provider。DashScope 和 Anthropic 是独立协议实现，可以直接使用 `common`。
 
-| Provider | 文本生成 | ASR / Embedding |
-| --- | --- | --- |
-| OpenAI | `responses_family` | `openai_auxiliary_family` |
-| ARK | `responses_family` | `responses_family` |
-| SiliconFlow | `chat_completions_family` | `openai_auxiliary_family` |
-| Mimo | `chat_completions_family` | `chat_completions_family` |
-| DashScope / Anthropic | 独立实现 | 独立实现或不支持 |
+| Provider | 文本生成 | ASR | Embedding |
+| --- | --- | --- | --- |
+| OpenAI | `responses_family` | `openai_auxiliary_family` | `openai_auxiliary_family` |
+| ARK | `responses_family` | `responses_family` | `responses_family` |
+| SiliconFlow | `chat_completions_family` | `openai_auxiliary_family` | `openai_auxiliary_family` |
+| Mimo | `chat_completions_family` | `chat_completions_family` | 不支持 |
+| DashScope | 独立实现 | 独立实现 | 独立实现 |
+| Anthropic | 独立实现 | 不支持 | 不支持 |
 
-Provider 目录通常包含 `provider.py`、能力模块、`streaming.py`、`multimodal.py`、`tools.py` 和 `parameter_translation.py`。这些门面必须进入真实 Mapper 调用链，不能只保留未使用的转发文件。详细边界见 `docs/provider_architecture.md`。
+Provider 目录通常包含 `provider.py`、能力模块、`streaming.py`、`multimodal.py`、`tools.py` 和 `parameter_translation.py`。这些门面必须进入真实 Mapper 调用链，不能只保留未使用的转发文件。详细边界见 `docs/development/provider_architecture.md`。
 
 ### Provider API 与目录模板
 
@@ -140,7 +141,7 @@ uv run scripts/generate_config.py                                        # 从 S
 ## Coding Style & Naming Conventions
 
 - Python 3.12+，四空格缩进；函数、变量和模块用 `snake_case`，类用 `PascalCase`，常量用 `UPPER_SNAKE_CASE`。
-- Core 已占用顶层 `src` 包。根入口固定为 `from .src.plugin import create_plugin`；生产代码必须使用包相对导入，同目录用 `.module`，跨目录用 `..` / `...`。本地测试可以使用顶层 `src`。
+- 导入边界、相对导入规则以及测试和独立脚本的例外统一见 `docs/development/imports.md`。
 - 保留既有类型注解。复杂函数必须补齐参数和返回类型；Pydantic 用于 IO 边界，内部状态优先使用 `@dataclass(slots=True)`。
 - JSON 使用 `JsonValue`、`Mapping[str, JsonValue]` 和现有窄化函数。`object` 只用于真实边界，窄化后立即转换。
 - Docstring、行内注释、日志和错误消息以简体中文为主。单句 docstring 写成 `"""说明。"""`；复杂逻辑才添加简短注释。
@@ -157,7 +158,7 @@ type JsonValue = (
 )
 ```
 
-裸 `dict`、`list` 或 `Mapping` 优于没有信息增益的 `dict[str, object]`。参数化泛型必须完整；不要为了兼容旧 Python 降低注解。多行 docstring 的开闭三引号各自独占一行，并保留概述与必要细节；重构时原有注释和类型若仍准确必须保留。
+容器泛型优先使用完整参数化类型。结构过于复杂且具有稳定字段时，先考虑用 Pydantic 模型表达和校验；结构动态或不适合 Pydantic、继续参数化也没有真实信息增益时，才允许使用裸 `dict`、`list` 或 `Mapping`，并在读取边界尽快窄化。不要为了兼容旧 Python 降低注解。多行 docstring 的开闭三引号各自独占一行，并保留概述与必要细节；重构时原有注释和类型若仍准确必须保留。
 
 ## i18n 扩展规范
 
@@ -198,7 +199,8 @@ type JsonValue = (
 - `docs/plugin_config_reference.md`：完整 `config.toml`、策略字段和 WebUI Schema 语义。
 - `docs/extra_params_reference.md`：各 Provider 支持的 extra params 与 body/headers/query 拆分。
 - `docs/model_config_examples.md`：`model_config.toml` 的供应商示例。
-- `docs/provider_architecture.md`：分层边界和新增 Provider 接入规则。
+- `docs/development/provider_architecture.md`：分层边界、能力归属和新增 Provider 接入规则。
+- `docs/development/imports.md`：生产代码、测试和独立脚本的 Python 导入规范。
 - `docs/development/scripts.md`：开发依赖、配置生成器和供应商文档同步器的维护方式。
 - `docs/provider_docs/`：通过开发脚本按需下载的本地供应商资料，不进入版本管理。
 
