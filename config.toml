@@ -1,7 +1,7 @@
 [plugin]
 locale = "zh-CN"
 enabled = true
-config_version = "1.1.1"
+config_version = "1.1.2"
 
 [diagnostics]
 include_raw_data = false
