@@ -1,6 +1,6 @@
 [project]
 name = "maidock"
-version = "1.1.2"
+version = "1.1.3"
 description = "为 MaiBot 提供额外的 OpenAI Responses、Anthropic Messages、阿里云百炼 DashScope、硅基流动 与 火山方舟 Responses 等端点支持与高级参数控制功能的插件。"
 readme = "README.md"
 requires-python = ">=3.12"

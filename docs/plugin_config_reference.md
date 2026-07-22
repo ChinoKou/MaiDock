@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | `locale` | str | `"zh-CN"` | MaiDock 配置页、日志及向 Host/RPC 返回的错误文本语言；可选 `zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR`。保存后新请求立即生效，配置页需重新打开或刷新 |
 | `enabled` | bool | `true` | 是否启用 MaiDock 插件 |
-| `config_version` | str | `"1.1.2"` | 配置版本标记，一般不需要手动修改 |
+| `config_version` | str | `"1.1.3"` | 配置版本标记，一般不需要手动修改 |
 
 ---
 
