@@ -26,7 +26,7 @@ MaiBot Core RPC
 
 - `response`：文本、多模态、工具和 reasoning 请求。
 - `embedding`：文本或多模态向量请求。
-- `audio_transcription`：音频转录或音频理解请求。
+- `audio_transcription`：音频转录请求。
 
 不支持的 operation 在插件边界拒绝；具体 Provider 不支持的能力由 `NotImplementedError` 转换为本地化错误。Pydantic 校验错误也在该边界转换，不把内部模型异常直接暴露给 Core。
 
@@ -77,7 +77,7 @@ Family 的 `transport.py` 是有意设置的传输门面。使用 Family 的 Pro
 承载 Chat Completions 风格协议，包括消息转换、工具、多模态、流式增量、格式控制和音频处理。
 
 - `siliconflow_provider` 使用它实现 Chat Completions 主链路。
-- `xiaomi_mimo_provider` 使用它实现 Chat Completions、专用 ASR 和通用音频理解，并在 Provider 层处理 reasoning 连续性。
+- `xiaomi_mimo_provider` 使用它实现 Chat Completions 与专用 ASR，并在 Provider 层处理 reasoning 连续性。
 
 ### `openai_auxiliary_family`
 
@@ -117,7 +117,7 @@ Family 定义协议骨架，具体 Provider 通过显式适配模块注入供应
   provider.py              # LLMProviderBase、客户端与能力分发
   responses.py / chat.py   # 请求映射和非流式响应解析
   embeddings.py            # Embedding 入口
-  audio_transcriptions.py  # ASR 或音频理解入口
+  audio_transcriptions.py  # ASR 入口
   streaming.py             # 供应商流式收集门面
   multimodal.py            # 图片、音频等内容映射
   tools.py                 # 工具定义、调用和结果转译

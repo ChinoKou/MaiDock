@@ -68,7 +68,7 @@ def _audio_request(
     *,
     extra_params: dict | None = None,
     model_extra_params: dict | None = None,
-    model: str = "mimo-v2.5",
+    model: str = "mimo-v2.5-asr",
     audio_bytes: bytes = b"RIFF\x00\x00\x00\x00WAVEfmt ",
 ) -> dict:
     return {
@@ -413,7 +413,7 @@ async def test_mimo_chat_legacy_disabled_and_rejected_paths_remain_compatible() 
 
 
 @pytest.mark.asyncio
-async def test_mimo_audio_transcription_uses_default_prompt_and_input_audio() -> None:
+async def test_mimo_audio_transcription_uses_asr_request_without_prompt() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -428,19 +428,25 @@ async def test_mimo_audio_transcription_uses_default_prompt_and_input_audio() ->
 
     assert result["content"] == "你好世界"
     body = captured_body[0]
-    assert body["model"] == "mimo-v2.5"
+    assert body["model"] == "mimo-v2.5-asr"
     assert body["stream"] is False
+    assert body["asr_options"] == {"language": "auto"}
     content = _as_list(_as_mapping(_as_list(body["messages"])[0])["content"])
-    assert content[0] == {
-        "type": "input_audio",
-        "input_audio": {"data": f"data:audio/wav;base64,{_audio_request()['audio_base64']}"},
-    }
-    assert content[1] == {"type": "text", "text": "请转写这段音频"}
-    assert body["thinking"] == {"type": "disabled"}
+    assert content == [
+        {
+            "type": "input_audio",
+            "input_audio": {
+                "data": f"data:audio/wav;base64,{_audio_request()['audio_base64']}",
+                "format": "wav",
+            },
+        }
+    ]
+    for unsupported_field in ("max_completion_tokens", "max_tokens", "prompt", "thinking"):
+        assert unsupported_field not in body
 
 
 @pytest.mark.asyncio
-async def test_mimo_audio_transcription_uses_custom_prompt_from_config() -> None:
+async def test_mimo_audio_transcription_alias_uses_mp3_asr_request() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -455,37 +461,30 @@ async def test_mimo_audio_transcription_uses_custom_prompt_from_config() -> None
             },
         )
 
-    provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_audio_transcription_prompt="自定义提示"),
-        transport=httpx.MockTransport(handler),
-    )
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
 
     result = await provider.get_audio_transcriptions(
         _audio_request(
-            extra_params={"format": "mp3"},
+            model="relay-mimo-asr",
+            extra_params={
+                "format": "mp3",
+                "max_completion_tokens": 256,
+                "prompt": "旧转录提示词",
+            },
             audio_bytes=b"ID3\x04\x00\x00\x00\x00\x00\x00",
         )
     )
 
     assert result["content"] == "转写"
     body = captured_body[0]
+    assert body["model"] == "relay-mimo-asr"
     content = _as_list(_as_mapping(_as_list(body["messages"])[0])["content"])
-    assert _as_mapping(_as_mapping(content[0])["input_audio"])["data"].startswith("data:audio/mpeg;base64,")
-    assert content[1] == {"type": "text", "text": "自定义提示"}
-    assert "format" not in body
-    assert "audio_format" not in body
-    assert "prompt" not in body
-
-
-@pytest.mark.asyncio
-async def test_mimo_audio_transcription_rejects_empty_prompt() -> None:
-    provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_audio_transcription_prompt="   "),
-        transport=httpx.MockTransport(lambda _: httpx.Response(200)),
-    )
-
-    with pytest.raises(ValueError, match="audio_transcription_prompt"):
-        await provider.get_audio_transcriptions(_audio_request())
+    assert len(content) == 1
+    input_audio = _as_mapping(_as_mapping(content[0])["input_audio"])
+    assert input_audio["data"].startswith("data:audio/mpeg;base64,")
+    assert input_audio["format"] == "mp3"
+    for unsupported_field in ("max_completion_tokens", "max_tokens", "prompt", "thinking"):
+        assert unsupported_field not in body
 
 
 @pytest.mark.asyncio

@@ -85,7 +85,6 @@ class ProviderRuntimeOptions:
     mimo_user_agent: str = MAIDOCK_USER_AGENT
     mimo_force_disable_thinking: bool = True
     mimo_reasoning_retention_days: int = 30
-    mimo_audio_transcription_prompt: str = "请转写这段音频"
     mimo_audio_transcription_language: str = "auto"
     openai_max_retries: int = 3
     anthropic_max_retries: int = 3

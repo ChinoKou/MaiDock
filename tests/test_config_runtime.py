@@ -33,7 +33,6 @@ def test_default_config_contains_provider_sections() -> None:
 
     assert config.xiaomi_mimo.force_disable_thinking is True
     assert config.xiaomi_mimo.reasoning_retention_days == 30
-    assert config.xiaomi_mimo.audio_transcription_prompt == "请转写这段音频"
     assert config.xiaomi_mimo.audio_transcription_language == "auto"
     assert config.volcengine_ark.audio_transcription_prompt.startswith("请识别")
     assert config.volcengine_ark.audio_transcription.default_params == {}
@@ -68,7 +67,6 @@ def test_old_config_data_gets_provider_section_defaults() -> None:
 
     assert config.xiaomi_mimo.force_disable_thinking is True
     assert config.xiaomi_mimo.reasoning_retention_days == 30
-    assert config.xiaomi_mimo.audio_transcription_prompt == "请转写这段音频"
     assert config.xiaomi_mimo.audio_transcription.default_params == {}
     assert config.openai_responses.response.accept_model_extra_params is True
     assert config.dashscope.chat_completion.disabled_paths == []
@@ -376,6 +374,9 @@ def test_audio_transcription_catalogs_expose_provider_target_paths() -> None:
         "asr_options",
         "language",
     )
+    assert [field.key for field in mimo_audio.fields] == ["language", "format", "audio_format"]
+    assert mimo_audio.field_by_safe_key("max_tokens") is None
+    assert mimo_audio.field_by_safe_key("prompt") is None
 
 
 @pytest.mark.parametrize("retention_days", [0, 366])
@@ -472,13 +473,21 @@ def test_per_provider_retry_config_custom_values_flow_to_runtime_options() -> No
         "xiaomi_mimo": {
             "user_agent": "",
             "force_disable_thinking": True,
-            "audio_transcription_prompt": "",
+            "audio_transcription_prompt": "旧配置提示词",
+            "audio_transcription": {
+                "fields": {
+                    "body_max_tokens_enabled": False,
+                    "body_prompt_enabled": False,
+                }
+            },
         },
         "compatibility": {},
     }
 
     config = MaiDockConfig.model_validate(raw)
     opts = build_runtime_options(config)
+
+    assert "audio_transcription_prompt" not in config.xiaomi_mimo.model_dump()
 
     assert opts.openai_max_retries == 7
     assert opts.openai_force_max_retries is True

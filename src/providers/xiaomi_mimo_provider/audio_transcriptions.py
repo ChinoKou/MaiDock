@@ -5,7 +5,7 @@ from ...core.diagnostics import sanitize_json_object
 from ...core.json_types import json_mapping_or_none, mapping_field, mapping_to_json_object
 from ...core.parameter_catalog import get_parameter_catalog
 from ...core.parameter_policy import apply_transport_parameter_policy
-from ...i18n import runtime_expected, runtime_item, runtime_subject, translate
+from ...i18n import runtime_expected, runtime_item, translate
 from ...schemas import AudioTranscriptionRequestSnapshot, GenericUsageSnapshot, ProviderResponse
 from ..chat_completions_family.audio import (
     AudioFormat,
@@ -18,15 +18,12 @@ from ..chat_completions_family.parameter_translation import (
 )
 from ..chat_completions_family.transport import create_async_client, post_json
 from .chat import MIMO_CHAT_COMPLETIONS_ENDPOINT, build_client_config, resolve_path
-from .parameter_translation import apply_mimo_audio_parameters, normalize_mimo_chat_body
+from .parameter_translation import apply_mimo_audio_parameters
 
-MIMO_ASR_MODEL = "mimo-v2.5-asr"
 MIMO_AUDIO_TRANSCRIPTION_LABEL = "Xiaomi Mimo Audio Transcription"
-_MIMO_ASR_FORMATS: frozenset[AudioFormat] = frozenset({"mp3", "wav"})
-_MIMO_GENERIC_AUDIO_FORMATS: frozenset[AudioFormat] = frozenset({"mp3", "wav", "flac", "m4a", "ogg"})
-_MIMO_ASR_MAX_BASE64_CHARS = 10 * 1024 * 1024
-_MIMO_GENERIC_MAX_BASE64_CHARS = 50 * 1024 * 1024
-_MIMO_ASR_UNSUPPORTED_BODY_FIELDS = frozenset(
+_MIMO_AUDIO_FORMATS: frozenset[AudioFormat] = frozenset({"mp3", "wav"})
+_MIMO_AUDIO_MAX_BASE64_CHARS = 10 * 1024 * 1024
+_MIMO_AUDIO_UNSUPPORTED_BODY_FIELDS = frozenset(
     {
         "frequency_penalty",
         "max_completion_tokens",
@@ -34,6 +31,7 @@ _MIMO_ASR_UNSUPPORTED_BODY_FIELDS = frozenset(
         "n",
         "parallel_tool_calls",
         "presence_penalty",
+        "prompt",
         "response_format",
         "seed",
         "stop",
@@ -52,7 +50,7 @@ def build_mimo_audio_transcription_request(
     *,
     options: ProviderRuntimeOptions,
 ) -> tuple[dict, dict[str, str], dict]:
-    """按模型构建 Mimo 专用 ASR 或通用音频理解请求。"""
+    """构建 Mimo ASR 请求。"""
 
     model = read_model_identifier(request.model_info)
     policy = options.parameter_policies.get("xiaomi_mimo", "audio_transcription")
@@ -77,70 +75,44 @@ def build_mimo_audio_transcription_request(
         capability="audio_transcription",
     )
     body = dict(transport.body)
-    normalize_mimo_chat_body(body)
     format_hints = {
         "format": body.pop("format", None),
         "audio_format": body.pop("audio_format", None),
     }
-    configured_prompt = body.pop("prompt", None)
 
-    if model == MIMO_ASR_MODEL:
-        audio = prepare_chat_audio(
-            request.audio_base64,
-            format_hints,
-            provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
-            allowed_formats=_MIMO_ASR_FORMATS,
-            max_base64_chars=_MIMO_ASR_MAX_BASE64_CHARS,
+    audio = prepare_chat_audio(
+        request.audio_base64,
+        format_hints,
+        provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
+        allowed_formats=_MIMO_AUDIO_FORMATS,
+        max_base64_chars=_MIMO_AUDIO_MAX_BASE64_CHARS,
+    )
+    raw_asr_options_value = body.pop("asr_options", None)
+    raw_asr_options = json_mapping_or_none(raw_asr_options_value)
+    if raw_asr_options_value is not None and raw_asr_options is None:
+        raise TypeError(
+            translate(
+                "runtime.error.expected_type",
+                subject="Mimo asr_options",
+                expected=runtime_expected("object"),
+                actual=type(raw_asr_options_value).__name__,
+            )
         )
-        raw_asr_options_value = body.pop("asr_options", None)
-        raw_asr_options = json_mapping_or_none(raw_asr_options_value)
-        if raw_asr_options_value is not None and raw_asr_options is None:
-            raise TypeError(
-                translate(
-                    "runtime.error.expected_type",
-                    subject="Mimo asr_options",
-                    expected=runtime_expected("object"),
-                    actual=type(raw_asr_options_value).__name__,
-                )
+    asr_options = mapping_to_json_object(raw_asr_options) if raw_asr_options is not None else {}
+    language = asr_options.get("language", options.mimo_audio_transcription_language)
+    if language not in {"auto", "zh", "en"}:
+        raise ValueError(
+            translate(
+                "runtime.error.unsupported_value",
+                subject="Mimo asr_options.language",
+                allowed="auto/zh/en",
             )
-        asr_options = mapping_to_json_object(raw_asr_options) if raw_asr_options is not None else {}
-        language = options.mimo_audio_transcription_language
-        if "language" in asr_options:
-            language = asr_options["language"]
-        if language not in {"auto", "zh", "en"}:
-            raise ValueError(
-                translate(
-                    "runtime.error.unsupported_value",
-                    subject="Mimo asr_options.language",
-                    allowed="auto/zh/en",
-                )
-            )
-        asr_options["language"] = language
-        for field_name in _MIMO_ASR_UNSUPPORTED_BODY_FIELDS:
-            body.pop(field_name, None)
-        body["asr_options"] = asr_options
-        body["messages"] = [build_chat_audio_message(audio, include_format=True)]
-    else:
-        prompt = configured_prompt if configured_prompt is not None else options.mimo_audio_transcription_prompt
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError(
-                translate(
-                    "runtime.error.required",
-                    subject=runtime_subject("mimo_settings"),
-                    field="audio_transcription_prompt",
-                )
-            )
-        audio = prepare_chat_audio(
-            request.audio_base64,
-            format_hints,
-            provider_label=MIMO_AUDIO_TRANSCRIPTION_LABEL,
-            allowed_formats=_MIMO_GENERIC_AUDIO_FORMATS,
-            max_base64_chars=_MIMO_GENERIC_MAX_BASE64_CHARS,
         )
-        body.pop("asr_options", None)
-        body["messages"] = [build_chat_audio_message(audio, prompt=prompt.strip())]
-        if options.mimo_force_disable_thinking:
-            body["thinking"] = {"type": "disabled"}
+    asr_options["language"] = language
+    for field_name in _MIMO_AUDIO_UNSUPPORTED_BODY_FIELDS:
+        body.pop(field_name, None)
+    body["asr_options"] = asr_options
+    body["messages"] = [build_chat_audio_message(audio, include_format=True)]
 
     body["model"] = model
     body["stream"] = False

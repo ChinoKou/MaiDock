@@ -1,11 +1,12 @@
 from ...core.json_types import json_mapping_or_none, mapping_to_json_object
 from ...i18n import runtime_expected, runtime_subject, translate
-from ...schemas import AudioTranscriptionRequestSnapshot, ResponseRequestSnapshot
+from ...schemas import ResponseRequestSnapshot
 from ..chat_completions_family.parameter_translation import (
     TranslationContext,
     TranslationEnvelope,
     apply_chat_completions_family_parameters,
     normalize_positive_int,
+    run_translators,
     set_target_value,
 )
 
@@ -46,7 +47,7 @@ def _explicit_mimo_max_token_values(context: TranslationContext) -> list[tuple[s
     candidates: list[tuple[str, object]] = []
     if request.model_info.max_tokens is not None:
         candidates.append(("model_info.max_tokens", request.model_info.max_tokens))
-    if isinstance(request, (ResponseRequestSnapshot, AudioTranscriptionRequestSnapshot)):
+    if isinstance(request, ResponseRequestSnapshot):
         if request.max_tokens is not None:
             candidates.append(("request.max_tokens", request.max_tokens))
     extra_sources: list[tuple[str, dict]] = []
@@ -176,15 +177,6 @@ def _translate_mimo_audio_format_alias(
     set_target_value(envelope, ("body", "audio_format"), value)
 
 
-def _translate_mimo_audio_prompt(
-    context: TranslationContext,
-    envelope: TranslationEnvelope,
-    value: object,
-) -> None:
-    del context
-    set_target_value(envelope, ("body", "prompt"), value)
-
-
 def apply_mimo_chat_parameters(
     context: TranslationContext,
     envelope: TranslationEnvelope,
@@ -204,16 +196,13 @@ def apply_mimo_audio_parameters(
     context: TranslationContext,
     envelope: TranslationEnvelope,
 ) -> None:
-    _canonicalize_mimo_max_tokens(context)
-    apply_chat_completions_family_parameters(
+    run_translators(
         context,
         envelope,
-        extra_translators={
+        {
             "audio_format": _translate_mimo_audio_format_alias,
             "format": _translate_mimo_audio_format,
             "language": _translate_mimo_audio_language,
-            "max_tokens": _translate_mimo_max_tokens,
-            "prompt": _translate_mimo_audio_prompt,
         },
     )
 

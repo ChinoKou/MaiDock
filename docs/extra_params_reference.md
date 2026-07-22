@@ -266,19 +266,14 @@ SiliconFlow Audio Transcription 内置支持：
 
 ## Xiaomi Mimo Audio Transcription
 
-Mimo 语音转录按模型使用两种 Chat Completions 请求结构：
-
-- `mimo-v2.5-asr`：专用单音频 ASR，仅发送 `input_audio`，支持 MP3/WAV 和 `asr_options.language`。
-- 其他模型：保持通用音频理解结构，发送 `input_audio` + 文本提示词；官方仅确认 `mimo-v2.5` 支持该能力。
+Mimo 语音转录统一使用专用单音频 ASR 结构，并复用 Chat Completions 文本生成端点；官方当前仅支持 `mimo-v2.5-asr`。
 
 支持的 `extra_params` 顶层字段：
 
-- `prompt`：覆盖通用音频理解路径的文本提示词；专用 ASR 不发送。
-- `language`：专用 ASR 识别语言，可选 `auto`、`zh`、`en`。
-- `max_tokens` / `max_completion_tokens`：仅通用路径使用，发送为 `max_completion_tokens`。
+- `language`：发送为 `asr_options.language`，可选 `auto`、`zh`、`en`。
+- `format` / `audio_format`：用于校验文件签名、构造 MIME data URL，并作为 `input_audio.format` 发送；不会作为顶层 body 字段发送。
 
 特殊规则：
 
-- `format` / `audio_format` 只用于校验文件签名并构造 MIME data URL，不会作为顶层 body 字段透传；冲突或未知格式会直接报错。
-- `model`、`messages`、`stream` 是 MaiDock 自己构造的保留字段。
-- 专用 ASR 的 Base64 字符串上限为 10 MiB；通用路径上限为 50 MiB，并额外支持 FLAC、M4A、OGG。
+- 仅支持 MP3/WAV，Base64 编码字符串上限为 10 MiB；格式冲突、未知格式、FLAC/M4A/OGG 或超限输入会直接报错。
+- `model`、`messages`、`stream` 是 MaiDock 自己构造的保留字段；`stream` 固定为 `false`。

@@ -547,18 +547,9 @@ _MIMO_CHAT_DIRECT_KEYS = _accepted_keys(_MIMO_CHAT_FIELDS)
 _MIMO_CHAT_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
 
 _MIMO_AUDIO_FIELDS = _fields(
-    _field(
-        "max_tokens",
-        "body.max_completion_tokens",
-        value_kind="integer",
-        source_aliases=("max_completion_tokens",),
-        config_key_name="body_max_tokens",
-        order=10,
-    ),
-    _field("language", "body.asr_options.language", value_kind="string", order=20),
-    _field("prompt", "body.prompt", value_kind="string", order=30),
-    _field("format", "body.format", value_kind="string", order=40),
-    _field("audio_format", "body.audio_format", value_kind="string", order=50),
+    _field("language", "body.asr_options.language", value_kind="string", order=10),
+    _field("format", "body.format", value_kind="string", order=20),
+    _field("audio_format", "body.audio_format", value_kind="string", order=30),
 )
 _MIMO_AUDIO_DIRECT_KEYS = _accepted_keys(_MIMO_AUDIO_FIELDS)
 _MIMO_AUDIO_RESERVED_KEYS = frozenset({"messages", "model", "stream"})

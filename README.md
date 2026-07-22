@@ -28,7 +28,6 @@ MaiDock 是一个 MaiBot LLM Provider 插件，用于补充主程序未覆盖的
 
 > - 阿里云百炼 DashScope 不支持 `json_schema`。
 > - 小米 Mimo 仍默认强制关闭思考；关闭该开关后，MaiDock 会通过工具调用 `extra_content` 与 SQLite 恢复并回传历史 `reasoning_content`。
-> - `mimo-v2.5-asr` 使用专用单音频 ASR 协议；其他模型保持“音频 + 自定义提示词”的通用音频理解路径，官方仅确认 `mimo-v2.5` 支持该能力。
 
 ---
 
@@ -64,7 +63,7 @@ ARK 会收取缓存存储费用和缓存命中输入费用。`instructions`、`j
 
 - ARK 通过 Responses `input_audio.audio_url` + `input_text` 转录音频，提示词可在 Provider 基础设置中修改。
 - DashScope Qwen3-ASR 支持 WAV/MP3/AAC/FLAC/OGG；Base64 编码后上限为 10 MiB，格式提示只用于本地构造 Data URL。
-- Mimo 专用 ASR 支持 MP3/WAV 和 `auto/zh/en` 语言选项；通用音频理解支持 MP3/WAV/FLAC/M4A/OGG。
+- Mimo ASR 仅支持 MP3/WAV 和 `auto/zh/en` 语言选项；Base64 编码字符串上限为 10 MiB。
 - MaiDock 会校验 Base64、文件签名、显式格式和提供商大小限制，未知格式不会再默认按 WAV 发送。
 - Mimo 仅保存带工具调用轮次的完整思考内容。内容以明文保存在插件数据目录的 SQLite 中，默认保留 30 天并在使用时续期。
 

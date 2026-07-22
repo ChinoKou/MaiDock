@@ -200,34 +200,84 @@ async def test_mimo_dedicated_asr_preserves_forwarded_future_options() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mimo_dedicated_asr_rejects_invalid_asr_options_schema() -> None:
+async def test_mimo_asr_rejects_invalid_asr_options_schema_for_model_alias() -> None:
     provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
 
     with pytest.raises(TypeError, match="asr_options.*list"):
         await provider.get_audio_transcriptions(
             _audio_request(
-                "mimo-v2.5-asr",
+                "relay-mimo-audio",
                 extra_params={"body": {"asr_options": []}},
             )
         )
 
 
 @pytest.mark.asyncio
-async def test_mimo_generic_audio_maps_max_tokens_and_prompt() -> None:
+async def test_mimo_asr_uses_dedicated_protocol_for_model_alias() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode())
         captured_body.append(cast(dict, body))
-        return httpx.Response(200, json={"choices": [{"message": {"content": "通用转录"}}], "usage": {}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "别名转录"}}], "usage": {}})
 
     provider = XiaomiMimoProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
     await provider.get_audio_transcriptions(
-        _audio_request("relay-mimo-audio", extra_params={"prompt": "只返回文字"}, max_tokens=256)
+        _audio_request(
+            "relay-mimo-audio",
+            extra_params={"max_completion_tokens": 512, "prompt": "只返回文字"},
+            max_tokens=256,
+        )
     )
 
     body = captured_body[0]
-    assert body["max_completion_tokens"] == 256
-    assert "max_tokens" not in body
-    assert body["thinking"] == {"type": "disabled"}
-    assert body["messages"][0]["content"][1] == {"type": "text", "text": "只返回文字"}
+    assert body["model"] == "relay-mimo-audio"
+    assert body["asr_options"] == {"language": "auto"}
+    assert body["messages"][0]["content"] == [
+        {
+            "type": "input_audio",
+            "input_audio": {
+                "data": f"data:audio/wav;base64,{base64.b64encode(_wav_bytes()).decode()}",
+                "format": "wav",
+            },
+        }
+    ]
+    for unsupported_field in ("max_completion_tokens", "max_tokens", "prompt", "thinking"):
+        assert unsupported_field not in body
+
+
+@pytest.mark.parametrize(
+    "audio_bytes",
+    [
+        b"fLaC\x00",
+        b"\x00\x00\x00\x18ftypM4A ",
+        b"OggS\x00",
+    ],
+    ids=["flac", "m4a", "ogg"],
+)
+@pytest.mark.asyncio
+async def test_mimo_asr_rejects_non_asr_audio_formats_for_model_alias(audio_bytes: bytes) -> None:
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+    request = _audio_request("relay-mimo-audio")
+    request["audio_base64"] = base64.b64encode(audio_bytes).decode()
+
+    with pytest.raises(ValueError, match="mp3, wav"):
+        await provider.get_audio_transcriptions(request)
+
+
+@pytest.mark.asyncio
+async def test_mimo_asr_rejects_oversized_base64_for_model_alias() -> None:
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+    request = _audio_request("relay-mimo-audio")
+    request["audio_base64"] = "A" * (10 * 1024 * 1024 + 4)
+
+    with pytest.raises(ValueError, match="10 MiB"):
+        await provider.get_audio_transcriptions(request)
+
+
+@pytest.mark.asyncio
+async def test_mimo_asr_rejects_invalid_language_for_model_alias() -> None:
+    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+
+    with pytest.raises(ValueError, match="auto/zh/en"):
+        await provider.get_audio_transcriptions(_audio_request("relay-mimo-audio", extra_params={"language": "ja"}))

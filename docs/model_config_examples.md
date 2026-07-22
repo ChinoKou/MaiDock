@@ -153,5 +153,5 @@ name = "MIMO-2.5-ASR"
 model_identifier = "mimo-v2.5-asr"
 api_provider = "mimo"
 extra_params = { language = "auto" }
-# 专用 ASR 不发送文本 prompt；通用 mimo-v2.5 音频理解才使用 prompt。
+# Mimo ASR 复用 Chat Completions 文本生成端点；language 会映射到 asr_options.language。
 ```

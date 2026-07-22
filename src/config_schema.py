@@ -71,7 +71,6 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
         "user_agent",
         "force_disable_thinking",
         "reasoning_retention_days",
-        "audio_transcription_prompt",
         "audio_transcription_language",
         "max_retries",
         "force_max_retries",
@@ -431,11 +430,7 @@ def _localize_provider_base_fields(provider: ProviderPolicyKey, fields: dict[str
         prompt = fields["audio_transcription_prompt"]
         prompt["label"] = translate("ui.field.transcription_prompt.label")
         prompt["description"] = prompt["label"]
-        prompt["hint"] = translate(
-            "ui.field.transcription_prompt.hint.ark"
-            if provider == "volcengine_ark"
-            else "ui.field.transcription_prompt.hint.mimo"
-        )
+        prompt["hint"] = translate("ui.field.transcription_prompt.hint.ark")
 
 
 def _localized_provider_title(provider: ProviderPolicyKey) -> str:
@@ -554,31 +549,23 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
         )
         current_order += 1
     if "audio_transcription_prompt" in _PROVIDER_BASE_FIELDS[provider]:
-        prompt_default = (
-            "请识别音频中的内容，以文字形式返回识别结果。" if provider == "volcengine_ark" else "请转写这段音频"
-        )
-        prompt_hint = (
-            "ARK 使用 Responses input_audio + input_text 完成语音转录。"
-            if provider == "volcengine_ark"
-            else "仅通用音频理解路径使用；mimo-v2.5-asr 专用协议不会发送文本提示词。"
-        )
         fields["audio_transcription_prompt"] = _field(
             name="audio_transcription_prompt",
             field_type="string",
             label="转录提示词",
-            default=prompt_default,
+            default="请识别音频中的内容，以文字形式返回识别结果。",
             ui_type="text",
-            hint=prompt_hint,
+            hint="ARK 使用 Responses input_audio + input_text 完成语音转录。",
             order=current_order,
         )
         current_order += 1
     if "audio_transcription_language" in _PROVIDER_BASE_FIELDS[provider]:
         fields["audio_transcription_language"] = _select_field(
             name="audio_transcription_language",
-            label="专用 ASR 识别语言",
+            label="ASR 识别语言",
             default="auto",
             choices=("auto", "zh", "en"),
-            hint="仅 mimo-v2.5-asr 使用；auto=自动检测，zh=中文，en=英文。",
+            hint="mimo-v2.5-asr 使用；auto=自动检测，zh=中文，en=英文。",
             order=current_order,
         )
         current_order += 1
@@ -715,7 +702,7 @@ def _capability_policy_section(catalog: CapabilityParameterCatalog, *, order: in
 def _capability_policy_description(catalog: CapabilityParameterCatalog) -> str:
     """生成能力参数策略说明。"""
     if catalog.provider == "xiaomi_mimo" and catalog.capability == "audio_transcription":
-        return "控制 Mimo 专用 ASR 与通用音频理解转录请求的 extra_params。"
+        return "控制 Mimo ASR 请求的 extra_params。"
     if catalog.provider == "volcengine_ark" and catalog.capability == "audio_transcription":
         return "控制 ARK Responses input_audio 转录请求的 extra_params。"
     return "控制模型配置与单次请求传入的 extra_params 是否被 MaiDock 接收，以及未知字段如何处理。"
@@ -782,7 +769,7 @@ def _capability_fields_section(catalog: CapabilityParameterCatalog, *, order: in
 def _capability_fields_description(catalog: CapabilityParameterCatalog) -> str:
     """生成能力字段开关说明。"""
     if catalog.provider == "xiaomi_mimo" and catalog.capability == "audio_transcription":
-        return "mimo-v2.5-asr 使用 asr_options；其他模型使用 input_audio + prompt。格式字段只用于内部构造 data URL。"
+        return "Mimo ASR 使用 input_audio 与 asr_options；格式字段用于校验并构造 data URL，同时作为 input_audio.format 发送。"
     if catalog.provider == "volcengine_ark" and catalog.capability == "audio_transcription":
         return "使用 Responses input_audio + input_text；格式字段只用于内部构造 data URL。"
     return "每个文档字段默认发送到 Provider API；关闭开关会丢弃 Host 传入值，开启覆写会强制替换发送给 Provider API 的参数。"

@@ -61,7 +61,7 @@ Provider 目录通常包含 `provider.py`、能力模块、`streaming.py`、`mul
 | `volcengine_ark_provider` | `POST /api/v3/responses`、`/api/v3/embeddings/multimodal` | Responses SSE |
 | `dashscope_provider` | `POST /api/v1/services/aigc/text-generation/generation`、`/api/v1/services/aigc/multimodal-generation/generation`（ASR）、按模型分流的 Embedding | DashScope SSE |
 | `siliconflow_provider` | `POST /v1/chat/completions`、`/v1/embeddings`、`/v1/audio/transcriptions` | `choices[0].delta` |
-| `xiaomi_mimo_provider` | `POST /v1/chat/completions`，包含专用 ASR 与通用音频理解 | `choices[0].delta` |
+| `xiaomi_mimo_provider` | `POST /v1/chat/completions`，包含专用 ASR | `choices[0].delta` |
 
 ```text
 <name>_provider/

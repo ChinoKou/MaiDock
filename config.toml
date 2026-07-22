@@ -678,7 +678,6 @@ unknown_extra_params = "forward"
 user_agent = ""
 force_disable_thinking = true
 reasoning_retention_days = 30
-audio_transcription_prompt = "请转写这段音频"
 audio_transcription_language = "auto"
 max_retries = 3
 force_max_retries = false
@@ -742,15 +741,9 @@ rejected_paths = []
 unknown_extra_params = "forward"
 
 [xiaomi_mimo.audio_transcription.fields]
-body_max_tokens_enabled = true
-body_max_tokens_override_enabled = false
-body_max_tokens_override_value = ""
 body_asr_options_language_enabled = true
 body_asr_options_language_override_enabled = false
 body_asr_options_language_override_value = ""
-body_prompt_enabled = true
-body_prompt_override_enabled = false
-body_prompt_override_value = ""
 body_format_enabled = true
 body_format_override_enabled = false
 body_format_override_value = ""

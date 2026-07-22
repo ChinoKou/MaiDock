@@ -376,10 +376,6 @@ class XiaomiMimoConfig(PluginConfigBase):
         le=365,
         description="Mimo 工具调用 reasoning_content 的本地保留天数；范围 1..365",
     )
-    audio_transcription_prompt: str = Field(
-        default="请转写这段音频",
-        description="Mimo 通用音频理解转录请求中与 input_audio 一同发送的文本提示词",
-    )
     audio_transcription_language: Literal["auto", "zh", "en"] = Field(
         default="auto",
         description="mimo-v2.5-asr 的识别语言；auto=自动检测，zh=中文，en=英文",
@@ -643,7 +639,6 @@ def build_runtime_options(
         mimo_force_disable_thinking=bool(config.xiaomi_mimo.force_disable_thinking),
         mimo_reasoning_retention_days=config.xiaomi_mimo.reasoning_retention_days,
         volcengine_audio_transcription_prompt=config.volcengine_ark.audio_transcription_prompt.strip(),
-        mimo_audio_transcription_prompt=config.xiaomi_mimo.audio_transcription_prompt.strip(),
         mimo_audio_transcription_language=config.xiaomi_mimo.audio_transcription_language,
         openai_max_retries=max(0, config.openai_responses.max_retries),
         anthropic_max_retries=max(0, config.anthropic_messages.max_retries),
