@@ -227,3 +227,6 @@ docs/provider_docs/
 # Local agent state
 .claude/
 .omc/
+
+# Runtime plugin configuration
+/config.toml
