@@ -792,7 +792,7 @@ sdk = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "json-repair", specifier = ">=0.60.1" },
-    { name = "maibot-plugin-sdk", specifier = ">=2.6.0" },
+    { name = "maibot-plugin-sdk", specifier = ">=2.7.0" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
 ]

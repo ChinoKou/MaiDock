@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
     "json-repair>=0.60.1",
-    "maibot-plugin-sdk>=2.6.0",
+    "maibot-plugin-sdk>=2.7.0",
     "pillow>=12.2.0",
     "pydantic>=2.13.4",
 ]
