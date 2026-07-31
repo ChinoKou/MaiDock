@@ -6,15 +6,14 @@ import httpx
 import pytest
 
 from src.core.common import ProviderRuntimeOptions
-from src.providers.common.httpx import HttpxProviderError
-from src.providers.openai_responses_provider.responses import (
+from src.host_adapters.common.httpx import HttpxProviderError
+from src.host_adapters.openai_responses_provider.responses import (
     create_responses_mapper as create_openai_mapper,
 )
-from src.providers.responses_family.responses import ResponsesMapper
-from src.providers.volcengine_ark_provider.provider import (
-    VolcengineArkResponsesProvider,
-)
-from src.providers.volcengine_ark_provider.responses import (
+from src.host_adapters.responses_family.responses import ResponsesMapper
+from tests.support.assertions import json_int_at, json_object_at, json_str_at
+from tests.support.host_adapters import VolcengineArkResponsesProvider
+from src.host_adapters.volcengine_ark_provider.responses import (
     create_responses_mapper as create_ark_mapper,
 )
 
@@ -140,7 +139,7 @@ async def test_stream_length_incomplete_uses_accumulated_delta_when_terminal_out
     result = await provider.get_response(_stream_request())
 
     assert result["content"] == "截断内容"
-    assert result["usage"]["completion_tokens"] == 5
+    assert json_int_at(result, "usage", "completion_tokens") == 5
 
 
 @pytest.mark.asyncio
@@ -248,11 +247,11 @@ async def test_stream_length_incomplete_merges_reasoning_tools_and_split_usage()
 
     assert result["content"] == "截断回答"
     assert result["reasoning_content"] == "截断思考"
-    assert result["tool_calls"][0]["id"] == "call_1"
-    assert result["tool_calls"][0]["function"] == {
+    assert json_str_at(result, "tool_calls", 0, "id") == "call_1"
+    assert json_object_at(result, "tool_calls", 0, "function") == {
         "name": "lookup",
         "arguments": {"q": "x"},
     }
-    assert result["usage"]["prompt_tokens"] == 10
-    assert result["usage"]["completion_tokens"] == 5
-    assert result["usage"]["total_tokens"] == 15
+    assert json_int_at(result, "usage", "prompt_tokens") == 10
+    assert json_int_at(result, "usage", "completion_tokens") == 5
+    assert json_int_at(result, "usage", "total_tokens") == 15

@@ -1,25 +1,49 @@
 import asyncio
 import json
 from copy import deepcopy
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
 import httpx
 import pytest
 
+from src.clients.ark import ArkClient, ArkConnection, ArkSession
+from src.clients.common import ClientHttpError, RetryPolicy
 from src.core.common import ProviderRuntimeOptions
 from src.core.state_store import PluginStateStore
-from src.providers.common.httpx import HttpxClientConfig, HttpxProviderError
-from src.providers.volcengine_ark_provider.prefix_cache import (
+from src.host_adapters.common.client_bridge import build_http_connection
+from src.host_adapters.common.httpx import HttpxClientConfig
+from src.host_adapters.volcengine_ark_provider.prefix_cache import (
     PREFIX_CACHE_CLEANUP_INTERVAL_SECONDS,
     PREFIX_CACHE_INELIGIBLE_MAX_ENTRIES,
     PREFIX_CACHE_INELIGIBLE_TTL_SECONDS,
     PREFIX_CACHE_NAMESPACE,
     PrefixCacheManager,
 )
-from src.providers.volcengine_ark_provider.provider import (
-    VolcengineArkResponsesProvider,
-)
+from tests.support.host_adapters import VolcengineArkResponsesProvider
+
+
+def _override_text(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _ark_overrides_options(
+    base_fields: dict,
+    overrides: dict,
+) -> ProviderRuntimeOptions:
+    """构造带 ARK response 覆写目录的运行时选项。"""
+
+    from dataclasses import replace
+
+    from src.config import MaiDockConfig, build_runtime_options
+
+    config = MaiDockConfig.model_validate({"volcengine_ark": {"response": {"overrides": overrides}}})
+    options = build_runtime_options(config)
+    return replace(options, **base_fields)
 
 
 def _client_config(*, api_key: str = "ark-key", base_url: str = "https://ark.example/api/v3") -> HttpxClientConfig:
@@ -27,6 +51,27 @@ def _client_config(*, api_key: str = "ark-key", base_url: str = "https://ark.exa
         base_url=base_url,
         default_headers={"Authorization": f"Bearer {api_key}"},
     )
+
+
+@asynccontextmanager
+async def _ark_session(
+    config: HttpxClientConfig,
+    handler: httpx.AsyncBaseTransport,
+) -> AsyncIterator[ArkSession]:
+    client = ArkClient(transport=handler)
+    connection = ArkConnection(
+        http=build_http_connection(config),
+        retry=RetryPolicy(),
+        responses_path="responses",
+        embeddings_path="embeddings/multimodal",
+        audio_transcriptions_path="responses",
+        tokenization_path="tokenization",
+    )
+    try:
+        async with client.session(connection) as session:
+            yield session
+    finally:
+        await client.aclose()
 
 
 def _body(*, system_text: str = "system prompt") -> dict:
@@ -197,9 +242,12 @@ async def test_prefix_cache_create_then_reuse_sends_only_uncached_suffix(
 
     store = PluginStateStore(tmp_path / "maidock_state.sqlite3")
     provider = VolcengineArkResponsesProvider(
-        options=ProviderRuntimeOptions(
-            volcengine_force_official_endpoint=False,
-            volcengine_prefix_cache_enabled=True,
+        options=_ark_overrides_options(
+            {
+                "volcengine_force_official_endpoint": False,
+                "volcengine_prefix_cache_enabled": True,
+            },
+            {"thinking": '{"type":"disabled"}'},
         ),
         transport=httpx.MockTransport(handler),
         state_store=store,
@@ -357,7 +405,7 @@ async def test_reuse_4xx_invalidates_entry_without_retrying_current_request(
     )
 
     await provider.get_response(_request())
-    with pytest.raises(HttpxProviderError, match="404"):
+    with pytest.raises(ClientHttpError, match="404"):
         await provider.get_response(_request())
     await provider.get_response(_request())
     await store.close()
@@ -400,20 +448,13 @@ async def test_entry_inside_expiry_safety_window_is_recreated(tmp_path: Path) ->
         create_count += 1
         return httpx.Response(200, json={"id": "resp_new", "status": "completed", "output": []})
 
-    async with httpx.AsyncClient(
-        base_url=config.base_url,
-        transport=httpx.MockTransport(handler),
-    ) as client:
+    async with _ark_session(config, httpx.MockTransport(handler)) as session:
         resolution = await manager.resolve(
-            client,
-            responses_path="responses",
-            tokenization_path="tokenization",
+            session,
             body=body,
             headers={},
             query={},
             client_config=config,
-            max_retries=0,
-            retry_interval=0.0,
             now=1000.0,
         )
     await store.close()
@@ -447,21 +488,14 @@ async def test_invalid_persisted_cache_schema_is_exposed(tmp_path: Path) -> None
     async def unexpected_request(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"不应发送网络请求: {request.url}")
 
-    async with httpx.AsyncClient(
-        base_url=config.base_url,
-        transport=httpx.MockTransport(unexpected_request),
-    ) as client:
+    async with _ark_session(config, httpx.MockTransport(unexpected_request)) as session:
         with pytest.raises(ValueError):
             await manager.resolve(
-                client,
-                responses_path="responses",
-                tokenization_path="tokenization",
+                session,
                 body=body,
                 headers={},
                 query={},
                 client_config=config,
-                max_retries=0,
-                retry_interval=0.0,
                 now=1000.0,
             )
     await store.close()
@@ -550,32 +584,21 @@ async def test_different_prefix_keys_create_in_parallel_and_release_locks(
     store = PluginStateStore(tmp_path / "maidock_state.sqlite3")
     manager = PrefixCacheManager(store, ttl_seconds=259200)
     config = _client_config()
-    async with httpx.AsyncClient(
-        base_url=config.base_url,
-        transport=httpx.MockTransport(handler),
-    ) as client:
+    async with _ark_session(config, httpx.MockTransport(handler)) as session:
         first, second = await asyncio.gather(
             manager.resolve(
-                client,
-                responses_path="responses",
-                tokenization_path="tokenization",
+                session,
                 body=_body(system_text="first prefix"),
                 headers={},
                 query={},
                 client_config=config,
-                max_retries=0,
-                retry_interval=0.0,
             ),
             manager.resolve(
-                client,
-                responses_path="responses",
-                tokenization_path="tokenization",
+                session,
                 body=_body(system_text="second prefix"),
                 headers={},
                 query={},
                 client_config=config,
-                max_retries=0,
-                retry_interval=0.0,
             ),
         )
     await store.close()
@@ -607,12 +630,14 @@ async def test_manual_cache_parameters_are_not_rewritten_by_provider(
         return httpx.Response(200, json=_completed_response())
 
     request = _request()
-    request["model_info"]["extra_params"][field] = value
     store = PluginStateStore(tmp_path / "maidock_state.sqlite3")
     provider = VolcengineArkResponsesProvider(
-        options=ProviderRuntimeOptions(
-            volcengine_force_official_endpoint=False,
-            volcengine_prefix_cache_enabled=True,
+        options=_ark_overrides_options(
+            {
+                "volcengine_force_official_endpoint": False,
+                "volcengine_prefix_cache_enabled": True,
+            },
+            {field: _override_text(value)},
         ),
         transport=httpx.MockTransport(handler),
         state_store=store,

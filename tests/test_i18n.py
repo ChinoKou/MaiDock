@@ -4,7 +4,6 @@ import logging
 import tomllib
 from pathlib import Path
 
-import httpx
 import pytest
 from pydantic import BaseModel, ValidationError, field_validator
 from pydantic_core import PydanticCustomError
@@ -25,12 +24,7 @@ from src.core.diagnostics import (
     build_status_error_message,
     sanitize_upstream_detail,
 )
-from src.core.parameter_catalog import (
-    field_enabled_key,
-    field_override_enabled_key,
-    field_override_value_key,
-    iter_parameter_catalogs,
-)
+from src.core.parameter_catalog import dotted_path, iter_parameter_catalogs
 from src.core.state_store import PluginStateStore
 from src.i18n import (
     DEFAULT_LOCALE,
@@ -45,10 +39,9 @@ from src.i18n import (
     validate_catalogs,
 )
 from src.plugin import MaiDockPlugin
-from src.providers.common.embeddings import coerce_embedding_vector
-from src.providers.common.httpx import post_json
-from src.providers.volcengine_ark_provider.prefix_cache import PrefixCacheManager
-from src.providers.xiaomi_mimo_provider.reasoning import MimoReasoningManager
+from src.host_adapters.common.embeddings import coerce_embedding_vector
+from src.host_adapters.volcengine_ark_provider.prefix_cache import PrefixCacheManager
+from src.host_adapters.xiaomi_mimo_provider.reasoning import MimoReasoningManager
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
@@ -129,37 +122,32 @@ def test_unknown_locale_and_message_key_fail_explicitly() -> None:
 
 
 @pytest.mark.parametrize(
-    ("locale", "tab_title", "locale_label", "dynamic_label"),
+    ("locale", "tab_title", "locale_label"),
     [
         (
             "zh-CN",
             "通用",
             "MaiDock 显示与日志语言",
-            "发送「启用思考链」到 Provider API",
         ),
         (
             "zh-TW",
             "通用",
             "MaiDock 顯示與日誌語言",
-            "傳送「啟用思考鏈」至 Provider API",
         ),
         (
             "en-US",
             "General",
             "MaiDock display and log language",
-            "Send “Enable reasoning” to the Provider API",
         ),
         (
             "ja-JP",
             "全般",
             "MaiDock の表示・ログ言語",
-            "「推論を有効化」を Provider API に送信",
         ),
         (
             "ko-KR",
             "일반",
             "MaiDock 표시 및 로그 언어",
-            "“추론 활성화”을(를) Provider API에 전송",
         ),
     ],
 )
@@ -167,45 +155,29 @@ def test_schema_localizes_static_and_dynamic_fields(
     locale: str,
     tab_title: str,
     locale_label: str,
-    dynamic_label: str,
 ) -> None:
     schema = build_maidock_config_schema(locale=normalize_locale(locale))
 
     assert schema["layout"]["tabs"][0]["title"] == tab_title
     assert schema["sections"]["plugin"]["fields"]["locale"]["label"] == locale_label
-    dynamic_field = schema["sections"]["dashscope_chat_completion_fields"]["fields"]
-    assert dynamic_field["body_parameters_enable_thinking_enabled"]["label"] == dynamic_label
+    dynamic_field = schema["sections"]["dashscope_chat_completion_overrides"]["fields"]
+    assert dynamic_field["enable_thinking"]["label"] == "enable_thinking · boolean"
 
 
-@pytest.mark.parametrize(
-    ("locale", "send_marker", "override_marker"),
-    [
-        ("zh-CN", "发送", "覆写"),
-        ("zh-TW", "傳送", "覆寫"),
-        ("en-US", "Send", "Override"),
-        ("ja-JP", "送信", "上書き"),
-        ("ko-KR", "전송", "재정의"),
-    ],
-)
+@pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
 def test_all_dynamic_provider_fields_are_localized(
     locale: str,
-    send_marker: str,
-    override_marker: str,
 ) -> None:
     schema = build_maidock_config_schema(locale=normalize_locale(locale))
 
     for catalog in iter_parameter_catalogs():
-        fields = schema["sections"][f"{catalog.provider}_{catalog.capability}_fields"]["fields"]
+        fields = schema["sections"][f"{catalog.provider}_{catalog.capability}_overrides"]["fields"]
         for parameter in catalog.fields:
-            enabled = fields[field_enabled_key(parameter)]
-            override_enabled = fields[field_override_enabled_key(parameter)]
-            override_value = fields[field_override_value_key(parameter)]
-            assert send_marker in enabled["label"]
-            assert override_marker in override_enabled["label"]
-            assert override_marker in override_value["label"]
-            assert enabled["hint"]
-            assert override_enabled["hint"]
-            assert override_value["hint"]
+            override_value = fields[parameter.config_key]
+            assert override_value["label"].startswith(f"{parameter.key} · ")
+            assert dotted_path(parameter.target_path) in override_value["hint"]
+            assert catalog.documentation_url in override_value["hint"]
+            assert override_value["hint"].count("\n") == 5
 
 
 @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
@@ -444,51 +416,6 @@ async def test_disabled_plugin_error_uses_runtime_locale(locale: str, marker: st
         await plugin.openai_responses_provider("response", {})
 
     assert marker in str(captured.value)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("locale", "marker"),
-    [
-        ("zh-CN", "返回可重试状态码"),
-        ("zh-TW", "回傳可重試狀態碼"),
-        ("en-US", "returned retryable status"),
-        ("ja-JP", "再試行可能なステータス"),
-        ("ko-KR", "재시도 가능한 상태"),
-    ],
-)
-async def test_http_retry_log_uses_bound_locale(
-    caplog: pytest.LogCaptureFixture,
-    locale: str,
-    marker: str,
-) -> None:
-    attempts = 0
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        del request
-        attempts += 1
-        return httpx.Response(429 if attempts == 1 else 200, json={"ok": attempts > 1})
-
-    caplog.clear()
-    with (
-        caplog.at_level(logging.WARNING, logger="maibot_plugin.maidock.httpx"),
-        use_locale(normalize_locale(locale)),
-    ):
-        async with httpx.AsyncClient(
-            base_url="https://example.com",
-            transport=httpx.MockTransport(handler),
-        ) as client:
-            assert await post_json(
-                client,
-                "retry",
-                json_body={},
-                provider_label="Test Provider",
-                max_retries=1,
-            ) == {"ok": True}
-
-    assert marker in caplog.text
-    assert attempts == 2
 
 
 @pytest.mark.parametrize(

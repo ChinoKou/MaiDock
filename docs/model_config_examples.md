@@ -1,5 +1,7 @@
 # model_config.toml 源文件编辑示例
 
+> MaiDock 1.2.0 起完全忽略 `[[models]].extra_params`（模型配置与单次请求的 `extra_params` 均无效）。模型在 MaiDock 配置页中各 Provider 能力段的**参数覆写目录**中按模型需要统一配置；同一个模型供应商下的所有模型共享该覆写目录。以下示例只保留供应商端点与模型标识的写法。
+
 ## OpenAI Responses
 
 ```toml
@@ -14,19 +16,16 @@ auth_type = "bearer"
 name = "GPT-5.5"
 model_identifier = "gpt-5.5"
 api_provider = "openai"
-extra_params = { reasoning = { effort = "medium" } }
 
 [[models]]
 name = "Text-Embedding-3-Small"
 model_identifier = "text-embedding-3-small"
 api_provider = "openai"
-extra_params = { dimensions = 1536 }
 
 [[models]]
 name = "GPT-4o-Mini-Transcribe"
 model_identifier = "gpt-4o-mini-transcribe"
 api_provider = "openai"
-extra_params = { language = "zh", response_format = "json" }
 ```
 
 ## Anthropic Messages
@@ -46,7 +45,6 @@ auth_header_name = "x-api-key"
 name = "Claude Opus 4.8"
 model_identifier = "claude-opus-4-8"
 api_provider = "anthropic"
-extra_params = { thinking = { type = "enabled", budget_tokens = 1024 } }
 ```
 
 ## 阿里云百炼 DashScope
@@ -61,7 +59,6 @@ api_key = "sk-..."
 name = "Qwen3.7-Plus"
 model_identifier = "qwen3.7-plus"
 api_provider = "dashscope"
-extra_params = { enable_thinking = true, result_format = "message" }
 
 [[models]]
 name = "Tongyi-Embedding-Vision"
@@ -77,7 +74,24 @@ api_provider = "dashscope"
 name = "Qwen3-ASR-Flash"
 model_identifier = "qwen3-asr-flash"
 api_provider = "dashscope"
-extra_params = { language = "zh", enable_itn = true }
+```
+
+## 阿里云百炼 Responses（maidock-bailian-responses）
+
+百炼 Responses 使用 OpenAI Responses 规范，要求 base URL 以 `/v1` 结尾（MaiDock 自动追加 `/responses`）；北京、新加坡、美国、日本、德国均有官方 base URL。
+
+```toml
+[[api_providers]]
+name = "bailian-responses"
+client_type = "maidock-bailian-responses"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-..."
+auth_type = "bearer"
+
+[[models]]
+name = "Qwen3.7-Plus (Responses)"
+model_identifier = "qwen3.7-plus"
+api_provider = "bailian-responses"
 ```
 
 ## SiliconFlow
@@ -116,19 +130,16 @@ api_key = "..."
 name = "Doubao-Seed-2.0-Lite"
 model_identifier = "doubao-seed-2-0-lite-260428"
 api_provider = "volcengine"
-extra_params = { reasoning = { effort = "medium" } }
 
 [[models]]
 name = "Doubao-Embedding-Vision"
 model_identifier = "doubao-embedding-vision-251215"
 api_provider = "volcengine"
-extra_params = { dimensions = 2048 }
 
 [[models]]
 name = "Doubao-Seed-2.0-Lite-ASR"
 model_identifier = "doubao-seed-2-0-lite-260428"
 api_provider = "volcengine"
-extra_params = { prompt = "请准确转录音频内容" }
 ```
 
 ## Xiaomi Mimo
@@ -145,13 +156,12 @@ api_key = "sk-..."
 name = "MIMO-2.5-PRO"
 model_identifier = "mimo-v2.5-pro"
 api_provider = "mimo"
-# thinking 默认由插件配置"强制关闭 Mimo 深度思考"控制
-# 关闭该开关后，MaiDock 会自动回传工具调用历史中的 reasoning_content。
+# 思考默认由插件参数覆写目录中的 thinking（默认 {"type":"disabled"}）控制；
+# 改为 enabled 或清空后，MaiDock 会自动回传工具调用历史中的 reasoning_content。
 
 [[models]]
 name = "MIMO-2.5-ASR"
 model_identifier = "mimo-v2.5-asr"
 api_provider = "mimo"
-extra_params = { language = "auto" }
-# Mimo ASR 复用 Chat Completions 文本生成端点；language 会映射到 asr_options.language。
+# Mimo ASR 复用 Chat Completions 文本生成端点；language 覆写会映射到 asr_options.language。
 ```

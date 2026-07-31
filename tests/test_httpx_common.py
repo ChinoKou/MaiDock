@@ -1,5 +1,5 @@
 from src.core.common import ProviderRuntimeOptions
-from src.providers.common.payloads import raw_data_or_none
+from src.host_adapters.common.payloads import raw_data_or_none
 
 
 def test_raw_data_or_none_sanitizes_when_enabled() -> None:

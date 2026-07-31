@@ -1,23 +1,16 @@
 import pytest
 
-from src.config import MaiDockConfig, build_runtime_options
-from src.core.common import split_request_overrides
-from src.core.parameter_catalog import (
-    field_enabled_key,
-    field_override_enabled_key,
-    field_override_value_key,
-    get_parameter_catalog,
-)
-from src.core.parameter_policy import (
-    ParameterPolicy,
-    apply_transport_parameter_policy,
-    resolve_request_parameter_policy,
-)
+from src.config import MaiDockConfig, build_parameter_overrides, build_runtime_options, parse_override_value
+from src.core.parameter_catalog import get_parameter_catalog
+from src.core.parameter_policy import ParameterOverrideRegistry, ParameterOverrideSet
+from src.host_adapters.common.parameter_translation import build_normalized_host_parameters
 from src.schemas import ResponseRequestSnapshot
 
 
 def _request(
     *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
     model_extra_params: dict | None = None,
     request_extra_params: dict | None = None,
 ) -> ResponseRequestSnapshot:
@@ -29,223 +22,133 @@ def _request(
             },
             "api_provider": {"api_key": "test-key"},
             "extra_params": request_extra_params or {},
+            "temperature": temperature,
+            "max_tokens": max_tokens,
         }
     )
 
 
-def test_default_policy_preserves_shallow_model_then_request_merge() -> None:
-    request = _request(
-        model_extra_params={
-            "headers": {"X-Model": "1"},
-            "body": {"model_value": True},
-            "top_p": 0.7,
-        },
-        request_extra_params={
-            "body": {"request_value": True},
-            "top_p": 0.8,
-        },
-    )
+def test_override_set_keeps_only_typed_values() -> None:
+    overrides = ParameterOverrideSet(values={"top_p": 0.5, "store": False, "include": ["a", "b"]})
+    assert bool(overrides)
+    assert "top_p" in overrides
+    assert "missing" not in overrides
 
-    resolved = resolve_request_parameter_policy(
-        request,
-        policy=ParameterPolicy(),
-        provider_label="Test Provider",
-        capability="response",
-        direct_body_keys={"top_p"},
-    ).extra_params
 
-    assert resolved == {
-        "headers": {"X-Model": "1"},
-        "body": {"request_value": True},
-        "top_p": 0.8,
+def test_parse_override_value_types() -> None:
+    assert parse_override_value(raw_value="", value_kind="string", field_label="f") is None
+    assert parse_override_value(raw_value="  ", value_kind="json", field_label="f") is None
+    assert parse_override_value(raw_value="auto", value_kind="string", field_label="f") == "auto"
+    assert parse_override_value(raw_value="0.8", value_kind="number", field_label="f") == 0.8
+    assert parse_override_value(raw_value="1024", value_kind="integer", field_label="f") == 1024
+    assert parse_override_value(raw_value="true", value_kind="boolean", field_label="f") is True
+    assert parse_override_value(raw_value="false", value_kind="boolean", field_label="f") is False
+    assert parse_override_value(raw_value='{"type":"disabled"}', value_kind="json", field_label="f") == {
+        "type": "disabled"
     }
-    overrides = split_request_overrides(resolved, direct_body_keys={"top_p"})
-    assert overrides.extra_headers == {"X-Model": "1"}
-    assert overrides.extra_body == {"request_value": True}
-    assert overrides.direct_params == {"top_p": 0.8}
+    assert parse_override_value(raw_value='["a","b"]', value_kind="string_list", field_label="f") == ["a", "b"]
 
 
-def test_request_mirror_does_not_bypass_disabled_model_extra_params() -> None:
-    request = _request(
-        model_extra_params={"top_p": 0.7, "temperature": 0.3},
-        request_extra_params={"top_p": 0.7, "temperature": 0.4, "seed": 1},
-    )
-
-    resolved = resolve_request_parameter_policy(
-        request,
-        policy=ParameterPolicy(accept_model_extra_params=False),
-        provider_label="Test Provider",
-        capability="response",
-        direct_body_keys={"top_p", "temperature", "seed"},
-    ).extra_params
-
-    assert resolved == {"temperature": 0.4, "seed": 1}
-
-
-def test_disabled_paths_remove_raw_nested_params_before_strict_unknown_policy() -> None:
-    request = _request(
-        model_extra_params={
-            "unknown_field": 30,
-            "headers": {"X-Debug": "1"},
-            "body": {"parameters": {"enable_thinking": True, "top_p": 0.9}},
-        }
-    )
-
-    resolved = resolve_request_parameter_policy(
-        request,
-        policy=ParameterPolicy(
-            disabled_paths=(
-                "unknown_field",
-                "headers.X-Debug",
-                "body.parameters.enable_thinking",
-            ),
-            unknown_extra_params="forward",
-        ),
-        provider_label="DashScope",
-        capability="chat_completion",
-    ).extra_params
-
-    assert resolved == {"headers": {}, "body": {"parameters": {"top_p": 0.9}}}
+def test_parse_override_value_rejects_wrong_types() -> None:
+    with pytest.raises(ValueError, match="整数"):
+        parse_override_value(raw_value="0.5", value_kind="integer", field_label="f")
+    with pytest.raises(ValueError, match="布尔"):
+        parse_override_value(raw_value="0.5", value_kind="boolean", field_label="f")
+    with pytest.raises(ValueError, match="数值"):
+        parse_override_value(raw_value="true", value_kind="number", field_label="f")
+    with pytest.raises(ValueError, match="字符串数组"):
+        parse_override_value(raw_value="[1,2]", value_kind="string_list", field_label="f")
+    with pytest.raises(ValueError, match="JSON"):
+        parse_override_value(raw_value="{broken", value_kind="json", field_label="f")
+    # NaN/Infinity 不是标准 JSON，拒绝而非生成非法请求体。
+    with pytest.raises(ValueError, match="NaN"):
+        parse_override_value(raw_value="NaN", value_kind="number", field_label="f")
+    with pytest.raises(ValueError, match="Infinity"):
+        parse_override_value(raw_value="Infinity", value_kind="number", field_label="f")
+    # 1e999 会解析为 inf 而不触发 parse_constant，必须在数值校验中拒绝。
+    with pytest.raises(ValueError, match="有限"):
+        parse_override_value(raw_value="1e999", value_kind="number", field_label="f")
+    with pytest.raises(ValueError, match="有限"):
+        parse_override_value(raw_value='{"x": 1e999}', value_kind="json", field_label="f")
 
 
-def test_rejected_paths_include_provider_capability_and_path() -> None:
-    request = _request(model_extra_params={"headers": {"Authorization": "secret"}})
-
-    with pytest.raises(
-        ValueError,
-        match="Test Provider.*response.*headers.Authorization",
-    ):
-        resolve_request_parameter_policy(
-            request,
-            policy=ParameterPolicy(rejected_paths=("headers.Authorization",)),
-            provider_label="Test Provider",
-            capability="response",
-        )
-
-
-def test_defaults_are_low_priority_and_overrides_are_high_priority() -> None:
-    request = _request(model_extra_params={"top_p": 0.8, "body": {"reasoning": {"effort": "high"}}})
-
-    resolved = resolve_request_parameter_policy(
-        request,
-        policy=ParameterPolicy(
-            default_params={"top_p": 0.3, "seed": 1},
-            override_params={"top_p": 0.5, "body": {"reasoning": {"effort": "low"}}},
-        ),
-        provider_label="Test Provider",
-        capability="response",
-        direct_body_keys={"top_p", "seed"},
-    ).extra_params
-
-    assert resolved == {
-        "top_p": 0.5,
-        "seed": 1,
-        "body": {"reasoning": {"effort": "low"}},
-    }
-
-
-def test_catalog_field_controls_drop_and_override_host_params() -> None:
+def test_build_parameter_overrides_rejects_unknown_catalog_fields() -> None:
     catalog = get_parameter_catalog("openai_responses", "response")
-    top_p = catalog.field_by_safe_key("top_p")
-    reasoning = catalog.field_by_safe_key("reasoning")
-    assert top_p is not None
-    assert reasoning is not None
     config = MaiDockConfig.model_validate(
         {
             "openai_responses": {
                 "response": {
-                    "fields": {
-                        field_enabled_key(reasoning): False,
-                        field_override_enabled_key(top_p): True,
-                        field_override_value_key(top_p): "0.45",
+                    "overrides": {
+                        "temperature": "0.4",
+                        "store": "true",
+                        "unknown_future_key": "1",
                     }
                 }
             }
         }
     )
-    request = _request(model_extra_params={"top_p": 0.9, "reasoning": {"effort": "high"}})
-    policy = build_runtime_options(config).parameter_policies.get("openai_responses", "response")
+    with pytest.raises(ValueError, match=r"openai_responses.*response.*unknown_future_key"):
+        build_parameter_overrides(config.openai_responses.response, catalog)
 
-    from src.providers.common.parameter_translation import (
-        build_normalized_host_parameters,
+
+def test_normalized_host_parameters_ignore_extra_params() -> None:
+    """两级 extra_params 即使含冲突或非法值也完全无效。"""
+
+    request = _request(
+        temperature=0.7,
+        max_tokens=128,
+        model_extra_params={"temperature": 0.1, "top_p": "not-a-number"},
+        request_extra_params={"temperature": 999, "body": {"top_p": [1, 2]}},
     )
-
+    catalog = get_parameter_catalog("openai_responses", "response")
     normalized = build_normalized_host_parameters(
         request,
-        policy=policy,
+        overrides=ParameterOverrideSet(),
         catalog=catalog,
         provider_label="OpenAI Responses",
         capability="response",
     )
-
-    # reasoning field disabled → dropped from normalized
-    assert "reasoning" not in normalized.fields
-    # top_p override not applied at normalized level (happens at transport level)
-    assert normalized.fields["top_p"] == 0.9
-    assert normalized.sources["top_p"] == "model_info.extra_params.top_p"
+    assert normalized.fields == {"temperature": 0.7, "max_tokens": 128}
+    assert normalized.sources["temperature"] == "request.temperature"
 
 
-def test_unknown_extra_params_drop_reject_and_override_passthrough() -> None:
-    request = _request(model_extra_params={"future_host_param": True})
-
-    dropped = resolve_request_parameter_policy(
+def test_normalized_host_parameters_none_fields_are_not_injected() -> None:
+    request = _request(temperature=None, max_tokens=None)
+    catalog = get_parameter_catalog("openai_responses", "response")
+    normalized = build_normalized_host_parameters(
         request,
-        policy=ParameterPolicy(unknown_extra_params="drop", override_params={"future_config_param": "ok"}),
-        provider_label="Test Provider",
-        capability="response",
-        direct_body_keys={"top_p"},
-    ).extra_params
-    assert dropped == {"future_config_param": "ok"}
-
-    with pytest.raises(ValueError, match="future_host_param"):
-        resolve_request_parameter_policy(
-            request,
-            policy=ParameterPolicy(unknown_extra_params="reject"),
-            provider_label="Test Provider",
-            capability="response",
-            direct_body_keys={"top_p"},
-        )
-
-
-def test_final_transport_policy_removes_and_overrides_body_headers_query() -> None:
-    transport = apply_transport_parameter_policy(
-        body={
-            "temperature": 0.3,
-            "parameters": {"enable_thinking": True, "top_p": 0.9},
-        },
-        headers={"X-Debug": "1"},
-        query={"debug": True},
-        policy=ParameterPolicy(
-            disabled_paths=(
-                "body.temperature",
-                "body.parameters.enable_thinking",
-                "headers.X-Debug",
-            ),
-            override_params={
-                "body": {"temperature": 0.2},
-                "headers": {"X-Forced": "yes"},
-                "query": {"trace": "on"},
-            },
-        ),
-        provider_label="Test Provider",
+        overrides=ParameterOverrideSet(),
+        catalog=catalog,
+        provider_label="OpenAI Responses",
         capability="response",
     )
-
-    assert transport.body == {"parameters": {"top_p": 0.9}, "temperature": 0.2}
-    assert transport.headers == {"X-Forced": "yes"}
-    assert transport.query == {"debug": True, "trace": "on"}
+    assert normalized.fields == {}
 
 
-def test_final_transport_policy_rejects_non_string_header_overrides() -> None:
-    with pytest.raises(
-        TypeError,
-        match="parameter_policy.override_params.headers.X-Number",
-    ):
-        apply_transport_parameter_policy(
-            body={},
-            headers={},
-            query={},
-            policy=ParameterPolicy(override_params={"headers": {"X-Number": 1}}),
-            provider_label="Test Provider",
-            capability="response",
-        )
+def test_overrides_override_host_typed_fields() -> None:
+    request = _request(temperature=0.7, max_tokens=128)
+    catalog = get_parameter_catalog("openai_responses", "response")
+    normalized = build_normalized_host_parameters(
+        request,
+        overrides=ParameterOverrideSet(values={"temperature": 0.2, "max_tokens": 512}),
+        catalog=catalog,
+        provider_label="OpenAI Responses",
+        capability="response",
+    )
+    # 覆写值在 normalized.fields 中排在 Host 类型字段之后（后写覆盖）。
+    assert normalized.fields["temperature"] == 0.2
+    assert normalized.fields["max_tokens"] == 512
+    assert normalized.sources["temperature"] == "overrides.temperature"
+
+
+def test_runtime_options_build_override_registry() -> None:
+    config = MaiDockConfig.model_validate(
+        {"dashscope": {"chat_completion": {"overrides": {"result_format": "message", "enable_search": "true"}}}}
+    )
+    options = build_runtime_options(config)
+    registry = options.parameter_overrides
+    assert isinstance(registry, ParameterOverrideRegistry)
+    dashscope_chat = registry.get("dashscope", "chat_completion")
+    assert dashscope_chat.values == {"result_format": "message", "enable_search": True}
+    # 未配置的能力保持空覆写。
+    assert registry.get("openai_responses", "response").values == {}

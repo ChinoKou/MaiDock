@@ -15,18 +15,15 @@ from src.core.common import (
     build_usage_from_snapshot,
     image_data_url,
     image_media_type,
-    merge_extra_params,
     message_text,
     normalize_auth_type,
     normalize_base_url,
-    pop_json_object,
     read_api_key,
     read_model_identifier,
     read_timeout,
     require_string_dict,
     resolve_max_retries,
     resolve_retry_interval,
-    split_request_overrides,
     with_default_user_agent,
 )
 from src.schemas import (
@@ -35,7 +32,6 @@ from src.schemas import (
     MessagePartImage,
     MessageSnapshot,
     ModelInfoSnapshot,
-    ObjectFields,
     ResponseRequestSnapshot,
 )
 from src.schemas.provider_contracts import ProviderUsage
@@ -183,29 +179,26 @@ def test_retry_resolution_obeys_force_and_fallback_precedence(
     ) == float(expected if expected != 3 or config == 3 else 3)
 
 
-def test_extra_params_merge_split_and_pop_boundaries() -> None:
-    request = ResponseRequestSnapshot(
-        model_info=ModelInfoSnapshot(extra_params=ObjectFields(fields={"shared": "model", "none": None, "model": 1})),
-        extra_params=ObjectFields(fields={"shared": "request", "request": True}),
-    )
-    assert merge_extra_params(request) == {"shared": "request", "model": 1, "request": True}
-
-    overrides = split_request_overrides(
+@pytest.mark.parametrize(
+    "extra_params",
+    [
+        pytest.param({"temperature": 999, "tools": ["unexpected"]}, id="object"),
+        pytest.param("unexpected", id="string"),
+        pytest.param(["unexpected"], id="list"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_extra_params_are_ignored_at_snapshot_boundary(extra_params: object) -> None:
+    request = ResponseRequestSnapshot.model_validate(
         {
-            "headers": {"X-Test": "yes"},
-            "query": {"version": 1},
-            "body": {"nested": True},
-            "temperature": 0.5,
-            "reserved": "ignored",
-        },
-        direct_body_keys={"temperature"},
-        reserved_body_keys={"reserved"},
+            "model_info": {"model_identifier": "test", "extra_params": extra_params},
+            "extra_params": extra_params,
+        }
     )
-    assert overrides.extra_headers == {"X-Test": "yes"}
-    assert overrides.extra_query == {"version": 1}
-    assert overrides.extra_body == {"nested": True}
-    assert overrides.direct_params == {"temperature": 0.5}
-    assert pop_json_object({}, "missing") == {}
+
+    dumped = request.model_dump(mode="python")
+    assert "extra_params" not in dumped
+    assert "extra_params" not in dumped["model_info"]
 
 
 def test_message_and_media_helpers() -> None:

@@ -1,6 +1,7 @@
 """Responses SSE 流式累积与终止条件单元测试。"""
 
-from src.providers.responses_family.streaming import (
+from tests.support.assertions import json_list_at
+from src.host_adapters.responses_family.streaming import (
     ResponsesStreamAccumulator,
     ResponsesToolCallChunk,
     _event_key,
@@ -140,7 +141,7 @@ class TestResponsesStreamAccumulator:
         assert payload["model"] == "gpt-4"
         assert payload["status"] == "completed"
         assert payload["output_text"] == "Hello world"
-        assert len(payload["output"]) == 3  # text + reasoning + tool
+        assert len(json_list_at(payload, "output")) == 3  # text + reasoning + tool
         assert payload["usage"] == {
             "input_tokens": 10,
             "output_tokens": 5,

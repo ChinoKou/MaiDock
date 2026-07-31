@@ -3,7 +3,7 @@
   "id": "chinokou.maidock",
   "version": "1.1.3",
   "name": "MaiDock",
-  "description": "为 MaiBot 提供额外的 OpenAI Responses、Anthropic Messages、阿里云百炼 DashScope、硅基流动 与 火山方舟 Responses 等端点支持与高级参数控制功能。",
+  "description": "为 MaiBot 提供额外的 OpenAI Responses、Anthropic Messages、阿里云百炼 DashScope/Responses、硅基流动 与 火山方舟 Responses 等端点支持与参数覆写功能。",
   "author": {
     "name": "ChinoKou",
     "url": "https://github.com/ChinoKou"
@@ -62,6 +62,12 @@
       "client_type": "maidock-dashscope",
       "name": "MaiDock 阿里云百炼 DashScope",
       "description": "基于阿里云百炼 DashScope API 的 LLM Provider。",
+      "version": "1.0.0"
+    },
+    {
+      "client_type": "maidock-bailian-responses",
+      "name": "MaiDock 阿里云百炼 Responses",
+      "description": "基于阿里云百炼 OpenAI Responses API 的 LLM Provider。",
       "version": "1.0.0"
     },
     {

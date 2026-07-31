@@ -8,9 +8,10 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
+from src.config import MaiDockConfig, build_runtime_options
 from src.core.common import InvalidImagePolicy, ProviderRuntimeOptions
 from src.core.json_types import JsonValue
-from src.providers.anthropic_messages_provider.messages import (
+from src.host_adapters.anthropic_messages_provider.messages import (
     build_client_config,
     build_http_body,
     build_request,
@@ -18,16 +19,17 @@ from src.providers.anthropic_messages_provider.messages import (
     convert_response,
     extract_system,
 )
-from src.providers.anthropic_messages_provider.multimodal import (
+from src.host_adapters.anthropic_messages_provider.multimodal import (
     anthropic_image_media_type,
     convert_content_blocks,
     convert_image_block,
 )
-from src.providers.anthropic_messages_provider.parameter_translation import (
+from src.host_adapters.anthropic_messages_provider.parameter_translation import (
     reject_anthropic_response_format_params,
 )
-from src.providers.anthropic_messages_provider.provider import AnthropicMessagesProvider
-from src.providers.anthropic_messages_provider.tools import (
+from tests.support.assertions import json_str_at
+from tests.support.host_adapters import AnthropicMessagesProvider
+from src.host_adapters.anthropic_messages_provider.tools import (
     build_default_tool_choice,
     convert_assistant_tool_calls,
     convert_tools,
@@ -252,21 +254,27 @@ def test_build_request_and_body_maps_all_anthropic_parameters_and_transport_root
             {"role": "user", "parts": [{"type": "text", "text": "问题"}]},
         ],
         tools=[_tool_definition()],
-        request_extra={
-            "top_p": 0.8,
-            "top_k": 20,
-            "thinking": {"type": "enabled", "budget_tokens": 1024},
-            "tool_choice": {"type": "tool", "name": "lookup", "disable_parallel_tool_use": False},
-            "stop_sequences": ["STOP"],
-            "metadata": {"user_id": "u-1"},
-            "service_tier": "auto",
-            "headers": {"anthropic-beta": "tools-2024"},
-            "query": {"trace": True, "sample": 2},
-        },
         temperature=0.4,
         max_tokens=512,
     )
-    options = ProviderRuntimeOptions()
+    config = MaiDockConfig.model_validate(
+        {
+            "anthropic_messages": {
+                "chat_completion": {
+                    "overrides": {
+                        "top_p": "0.8",
+                        "top_k": "20",
+                        "thinking": '{"type":"enabled","budget_tokens":1024}',
+                        "tool_choice": '{"type":"tool","name":"lookup","disable_parallel_tool_use":false}',
+                        "stop_sequences": '["STOP"]',
+                        "metadata": '{"user_id":"u-1"}',
+                        "service_tier": "auto",
+                    }
+                }
+            }
+        }
+    )
+    options = build_runtime_options(config)
 
     upstream = build_request(request, options=options, logger=LOGGER)
     body = build_http_body(upstream, options=options, stream=True)
@@ -293,8 +301,8 @@ def test_build_request_and_body_maps_all_anthropic_parameters_and_transport_root
         "metadata": {"user_id": "u-1"},
         "service_tier": "auto",
     }
-    assert upstream.extra_headers == {"anthropic-beta": "tools-2024"}
-    assert upstream.extra_query == {"trace": True, "sample": 2}
+    assert upstream.extra_headers == {}
+    assert upstream.extra_query == {}
 
 
 def test_build_request_without_tools_has_no_tool_choice_and_uses_empty_user_message() -> None:
@@ -320,18 +328,6 @@ def test_build_http_body_requires_normalized_parameters() -> None:
     "response_request",
     [
         pytest.param(_response_snapshot(response_format={"format_type": "json_object"}), id="typed"),
-        pytest.param(_response_snapshot(model_extra={"response_format": {"type": "json_object"}}), id="model-extra"),
-        pytest.param(
-            _response_snapshot(model_extra={"body": {"response_format": {"type": "json_object"}}}),
-            id="model-nested-body",
-        ),
-        pytest.param(
-            _response_snapshot(request_extra={"response_format": {"type": "json_object"}}), id="request-extra"
-        ),
-        pytest.param(
-            _response_snapshot(request_extra={"body": {"response_format": {"type": "json_object"}}}),
-            id="request-nested-body",
-        ),
     ],
 )
 def test_response_format_rejection_helper_covers_all_host_entry_points(
@@ -345,18 +341,6 @@ def test_response_format_rejection_helper_covers_all_host_entry_points(
     "response_request",
     [
         pytest.param(_response_snapshot(response_format={"format_type": "json_object"}), id="typed"),
-        pytest.param(_response_snapshot(model_extra={"response_format": {"type": "json_object"}}), id="model-extra"),
-        pytest.param(
-            _response_snapshot(model_extra={"body": {"response_format": {"type": "json_object"}}}),
-            id="model-nested-body",
-        ),
-        pytest.param(
-            _response_snapshot(request_extra={"response_format": {"type": "json_object"}}), id="request-extra"
-        ),
-        pytest.param(
-            _response_snapshot(request_extra={"body": {"response_format": {"type": "json_object"}}}),
-            id="request-nested-body",
-        ),
     ],
 )
 def test_provider_request_build_rejects_unsupported_response_format(
@@ -656,7 +640,7 @@ def test_convert_response_combines_all_blocks_usage_and_raw_data() -> None:
     assert result.tool_calls[0].to_host_dict() == {
         "id": "tool-1",
         "function": {"name": "lookup", "arguments": {"q": "杭州"}},
-        "extra_content": {"provider": "anthropic_messages"},
+        "extra_content": {"provider": "anthropic_messages", "tool_call_source": "reasoning"},
     }
     assert result.usage.to_host_dict() == {
         "prompt_tokens": 10,
@@ -730,6 +714,7 @@ def test_convert_response_falls_back_to_think_tags_and_xml_tools() -> None:
     assert result.tool_calls[0].id.startswith("xml_tool_call_")
     assert result.tool_calls[0].function.name == "lookup"
     assert result.tool_calls[0].function.arguments == {"q": "杭州"}
+    assert result.tool_calls[0].extra_content["tool_call_source"] == "response"
 
 
 def test_convert_response_reasoning_none_preserves_text_tags_and_drops_native_reasoning() -> None:
@@ -872,7 +857,7 @@ async def test_anthropic_stream_handles_real_event_shapes_and_compatibility_usag
         {
             "id": "tool-1",
             "function": {"name": "lookup", "arguments": {"q": "杭州"}},
-            "extra_content": {"provider": "anthropic_messages"},
+            "extra_content": {"provider": "anthropic_messages", "tool_call_source": "reasoning"},
         }
     ]
     assert result["usage"] == {
@@ -882,7 +867,7 @@ async def test_anthropic_stream_handles_real_event_shapes_and_compatibility_usag
         "prompt_cache_hit_tokens": 0,
         "prompt_cache_miss_tokens": 0,
     }
-    assert result["raw_data"]["stop_reason"] == "tool_use"
+    assert json_str_at(result, "raw_data", "stop_reason") == "tool_use"
 
 
 @pytest.mark.asyncio

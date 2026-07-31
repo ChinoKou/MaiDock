@@ -46,19 +46,8 @@ def _write_pairs(lines: list[str], path: str, pairs: list[tuple[str, JsonValue]]
 def _provider_base_pairs(
     raw: Mapping[str, JsonValue], capability_order: tuple[str, ...]
 ) -> list[tuple[str, JsonValue]]:
-    sub_sections = set(capability_order) | {
-        "fields",
-        "default_params",
-        "override_params",
-    }
+    sub_sections = set(capability_order)
     return [(str(k), v) for k, v in raw.items() if k not in sub_sections]
-
-
-def _capability_policy_pairs(
-    raw: Mapping[str, JsonValue],
-) -> list[tuple[str, JsonValue]]:
-    sub_keys = {"fields", "default_params", "override_params"}
-    return [(str(k), v) for k, v in raw.items() if k not in sub_keys]
 
 
 def generate_config_toml() -> str:
@@ -68,6 +57,7 @@ def generate_config_toml() -> str:
     from src.config import normalize_maidock_config_data
     from src.core.json_types import json_mapping_or_none, mapping_to_json_object
     from src.core.parameter_catalog import _CAPABILITY_ORDER, _PROVIDER_ORDER
+    from src.public_api.providers import PUBLIC_API_CONFIG_CATALOG
     from src.version import __version__
 
     normalized, _ = normalize_maidock_config_data({})
@@ -85,6 +75,30 @@ def generate_config_toml() -> str:
     )
     lines.append("")
 
+    public_api = mapping_to_json_object(json_mapping_or_none(normalized.get("public_api")) or {})
+    # 供应商小节按贡献目录动态展开，而不是写死名字：漏掉一家的后果不是少一个小节，
+    # 而是它会以 `name = ""` 的形式泄漏进 [public_api] 顶层，生成出无法解析的配置。
+    vendor_keys = tuple(
+        contribution.config_path.removeprefix("public_api.") for contribution in PUBLIC_API_CONFIG_CATALOG
+    )
+    nested_keys = {"resources", *vendor_keys}
+    _write_pairs(
+        lines,
+        "public_api",
+        [(str(key), value) for key, value in public_api.items() if key not in nested_keys],
+    )
+    lines.append("")
+    _write_section(
+        lines,
+        "public_api.resources",
+        mapping_to_json_object(json_mapping_or_none(public_api.get("resources")) or {}),
+    )
+    lines.append("")
+    for vendor_key in vendor_keys:
+        vendor_section = mapping_to_json_object(json_mapping_or_none(public_api.get(vendor_key)) or {})
+        _write_section(lines, f"public_api.{vendor_key}", vendor_section)
+        lines.append("")
+
     for provider in _PROVIDER_ORDER:
         provider_raw = mapping_to_json_object(json_mapping_or_none(normalized.get(provider)) or {})
         _write_pairs(lines, provider, _provider_base_pairs(provider_raw, _CAPABILITY_ORDER))
@@ -95,16 +109,14 @@ def generate_config_toml() -> str:
             if not cap_raw:
                 continue
             cap_path = f"{provider}.{capability}"
-            _write_pairs(lines, cap_path, _capability_policy_pairs(cap_raw))
+            overrides_raw = mapping_to_json_object(json_mapping_or_none(cap_raw.get("overrides")) or {})
+            _write_pairs(
+                lines,
+                cap_path,
+                [(str(k), v) for k, v in cap_raw.items() if k != "overrides"],
+            )
             lines.append("")
-
-            fields_raw = mapping_to_json_object(json_mapping_or_none(cap_raw.get("fields")) or {})
-            _write_section(lines, f"{cap_path}.fields", fields_raw)
-            lines.append("")
-
-            lines.append(f"[{cap_path}.default_params]")
-            lines.append("")
-            lines.append(f"[{cap_path}.override_params]")
+            _write_section(lines, f"{cap_path}.overrides", overrides_raw)
             lines.append("")
 
     compatibility = mapping_to_json_object(json_mapping_or_none(normalized.get("compatibility")) or {})

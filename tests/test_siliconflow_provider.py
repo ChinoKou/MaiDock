@@ -1,23 +1,36 @@
 import base64
 import json
+from dataclasses import replace
 from typing import cast
 
 import httpx
 import pytest
 
+from src.config import MaiDockConfig, build_runtime_options
 from src.core.common import ProviderRuntimeOptions
-from src.core.parameter_policy import (
-    ParameterPolicy,
-    ParameterPolicyRegistry,
-    ProviderCapabilityPolicies,
-)
-from src.providers.siliconflow_provider.chat import (
+from src.host_adapters.siliconflow_provider.chat import (
     SILICONFLOW_CHAT_COMPLETIONS_ENDPOINT,
 )
-from src.providers.siliconflow_provider.embeddings import (
+from src.host_adapters.siliconflow_provider.embeddings import (
     SILICONFLOW_EMBEDDINGS_ENDPOINT,
 )
-from src.providers.siliconflow_provider.provider import SiliconFlowProvider
+from tests.support.host_adapters import SiliconFlowProvider
+
+
+def _overrides_options(
+    provider: str,
+    capability: str,
+    overrides: dict,
+    *,
+    include_raw_data: bool = False,
+) -> ProviderRuntimeOptions:
+    """构造带指定覆写目录的运行时选项。"""
+
+    config = MaiDockConfig.model_validate({provider: {capability: {"overrides": overrides}}})
+    options = build_runtime_options(config)
+    if include_raw_data:
+        return replace(options, include_raw_data=True)
+    return options
 
 
 def _api_provider(*, base_url: str | None = "https://api.siliconflow.cn/v1") -> dict:
@@ -179,7 +192,8 @@ async def test_siliconflow_non_stream_response_posts_chat_completions_body_and_p
     assert body["stream"] is False
     assert body["temperature"] == 0.2
     assert body["max_tokens"] == 64
-    assert body["top_p"] == 0.9
+    # extra_params 完全无效：top_p 不会进入请求体。
+    assert "top_p" not in body
     assert body["response_format"] == {
         "type": "json_schema",
         "json_schema": {
@@ -214,11 +228,39 @@ async def test_siliconflow_non_stream_response_posts_chat_completions_body_and_p
     assert first_tool_call["extra_content"] == {
         "provider": "siliconflow",
         "siliconflow": {"raw_arguments": '{"q":"x"}'},
+        "tool_call_source": "reasoning",
     }
     usage = _as_mapping(result["usage"])
     assert usage["total_tokens"] == 7
     raw_data = _as_mapping(result["raw_data"])
     assert raw_data["id"] == "chatcmpl_1"
+
+
+@pytest.mark.asyncio
+async def test_siliconflow_tools_override_appends_after_host_function_tools() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(cast(dict, json.loads(request.content.decode("utf-8"))))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}},
+        )
+
+    provider = SiliconFlowProvider(
+        options=_overrides_options(
+            "siliconflow",
+            "chat_completion",
+            {"tools": '[{"type":"vendor_native","name":"native"}]'},
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(_response_request())
+
+    tools = _as_list(captured_body[0]["tools"])
+    assert _as_mapping(tools[0])["function"]["name"] == "lookup"
+    assert tools[1] == {"type": "vendor_native", "name": "native"}
 
 
 @pytest.mark.asyncio
@@ -282,6 +324,7 @@ async def test_siliconflow_stream_accumulates_delta_reasoning_and_tool_calls() -
     first_tool_call = _as_mapping(tool_calls[0])
     assert first_tool_call["id"] == "call_1"
     assert first_tool_call["function"] == {"name": "lookup", "arguments": {"q": "x"}}
+    assert _as_mapping(first_tool_call["extra_content"])["tool_call_source"] == "reasoning"
     usage = _as_mapping(result["usage"])
     assert usage["total_tokens"] == 3
 
@@ -354,17 +397,15 @@ async def test_siliconflow_embedding_posts_to_embeddings_and_qwen_dimensions_onl
         )
 
     provider = SiliconFlowProvider(
-        options=ProviderRuntimeOptions(include_raw_data=True),
+        options=_overrides_options("siliconflow", "embeddings", {"dimensions": "1024"}, include_raw_data=True),
         transport=httpx.MockTransport(handler),
     )
 
-    qwen_result = await provider.get_embedding(
-        _embedding_request("Qwen/Qwen3-Embedding-8B", extra_params={"dimensions": 1024})
-    )
+    qwen_result = await provider.get_embedding(_embedding_request("Qwen/Qwen3-Embedding-8B"))
 
     # Non-Qwen models should raise an explicit error when dimensions is requested
     with pytest.raises(ValueError, match="dimensions"):
-        await provider.get_embedding(_embedding_request("BAAI/bge-m3", extra_params={"dimensions": 1024}))
+        await provider.get_embedding(_embedding_request("BAAI/bge-m3"))
 
     assert captured_path == ["/v1/" + SILICONFLOW_EMBEDDINGS_ENDPOINT]
     assert captured_body[0] == {
@@ -432,7 +473,7 @@ async def test_siliconflow_embedding_force_official_endpoint_false_uses_host_bas
 
 
 @pytest.mark.asyncio
-async def test_siliconflow_embedding_policy_drops_dimensions_and_forces_encoding_format() -> None:
+async def test_siliconflow_embedding_override_replaces_encoding_format() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -441,27 +482,17 @@ async def test_siliconflow_embedding_policy_drops_dimensions_and_forces_encoding
         captured_body.append(cast(dict, body))
         return httpx.Response(200, json={"data": [{"embedding": [1, "2.5"]}], "usage": {}})
 
-    policies = ParameterPolicyRegistry(
-        siliconflow=ProviderCapabilityPolicies(
-            embeddings=ParameterPolicy(
-                disabled_paths=("dimensions",),
-                override_params={"body": {"encoding_format": "float"}},
-            )
-        )
-    )
     provider = SiliconFlowProvider(
-        options=ProviderRuntimeOptions(parameter_policies=policies),
+        options=_overrides_options("siliconflow", "embeddings", {"encoding_format": "base64"}),
         transport=httpx.MockTransport(handler),
     )
 
     result = await provider.get_embedding(
-        _embedding_request(
-            "Qwen/Qwen3-Embedding-8B",
-            extra_params={"dimensions": 1024, "encoding_format": "float"},
-        )
+        _embedding_request("Qwen/Qwen3-Embedding-8B", extra_params={"dimensions": 1024}),
     )
 
-    assert captured_body[0]["encoding_format"] == "float"
+    # 覆写 encoding_format 覆盖默认 float；extra_params.dimensions 完全无效。
+    assert captured_body[0]["encoding_format"] == "base64"
     assert "dimensions" not in captured_body[0]
     assert result["embedding"] == [1.0, 2.5]
 
@@ -488,8 +519,8 @@ async def test_siliconflow_audio_transcription_posts_multipart_and_parses_text()
 
 
 @pytest.mark.asyncio
-async def test_siliconflow_audio_transcription_forwards_extra_params() -> None:
-    """language 等 extra_params 应作为 form field 转发"""
+async def test_siliconflow_audio_transcription_ignores_extra_params() -> None:
+    """模型级 extra_params 不进入 multipart form。"""
     captured_request: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -508,10 +539,12 @@ async def test_siliconflow_audio_transcription_forwards_extra_params() -> None:
         }
     )
     assert result["content"] == "transcribed"
+    assert b'name="language"' not in captured_request[0].content
+    assert b'name="temperature"' not in captured_request[0].content
 
 
 def test_siliconflow_audio_form_field_value_encodes_types() -> None:
-    from src.providers.siliconflow_provider.audio_transcriptions import (
+    from src.host_adapters.siliconflow_provider.audio_transcriptions import (
         _form_field_value,
     )
 
@@ -525,26 +558,23 @@ def test_siliconflow_audio_form_field_value_encodes_types() -> None:
 
 
 @pytest.mark.asyncio
-async def test_siliconflow_audio_transcription_builder_pipeline_respects_policy() -> None:
-    """builder 通过 pipeline 将 model_info extra_params 注入 form_data，并尊重 policy"""
+async def test_siliconflow_audio_transcription_builder_pipeline_injects_overrides() -> None:
+    """builder 通过 pipeline 将覆写目录注入 form_data。"""
     captured_form: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         captured_form.append({"content_type": request.headers.get("Content-Type", "")})
         return httpx.Response(200, json={"text": "ok"})
 
-    from src.config import MaiDockConfig, build_parameter_policies
-
-    config = MaiDockConfig()
-    policies = build_parameter_policies(config)
-    options = ProviderRuntimeOptions(parameter_policies=policies)
+    options = _overrides_options(
+        "siliconflow",
+        "audio_transcription",
+        {"language": "ja", "temperature": "0.3"},
+    )
     provider = SiliconFlowProvider(options=options, transport=httpx.MockTransport(handler))
     result = await provider.get_audio_transcriptions(
         {
-            "model_info": {
-                "model_identifier": "whisper-1",
-                "extra_params": {"language": "ja", "temperature": 0.3},
-            },
+            "model_info": {"model_identifier": "whisper-1"},
             "api_provider": _api_provider(),
             "audio_base64": base64.b64encode(b"fake-audio-data").decode(),
         }

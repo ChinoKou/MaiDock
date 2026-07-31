@@ -10,20 +10,20 @@ type ParameterFieldLocation = Literal["body", "headers", "query"]
 
 @dataclass(frozen=True, slots=True)
 class ParameterFieldDefinition:
-    """Provider 目标字段定义，用于 UI 控制和参数转译。"""
+    """Provider 目标字段定义，用于 UI 覆写框和参数转译。"""
 
     key: str
     label: str
     description: str
     target_path: tuple[str, ...]
     value_kind: ParameterValueKind = "json"
-    source_aliases: tuple[str, ...] = ()
-    config_key_name: str = ""
+    default_text: str = ""
+    constraints: str = ""
     order: int = 0
 
     @property
     def config_key(self) -> str:
-        return safe_parameter_key(self.config_key_name or ".".join(self.target_path))
+        return safe_parameter_key(self.key)
 
     @property
     def safe_key(self) -> str:
@@ -38,18 +38,6 @@ class ParameterFieldDefinition:
             return "query"
         return "body"
 
-    @property
-    def disable_paths(self) -> tuple[str, ...]:
-        return (dotted_path(self.target_path),)
-
-    @property
-    def override_path(self) -> tuple[str, ...]:
-        return self.target_path
-
-    @property
-    def accepted_source_keys(self) -> frozenset[str]:
-        return frozenset((self.key, *self.source_aliases))
-
 
 @dataclass(frozen=True, slots=True)
 class CapabilityParameterCatalog:
@@ -59,33 +47,25 @@ class CapabilityParameterCatalog:
     capability: CapabilityKey
     title: str
     fields: tuple[ParameterFieldDefinition, ...]
-    direct_body_keys: frozenset[str] = frozenset()
+    documentation_url: str = ""
     reserved_body_keys: frozenset[str] = frozenset()
 
-    def field_by_safe_key(self, safe_key: str) -> ParameterFieldDefinition | None:
-        normalized = safe_parameter_key(safe_key)
+    def field_by_key(self, key: str) -> ParameterFieldDefinition | None:
+        normalized = safe_parameter_key(key)
         for field in self.fields:
-            if field.config_key == normalized:
+            if field.key == key or safe_parameter_key(field.key) == normalized:
                 return field
-            if safe_parameter_key(field.key) == normalized:
-                return field
-            for alias in field.source_aliases:
-                if safe_parameter_key(alias) == normalized:
-                    return field
         return None
 
-    def source_alias_map(self) -> dict[str, str]:
-        aliases: dict[str, str] = {}
-        for field in self.fields:
-            for source_key in field.accepted_source_keys:
-                aliases[source_key] = field.key
-        return aliases
+    def field_by_safe_key(self, safe_key: str) -> ParameterFieldDefinition | None:
+        return self.field_by_key(safe_key)
 
 
 _PROVIDER_ORDER: tuple[ProviderPolicyKey, ...] = (
     "openai_responses",
     "anthropic_messages",
     "dashscope",
+    "bailian_responses",
     "siliconflow",
     "volcengine_ark",
     "xiaomi_mimo",
@@ -95,13 +75,13 @@ _CAPABILITY_ORDER: tuple[CapabilityKey, ...] = (
     "chat_completion",
     "embeddings",
     "audio_transcription",
-    "image_generation",
 )
 
 PROVIDER_TITLES: dict[ProviderPolicyKey, str] = {
     "openai_responses": "OpenAI Responses",
     "anthropic_messages": "Anthropic Messages",
     "dashscope": "阿里云百炼 DashScope",
+    "bailian_responses": "阿里云百炼 Responses",
     "siliconflow": "SiliconFlow",
     "volcengine_ark": "Volcengine Ark",
     "xiaomi_mimo": "Xiaomi Mimo",
@@ -112,7 +92,6 @@ CAPABILITY_TITLES: dict[CapabilityKey, str] = {
     "chat_completion": "文本生成",
     "embeddings": "Embeddings",
     "audio_transcription": "语音转录",
-    "image_generation": "图像生成",
 }
 
 
@@ -133,18 +112,6 @@ def safe_parameter_key(key: str) -> str:
     return safe_key or "param"
 
 
-def field_enabled_key(field: ParameterFieldDefinition) -> str:
-    return f"{field.config_key}_enabled"
-
-
-def field_override_enabled_key(field: ParameterFieldDefinition) -> str:
-    return f"{field.config_key}_override_enabled"
-
-
-def field_override_value_key(field: ParameterFieldDefinition) -> str:
-    return f"{field.config_key}_override_value"
-
-
 def dotted_path(path: tuple[str, ...]) -> str:
     return ".".join(path)
 
@@ -159,8 +126,8 @@ def _field(
     *,
     value_kind: ParameterValueKind = "json",
     description: str = "",
-    source_aliases: tuple[str, ...] = (),
-    config_key_name: str = "",
+    default_text: str = "",
+    constraints: str = "",
     order: int = 0,
     ui_label: str = "",
 ) -> ParameterFieldDefinition:
@@ -177,8 +144,16 @@ def _field(
         description=description or f"Provider API 目标字段 {label}",
         target_path=path,
         value_kind=value_kind,
-        source_aliases=source_aliases,
-        config_key_name=config_key_name,
+        default_text=default_text,
+        constraints=constraints
+        or {
+            "temperature": "finite",
+            "top_p": "0..1",
+            "max_tokens": "> 0",
+            "max_tool_calls": "> 0",
+            "dimensions": "> 0; model-dependent",
+            "n": "> 0",
+        }.get(key, ""),
         order=order,
     )
 
@@ -187,14 +162,7 @@ def _fields(*fields: ParameterFieldDefinition) -> tuple[ParameterFieldDefinition
     return tuple(sorted(fields, key=lambda item: item.order))
 
 
-def _accepted_keys(fields: tuple[ParameterFieldDefinition, ...], *extra_keys: str) -> frozenset[str]:
-    keys: set[str] = set(extra_keys)
-    for field in fields:
-        keys.update(field.accepted_source_keys)
-    return frozenset(keys)
-
-
-# ── OpenAI Responses ─────────────────────────────────────────
+# ── OpenAI Responses / Bailian Responses ────────────────────
 
 _RESPONSES_FIELDS = _fields(
     _field("temperature", "body.temperature", value_kind="number", order=10),
@@ -202,7 +170,6 @@ _RESPONSES_FIELDS = _fields(
         "max_tokens",
         "body.max_output_tokens",
         value_kind="integer",
-        source_aliases=("max_output_tokens",),
         order=20,
     ),
     _field(
@@ -240,16 +207,65 @@ _RESPONSES_FIELDS = _fields(
     _field("session", "body.session", order=190),
     _field("caching", "body.caching", order=200),
     _field("expire_at", "body.expire_at", value_kind="integer", order=210),
+    _field(
+        "tools",
+        "body.tools",
+        description="附加协议原生工具（如 web_search/mcp）；与 Host 工具合并发送",
+        order=220,
+    ),
 )
-_RESPONSES_DIRECT_KEYS = _accepted_keys(_RESPONSES_FIELDS, "tools")
 _RESPONSES_RESERVED_KEYS = frozenset({"input", "model", "stream"})
+
+# 百炼 Responses 只开放官方 Responses 规范中的稳定覆写参数；
+# store=false 作为可编辑默认值暴露，避免无状态 Host 链路产生远端会话存储。
+_BAILIAN_RESPONSES_FIELDS = _fields(
+    _field("temperature", "body.temperature", value_kind="number", order=10),
+    _field("max_tokens", "body.max_output_tokens", value_kind="integer", order=20),
+    _field(
+        "response_format",
+        "body.text.format",
+        description="Host response_format 转译到 Responses text.format",
+        order=30,
+    ),
+    _field("top_p", "body.top_p", value_kind="number", order=40),
+    _field("reasoning", "body.reasoning", order=50),
+    _field("text", "body.text", order=60),
+    _field("tool_choice", "body.tool_choice", order=70),
+    _field(
+        "parallel_tool_calls",
+        "body.parallel_tool_calls",
+        value_kind="boolean",
+        ui_label="并行工具调用",
+        order=80,
+    ),
+    _field("max_tool_calls", "body.max_tool_calls", value_kind="integer", order=90),
+    _field("include", "body.include", value_kind="string_list", order=100),
+    _field("instructions", "body.instructions", value_kind="string", order=110),
+    _field("metadata", "body.metadata", order=120),
+    _field(
+        "store",
+        "body.store",
+        value_kind="boolean",
+        ui_label="存储响应",
+        default_text="false",
+        description="默认关闭：无状态 Host 链路不产生远端会话存储；可显式改为 true",
+        order=130,
+    ),
+    _field("truncation", "body.truncation", value_kind="string", order=140),
+    _field("service_tier", "body.service_tier", value_kind="string", order=150),
+)
 
 _OPENAI_EMBEDDING_FIELDS = _fields(
     _field("dimensions", "body.dimensions", value_kind="integer", order=10),
-    _field("encoding_format", "body.encoding_format", value_kind="string", order=20),
+    _field(
+        "encoding_format",
+        "body.encoding_format",
+        value_kind="string",
+        default_text="float",
+        order=20,
+    ),
     _field("user", "body.user", value_kind="string", order=30),
 )
-_OPENAI_EMBEDDING_DIRECT_KEYS = _accepted_keys(_OPENAI_EMBEDDING_FIELDS)
 _OPENAI_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model"})
 
 _OPENAI_AUDIO_FIELDS = _fields(
@@ -267,7 +283,6 @@ _OPENAI_AUDIO_FIELDS = _fields(
     _field("include", "body.include", value_kind="string_list", order=70),
     _field("stream", "body.stream", value_kind="boolean", ui_label="流式输出", order=80),
 )
-_OPENAI_AUDIO_DIRECT_KEYS = _accepted_keys(_OPENAI_AUDIO_FIELDS)
 _OPENAI_AUDIO_RESERVED_KEYS = frozenset({"file", "model"})
 
 # ── Anthropic Messages ───────────────────────────────────────
@@ -283,7 +298,6 @@ _ANTHROPIC_FIELDS = _fields(
     _field("metadata", "body.metadata", order=80),
     _field("service_tier", "body.service_tier", value_kind="string", order=90),
 )
-_ANTHROPIC_DIRECT_KEYS = _accepted_keys(_ANTHROPIC_FIELDS)
 _ANTHROPIC_RESERVED_KEYS = frozenset({"messages", "model", "stream", "system", "tools"})
 
 # ── 阿里云百炼 DashScope ─────────────────────────────────────
@@ -300,7 +314,13 @@ _DASHSCOPE_CHAT_FIELDS = _fields(
     _field("thinking_budget", "body.parameters.thinking_budget", value_kind="integer", order=40),
     _field("reasoning_effort", "body.parameters.reasoning_effort", value_kind="string", order=50),
     _field("response_format", "body.parameters.response_format", order=60),
-    _field("result_format", "body.parameters.result_format", value_kind="string", order=70),
+    _field(
+        "result_format",
+        "body.parameters.result_format",
+        value_kind="string",
+        default_text="message",
+        order=70,
+    ),
     _field("top_p", "body.parameters.top_p", value_kind="number", order=80),
     _field("top_k", "body.parameters.top_k", value_kind="integer", order=90),
     _field(
@@ -385,7 +405,6 @@ _DASHSCOPE_CHAT_FIELDS = _fields(
         order=270,
     ),
 )
-_DASHSCOPE_CHAT_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_CHAT_FIELDS)
 _DASHSCOPE_CHAT_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
 
 _DASHSCOPE_EMBEDDING_FIELDS = _fields(
@@ -393,7 +412,6 @@ _DASHSCOPE_EMBEDDING_FIELDS = _fields(
         "dimensions",
         "body.parameters.dimension",
         value_kind="integer",
-        source_aliases=("dimension",),
         order=10,
     ),
     _field("output_type", "body.parameters.output_type", value_kind="string", order=30),
@@ -422,7 +440,6 @@ _DASHSCOPE_EMBEDDING_FIELDS = _fields(
     ),
     _field("res_level", "body.parameters.res_level", value_kind="integer", order=110),
 )
-_DASHSCOPE_EMBEDDING_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_EMBEDDING_FIELDS)
 _DASHSCOPE_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
 
 _DASHSCOPE_AUDIO_FIELDS = _fields(
@@ -442,7 +459,6 @@ _DASHSCOPE_AUDIO_FIELDS = _fields(
     _field("format", "body.format", value_kind="string", order=30),
     _field("audio_format", "body.audio_format", value_kind="string", order=40),
 )
-_DASHSCOPE_AUDIO_DIRECT_KEYS = _accepted_keys(_DASHSCOPE_AUDIO_FIELDS)
 _DASHSCOPE_AUDIO_RESERVED_KEYS = frozenset({"input", "model", "parameters"})
 
 # ── SiliconFlow ──────────────────────────────────────────────
@@ -460,14 +476,18 @@ _SILICONFLOW_CHAT_FIELDS = _fields(
     _field("stop", "body.stop", order=100),
     _field("n", "body.n", value_kind="integer", order=110),
 )
-_SILICONFLOW_CHAT_DIRECT_KEYS = _accepted_keys(_SILICONFLOW_CHAT_FIELDS)
 _SILICONFLOW_CHAT_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
 
 _SILICONFLOW_EMBEDDING_FIELDS = _fields(
     _field("dimensions", "body.dimensions", value_kind="integer", order=10),
-    _field("encoding_format", "body.encoding_format", value_kind="string", order=20),
+    _field(
+        "encoding_format",
+        "body.encoding_format",
+        value_kind="string",
+        default_text="float",
+        order=20,
+    ),
 )
-_SILICONFLOW_EMBEDDING_DIRECT_KEYS = _accepted_keys(_SILICONFLOW_EMBEDDING_FIELDS)
 _SILICONFLOW_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model"})
 
 _SILICONFLOW_AUDIO_FIELDS = _fields(
@@ -485,7 +505,6 @@ _SILICONFLOW_AUDIO_FIELDS = _fields(
     _field("include", "body.include", value_kind="string_list", order=70),
     _field("stream", "body.stream", value_kind="boolean", ui_label="流式输出", order=80),
 )
-_SILICONFLOW_AUDIO_DIRECT_KEYS = _accepted_keys(_SILICONFLOW_AUDIO_FIELDS)
 _SILICONFLOW_AUDIO_RESERVED_KEYS = frozenset({"file", "model"})
 
 # ── Volcengine Ark ───────────────────────────────────────────
@@ -500,9 +519,14 @@ _ARK_EMBEDDING_FIELDS = _fields(
         ui_label="稀疏向量 (type)",
         order=20,
     ),
-    _field("encoding_format", "body.encoding_format", value_kind="string", order=30),
+    _field(
+        "encoding_format",
+        "body.encoding_format",
+        value_kind="string",
+        default_text="float",
+        order=30,
+    ),
 )
-_ARK_EMBEDDING_DIRECT_KEYS = _accepted_keys(_ARK_EMBEDDING_FIELDS)
 _ARK_EMBEDDING_RESERVED_KEYS = frozenset({"input", "model"})
 
 _ARK_AUDIO_FIELDS = _fields(
@@ -510,14 +534,18 @@ _ARK_AUDIO_FIELDS = _fields(
         "max_tokens",
         "body.max_output_tokens",
         value_kind="integer",
-        source_aliases=("max_output_tokens",),
         order=10,
     ),
-    _field("prompt", "body.prompt", value_kind="string", order=20),
+    _field(
+        "prompt",
+        "body.prompt",
+        value_kind="string",
+        default_text="请识别音频中的内容，以文字形式返回识别结果。",
+        order=20,
+    ),
     _field("format", "body.format", value_kind="string", order=30),
     _field("audio_format", "body.audio_format", value_kind="string", order=40),
 )
-_ARK_AUDIO_DIRECT_KEYS = _accepted_keys(_ARK_AUDIO_FIELDS)
 _ARK_AUDIO_RESERVED_KEYS = frozenset({"input", "model", "stream"})
 
 # ── Xiaomi Mimo ──────────────────────────────────────────────
@@ -528,8 +556,6 @@ _MIMO_CHAT_FIELDS = _fields(
         "max_tokens",
         "body.max_completion_tokens",
         value_kind="integer",
-        source_aliases=("max_completion_tokens",),
-        config_key_name="body_max_tokens",
         order=20,
     ),
     _field("response_format", "body.response_format", order=30),
@@ -541,17 +567,27 @@ _MIMO_CHAT_FIELDS = _fields(
     _field("seed", "body.seed", value_kind="integer", order=90),
     _field("stop", "body.stop", order=100),
     _field("n", "body.n", value_kind="integer", order=110),
-    _field("thinking", "body.thinking", order=120),
+    _field(
+        "thinking",
+        "body.thinking",
+        default_text='{"type":"disabled"}',
+        description='Mimo thinking 对象；默认关闭思考，可改为 {"type":"enabled"}',
+        order=120,
+    ),
 )
-_MIMO_CHAT_DIRECT_KEYS = _accepted_keys(_MIMO_CHAT_FIELDS)
 _MIMO_CHAT_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
 
 _MIMO_AUDIO_FIELDS = _fields(
-    _field("language", "body.asr_options.language", value_kind="string", order=10),
+    _field(
+        "language",
+        "body.asr_options.language",
+        value_kind="string",
+        default_text="auto",
+        order=10,
+    ),
     _field("format", "body.format", value_kind="string", order=20),
     _field("audio_format", "body.audio_format", value_kind="string", order=30),
 )
-_MIMO_AUDIO_DIRECT_KEYS = _accepted_keys(_MIMO_AUDIO_FIELDS)
 _MIMO_AUDIO_RESERVED_KEYS = frozenset({"messages", "model", "stream"})
 
 
@@ -562,7 +598,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="response",
         title="OpenAI 文本生成参数",
         fields=_RESPONSES_FIELDS,
-        direct_body_keys=_RESPONSES_DIRECT_KEYS,
+        documentation_url="https://platform.openai.com/docs/api-reference/responses/create",
         reserved_body_keys=_RESPONSES_RESERVED_KEYS,
     ),
     ("openai_responses", "embeddings"): CapabilityParameterCatalog(
@@ -570,7 +606,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="embeddings",
         title="OpenAI Embeddings 参数",
         fields=_OPENAI_EMBEDDING_FIELDS,
-        direct_body_keys=_OPENAI_EMBEDDING_DIRECT_KEYS,
+        documentation_url="https://platform.openai.com/docs/api-reference/embeddings/create",
         reserved_body_keys=_OPENAI_EMBEDDING_RESERVED_KEYS,
     ),
     ("openai_responses", "audio_transcription"): CapabilityParameterCatalog(
@@ -578,7 +614,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="audio_transcription",
         title="OpenAI 语音转录参数",
         fields=_OPENAI_AUDIO_FIELDS,
-        direct_body_keys=_OPENAI_AUDIO_DIRECT_KEYS,
+        documentation_url="https://platform.openai.com/docs/api-reference/audio/createTranscription",
         reserved_body_keys=_OPENAI_AUDIO_RESERVED_KEYS,
     ),
     # ── Anthropic Messages ──
@@ -587,7 +623,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="chat_completion",
         title="Anthropic 文本生成参数",
         fields=_ANTHROPIC_FIELDS,
-        direct_body_keys=_ANTHROPIC_DIRECT_KEYS,
+        documentation_url="https://docs.anthropic.com/en/api/messages",
         reserved_body_keys=_ANTHROPIC_RESERVED_KEYS,
     ),
     # ── 阿里云百炼 DashScope ──
@@ -596,7 +632,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="chat_completion",
         title="阿里云百炼 DashScope 文本生成参数",
         fields=_DASHSCOPE_CHAT_FIELDS,
-        direct_body_keys=_DASHSCOPE_CHAT_DIRECT_KEYS,
+        documentation_url="https://help.aliyun.com/zh/model-studio/qwen-api-reference/",
         reserved_body_keys=_DASHSCOPE_CHAT_RESERVED_KEYS,
     ),
     ("dashscope", "embeddings"): CapabilityParameterCatalog(
@@ -604,7 +640,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="embeddings",
         title="阿里云百炼 DashScope Embeddings 参数",
         fields=_DASHSCOPE_EMBEDDING_FIELDS,
-        direct_body_keys=_DASHSCOPE_EMBEDDING_DIRECT_KEYS,
+        documentation_url="https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
         reserved_body_keys=_DASHSCOPE_EMBEDDING_RESERVED_KEYS,
     ),
     ("dashscope", "audio_transcription"): CapabilityParameterCatalog(
@@ -612,8 +648,17 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="audio_transcription",
         title="阿里云百炼 DashScope 语音转录参数",
         fields=_DASHSCOPE_AUDIO_FIELDS,
-        direct_body_keys=_DASHSCOPE_AUDIO_DIRECT_KEYS,
+        documentation_url="https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference",
         reserved_body_keys=_DASHSCOPE_AUDIO_RESERVED_KEYS,
+    ),
+    # ── 阿里云百炼 Responses ──
+    ("bailian_responses", "response"): CapabilityParameterCatalog(
+        provider="bailian_responses",
+        capability="response",
+        title="阿里云百炼 Responses 文本生成参数",
+        fields=_BAILIAN_RESPONSES_FIELDS,
+        documentation_url="https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses",
+        reserved_body_keys=_RESPONSES_RESERVED_KEYS,
     ),
     # ── SiliconFlow ──
     ("siliconflow", "chat_completion"): CapabilityParameterCatalog(
@@ -621,7 +666,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="chat_completion",
         title="SiliconFlow 文本生成参数",
         fields=_SILICONFLOW_CHAT_FIELDS,
-        direct_body_keys=_SILICONFLOW_CHAT_DIRECT_KEYS,
+        documentation_url="https://api-docs.siliconflow.cn/docs/api/chat-completions-post",
         reserved_body_keys=_SILICONFLOW_CHAT_RESERVED_KEYS,
     ),
     ("siliconflow", "embeddings"): CapabilityParameterCatalog(
@@ -629,7 +674,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="embeddings",
         title="SiliconFlow Embeddings 参数",
         fields=_SILICONFLOW_EMBEDDING_FIELDS,
-        direct_body_keys=_SILICONFLOW_EMBEDDING_DIRECT_KEYS,
+        documentation_url="https://api-docs.siliconflow.cn/docs/api/embeddings-post",
         reserved_body_keys=_SILICONFLOW_EMBEDDING_RESERVED_KEYS,
     ),
     ("siliconflow", "audio_transcription"): CapabilityParameterCatalog(
@@ -637,7 +682,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="audio_transcription",
         title="SiliconFlow 语音转录参数",
         fields=_SILICONFLOW_AUDIO_FIELDS,
-        direct_body_keys=_SILICONFLOW_AUDIO_DIRECT_KEYS,
+        documentation_url="https://api-docs.siliconflow.cn/docs/api/audio-transcriptions-post",
         reserved_body_keys=_SILICONFLOW_AUDIO_RESERVED_KEYS,
     ),
     # ── Volcengine Ark ──
@@ -646,7 +691,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="response",
         title="Volcengine Ark 文本生成参数",
         fields=_RESPONSES_FIELDS,
-        direct_body_keys=_RESPONSES_DIRECT_KEYS,
+        documentation_url="https://www.volcengine.com/docs/82379",
         reserved_body_keys=_RESPONSES_RESERVED_KEYS,
     ),
     ("volcengine_ark", "embeddings"): CapabilityParameterCatalog(
@@ -654,7 +699,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="embeddings",
         title="Volcengine Ark Embeddings 参数",
         fields=_ARK_EMBEDDING_FIELDS,
-        direct_body_keys=_ARK_EMBEDDING_DIRECT_KEYS,
+        documentation_url="https://www.volcengine.com/docs/82379",
         reserved_body_keys=_ARK_EMBEDDING_RESERVED_KEYS,
     ),
     ("volcengine_ark", "audio_transcription"): CapabilityParameterCatalog(
@@ -662,7 +707,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="audio_transcription",
         title="Volcengine Ark 语音转录参数",
         fields=_ARK_AUDIO_FIELDS,
-        direct_body_keys=_ARK_AUDIO_DIRECT_KEYS,
+        documentation_url="https://www.volcengine.com/docs/82379",
         reserved_body_keys=_ARK_AUDIO_RESERVED_KEYS,
     ),
     # ── Xiaomi Mimo ──
@@ -671,7 +716,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="chat_completion",
         title="Xiaomi Mimo 文本生成参数",
         fields=_MIMO_CHAT_FIELDS,
-        direct_body_keys=_MIMO_CHAT_DIRECT_KEYS,
+        documentation_url="https://mimo.mi.com/docs/zh-CN/api/chat/openai-api",
         reserved_body_keys=_MIMO_CHAT_RESERVED_KEYS,
     ),
     ("xiaomi_mimo", "audio_transcription"): CapabilityParameterCatalog(
@@ -679,7 +724,7 @@ _CATALOGS: dict[tuple[ProviderPolicyKey, CapabilityKey], CapabilityParameterCata
         capability="audio_transcription",
         title="Xiaomi Mimo 语音转录参数",
         fields=_MIMO_AUDIO_FIELDS,
-        direct_body_keys=_MIMO_AUDIO_DIRECT_KEYS,
+        documentation_url="https://mimo.mi.com/docs/zh-CN/api/audio/Speech-Recognition",
         reserved_body_keys=_MIMO_AUDIO_RESERVED_KEYS,
     ),
 }

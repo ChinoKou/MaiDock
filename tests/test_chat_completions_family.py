@@ -1,13 +1,13 @@
 import logging
 
 from src.core.common import ProviderRuntimeOptions
-from src.providers.chat_completions_family.chat import ChatCompletionsMapper
-from src.providers.common.parameter_translation import (
+from src.host_adapters.chat_completions_family.chat import ChatCompletionsMapper
+from src.host_adapters.common.parameter_translation import (
     TranslationContext,
     TranslationEnvelope,
 )
-from src.providers.siliconflow_provider import tools as siliconflow_tools
-from src.providers.xiaomi_mimo_provider import tools as mimo_tools
+from src.host_adapters.siliconflow_provider import tools as siliconflow_tools
+from src.host_adapters.xiaomi_mimo_provider import tools as mimo_tools
 from src.schemas import ResponseRequestSnapshot
 
 
@@ -39,7 +39,7 @@ def test_chat_mapper_calls_provider_parameter_hook() -> None:
         policy_provider="siliconflow",
     )
 
-    body, headers, query = mapper.build_request_body(_response_request(), stream=False, apply_policy=False)
+    body, headers, query = mapper.build_request_body(_response_request(), stream=False)
 
     assert body["model"] == "chat-model"
     assert body["hooked_model"] == "chat-model"

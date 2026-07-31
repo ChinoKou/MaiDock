@@ -1,24 +1,41 @@
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from maibot_sdk import LLMProviderBase
 from pydantic import BaseModel
 
 from src import plugin as plugin_module
 from src.config import MaiDockConfig
 from src.core.common import ProviderRuntimeOptions
 from src.i18n import translate
+from src.runtime import HostAdapter, LLMProviderIngress, ProviderCapability, VendorRuntime
 
 from .plugin_test_support import (
     PROVIDER_ENTRIES,
     PROVIDER_NAMES,
     FactoryRecorder,
+    FakeClient,
     ProviderName,
     create_plugin,
     install_factories,
 )
+
+
+def _runtime(
+    adapter: object,
+    *,
+    capabilities: frozenset[ProviderCapability] = frozenset({"response", "embedding", "audio_transcription"}),
+    provider_name: str = "Test Adapter",
+) -> VendorRuntime:
+    host_adapter = cast(HostAdapter, adapter)
+    client = FakeClient()
+    ingress = LLMProviderIngress(
+        adapter=host_adapter,
+        capabilities=capabilities,
+        provider_name=provider_name,
+    )
+    return VendorRuntime(client=client, host_adapter=host_adapter, ingress=ingress)
 
 
 @pytest.fixture
@@ -139,18 +156,22 @@ async def test_sdk_unsupported_capability_is_localized(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    class ResponseOnlyProvider(LLMProviderBase):
+    class ResponseOnlyAdapter:
         async def get_response(self, request: dict[str, Any]) -> dict[str, Any]:
             return request
 
     monkeypatch.setattr(
         plugin_module,
-        "_create_openai_provider",
-        lambda options: ResponseOnlyProvider(),
+        "create_vendor_runtime",
+        lambda key, options, store, client: _runtime(
+            ResponseOnlyAdapter(),
+            capabilities=frozenset({"response"}),
+            provider_name="ResponseOnlyAdapter",
+        ),
     )
     plugin = create_plugin(tmp_path)
 
-    with pytest.raises(NotImplementedError, match="ResponseOnlyProvider"):
+    with pytest.raises(NotImplementedError, match="ResponseOnlyAdapter"):
         await plugin.openai_responses_provider("embedding", {})
 
 
@@ -162,15 +183,15 @@ async def test_provider_boundary_rewrites_pydantic_error_in_runtime_locale(
     class RequestModel(BaseModel):
         count: int
 
-    class ValidationProvider(LLMProviderBase):
+    class ValidationAdapter:
         async def get_response(self, request: dict[str, Any]) -> dict[str, Any]:
             RequestModel.model_validate(request)
             return {}
 
     monkeypatch.setattr(
         plugin_module,
-        "_create_openai_provider",
-        lambda options: ValidationProvider(),
+        "create_vendor_runtime",
+        lambda key, options, store, client: _runtime(ValidationAdapter()),
     )
     config = MaiDockConfig.model_validate({"plugin": {"locale": "ja-JP"}})
     plugin = create_plugin(tmp_path, config=config.model_dump(mode="python"))
@@ -190,18 +211,15 @@ async def test_provider_boundary_rejects_non_object_result(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    class InvalidResultProvider(LLMProviderBase):
-        async def dispatch(self, operation: str, request: dict[str, Any]) -> Any:
-            del operation, request
+    class InvalidResultAdapter:
+        async def get_response(self, request: dict[str, Any]) -> Any:
+            del request
             return ["not", "an", "object"]
-
-        async def get_response(self, request: dict[str, Any]) -> dict[str, Any]:
-            return request
 
     monkeypatch.setattr(
         plugin_module,
-        "_create_openai_provider",
-        lambda options: InvalidResultProvider(),
+        "create_vendor_runtime",
+        lambda key, options, store, client: _runtime(InvalidResultAdapter()),
     )
     plugin = create_plugin(tmp_path)
 
@@ -217,7 +235,7 @@ async def test_config_update_keeps_inflight_locale_and_new_requests_use_new_loca
     started = asyncio.Event()
     release_old = asyncio.Event()
 
-    class LocaleProvider(LLMProviderBase):
+    class LocaleAdapter:
         def __init__(self, options: ProviderRuntimeOptions) -> None:
             self.options = options
 
@@ -230,7 +248,11 @@ async def test_config_update_keeps_inflight_locale_and_new_requests_use_new_loca
             after = translate("ui.tab.general")
             return {"before": before, "after": after, "locale": self.options.locale}
 
-    monkeypatch.setattr(plugin_module, "_create_openai_provider", LocaleProvider)
+    monkeypatch.setattr(
+        plugin_module,
+        "create_vendor_runtime",
+        lambda key, options, store, client: _runtime(LocaleAdapter(options)),
+    )
     before_config = MaiDockConfig.model_validate({"plugin": {"locale": "zh-CN"}})
     plugin = create_plugin(tmp_path, config=before_config.model_dump(mode="python"))
 

@@ -1,8 +1,8 @@
-import httpx
 import pytest
 
 from src.core.common import resolve_max_retries, resolve_retry_interval
-from src.providers.common.httpx import build_httpx_client_config, create_async_client, resolve_endpoint_path
+from src.host_adapters.common.client_bridge import build_http_connection
+from src.host_adapters.common.httpx import build_httpx_client_config, resolve_endpoint_path
 from tests.support.http import make_api_provider
 
 
@@ -14,6 +14,9 @@ from tests.support.http import make_api_provider
         ("https://dashscope.example", "api/v1", "services/generation", "api/v1/services/generation"),
         ("https://dashscope.example/api/v1", "api/v1", "services/generation", "services/generation"),
         ("https://example.com/custom", "", "/responses/", "responses"),
+        # 订阅端点前缀必须与 base 同步传入，否则会拼出 /api/plan/v3/api/v3/responses 双前缀。
+        ("https://ark.example/api/plan/v3", "api/plan/v3", "responses", "responses"),
+        ("https://ark.example/api/coding/v3", "api/coding/v3", "responses", "responses"),
     ],
 )
 def test_resolve_endpoint_path_preserves_existing_api_prefix(
@@ -182,14 +185,7 @@ def test_retry_resolvers_follow_force_host_and_config_precedence() -> None:
     assert resolve_retry_interval(missing_values, config_value=5.0, force=False, default=7.0) == 5.0
 
 
-@pytest.mark.asyncio
-async def test_create_async_client_serializes_default_query_values() -> None:
-    requests: list[httpx.Request] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(204)
-
+def test_connection_input_serializes_default_query_values() -> None:
     config = build_httpx_client_config(
         make_api_provider(
             default_query={
@@ -204,12 +200,8 @@ async def test_create_async_client_serializes_default_query_values() -> None:
         default_base_url="https://official.example/api/v1",
         user_agent="MaiDock-Test/1",
     )
-    async with create_async_client(config, transport=httpx.MockTransport(handler)) as client:
-        response = await client.get("probe")
-
-    assert response.status_code == 204
-    assert len(requests) == 1
-    query = requests[0].url.params
+    connection = build_http_connection(config)
+    query = connection.query()
     assert query["enabled"] == "False"
     assert query["integer"] == "2"
     assert query["nested"] == '{"items":[1,true]}'

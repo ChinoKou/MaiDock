@@ -1,17 +1,39 @@
+from pathlib import Path
+from typing import Any, cast
+
 import importlib.util
 import json
 import sys
-from pathlib import Path
 
-import pytest
 from maibot_sdk import LLMProviderBase
+import pytest
 
 from src import plugin as plugin_module
 from src.core.common import ProviderRuntimeOptions
 from src.core.state_store import PluginStateStore
+from src.host_adapters.common.options import (
+    AnthropicHostOptions,
+    ArkHostOptions,
+    BailianHostOptions,
+    DashScopeHostOptions,
+    HostCommonOptions,
+    MimoHostOptions,
+    OpenAIHostOptions,
+    SiliconFlowHostOptions,
+)
+from src.runtime import CLIENT_KEY_BY_RUNTIME, RuntimeKey, create_vendor_client, create_vendor_runtime
 
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / "_manifest.json"
 PLUGIN_ENTRY_PATH = Path(__file__).resolve().parents[1] / "plugin.py"
+VENDOR_OPTION_TYPES: dict[RuntimeKey, type[object]] = {
+    "openai": OpenAIHostOptions,
+    "anthropic": AnthropicHostOptions,
+    "volcengine": ArkHostOptions,
+    "dashscope": DashScopeHostOptions,
+    "bailian_responses": BailianHostOptions,
+    "siliconflow": SiliconFlowHostOptions,
+    "xiaomi_mimo": MimoHostOptions,
+}
 
 
 def _manifest_client_types() -> set[str]:
@@ -69,43 +91,39 @@ def test_llm_provider_metadata_matches_manifest() -> None:
         "maidock-anthropic-messages",
         "maidock-volcengine-ark-responses",
         "maidock-dashscope",
+        "maidock-bailian-responses",
         "maidock-siliconflow",
         "maidock-xiaomi-mimo",
     }
 
 
 @pytest.mark.parametrize(
-    ("factory", "needs_store"),
+    "provider_key",
     [
-        pytest.param(plugin_module._create_openai_provider, False, id="openai"),
-        pytest.param(plugin_module._create_anthropic_provider, False, id="anthropic"),
-        pytest.param(
-            plugin_module._create_volcengine_provider,
-            True,
-            id="volcengine",
-        ),
-        pytest.param(plugin_module._create_dashscope_provider, False, id="dashscope"),
-        pytest.param(
-            plugin_module._create_siliconflow_provider,
-            False,
-            id="siliconflow",
-        ),
-        pytest.param(plugin_module._create_mimo_provider, True, id="xiaomi-mimo"),
+        pytest.param("openai", id="openai"),
+        pytest.param("anthropic", id="anthropic"),
+        pytest.param("volcengine", id="volcengine"),
+        pytest.param("dashscope", id="dashscope"),
+        pytest.param("bailian_responses", id="bailian-responses"),
+        pytest.param("siliconflow", id="siliconflow"),
+        pytest.param("xiaomi_mimo", id="xiaomi-mimo"),
     ],
 )
-def test_factory_local_imports_return_provider_base_instances(
-    factory: object,
-    needs_store: bool,
+@pytest.mark.asyncio
+async def test_factory_returns_vendor_runtime_with_sdk_ingress(
+    provider_key: RuntimeKey,
     tmp_path: Path,
 ) -> None:
     options = ProviderRuntimeOptions()
     state_store = PluginStateStore(tmp_path / "state.sqlite3")
 
-    if needs_store:
-        assert callable(factory)
-        provider = factory(options, state_store)
-    else:
-        assert callable(factory)
-        provider = factory(options)
+    client = create_vendor_client(CLIENT_KEY_BY_RUNTIME[provider_key])
+    runtime = create_vendor_runtime(provider_key, options, state_store, client)
 
-    assert isinstance(provider, LLMProviderBase)
+    assert isinstance(runtime.ingress, LLMProviderBase)
+    host_adapter = cast(Any, runtime.host_adapter)
+    assert isinstance(host_adapter.options, HostCommonOptions)
+    assert isinstance(host_adapter.vendor_options, VENDOR_OPTION_TYPES[provider_key])
+    assert runtime.client is client
+    await client.aclose()
+    await state_store.close()

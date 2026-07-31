@@ -178,6 +178,25 @@ class AnthropicResponseContentBlock(IgnoreExtraModel):
             )
         return value
 
+    def require_tool_use_identity(self) -> tuple[str, str]:
+        """取回 tool_use block 的 id 与 name。
+
+        id/name 在类型上是可选的，因为同一个模型也承载 text/thinking block；但
+        `validate_tool_use_fields` 已经保证 `type == "tool_use"` 时两者非空。这里把那条
+        运行时保证翻译成类型层面的窄化，调用点因此不需要 cast。校验器先跑，所以下面这次
+        检查在正常路径上永远不触发，只兜住"绕过校验直接构造模型"的用法。
+        """
+
+        if self.id is None or self.name is None:
+            raise ValueError(
+                translate(
+                    "runtime.error.required",
+                    subject="Anthropic Messages tool_use",
+                    field="id" if self.id is None else "name",
+                )
+            )
+        return self.id, self.name
+
     @field_validator("input", mode="before")
     @classmethod
     def validate_input(cls, value: object) -> dict:

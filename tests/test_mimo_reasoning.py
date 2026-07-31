@@ -1,14 +1,26 @@
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import httpx
 import pytest
 
+from src.config import MaiDockConfig, build_runtime_options
 from src.core.common import ProviderRuntimeOptions
 from src.core.state_store import PluginStateStore
-from src.providers.xiaomi_mimo_provider.provider import XiaomiMimoProvider
+from tests.support.assertions import json_object_at, json_str_at
+from tests.support.host_adapters import XiaomiMimoProvider
+
+
+def _reasoning_enabled_options() -> ProviderRuntimeOptions:
+    """构造思考开启的 Mimo 运行时选项（覆写 thinking=enabled）。"""
+
+    config = MaiDockConfig.model_validate(
+        {"xiaomi_mimo": {"chat_completion": {"overrides": {"thinking": '{"type":"enabled"}'}}}}
+    )
+    return build_runtime_options(config)
 
 
 def _api_provider(api_key: str = "mimo-key") -> dict:
@@ -100,15 +112,15 @@ async def test_mimo_reasoning_replays_from_metadata_or_sqlite(
 
     store = PluginStateStore(tmp_path / "state.sqlite3")
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        options=_reasoning_enabled_options(),
         transport=httpx.MockTransport(handler),
         state_store=store,
     )
     first = await provider.get_response(_request())
-    tool_call = deepcopy(first["tool_calls"][0])
-    assert tool_call["extra_content"]["xiaomi_mimo"]["reasoning_content"] == "先查询天气"
+    tool_call = deepcopy(json_object_at(first, "tool_calls", 0))
+    assert json_str_at(tool_call, "extra_content", "xiaomi_mimo", "reasoning_content") == "先查询天气"
     if remove_metadata:
-        del tool_call["extra_content"]["xiaomi_mimo"]["reasoning_content"]
+        del json_object_at(tool_call, "extra_content", "xiaomi_mimo")["reasoning_content"]
 
     second = await provider.get_response(_request(messages=_history(tool_call)))
 
@@ -130,13 +142,13 @@ async def test_mimo_reasoning_conflict_is_exposed_before_request(
 
     store = PluginStateStore(tmp_path / "state.sqlite3")
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        options=_reasoning_enabled_options(),
         transport=httpx.MockTransport(handler),
         state_store=store,
     )
     first = await provider.get_response(_request())
-    tool_call = deepcopy(first["tool_calls"][0])
-    tool_call["extra_content"]["xiaomi_mimo"]["reasoning_content"] = "冲突内容"
+    tool_call = deepcopy(json_object_at(first, "tool_calls", 0))
+    json_object_at(tool_call, "extra_content", "xiaomi_mimo")["reasoning_content"] = "冲突内容"
 
     with pytest.raises(ValueError, match="值不一致"):
         await provider.get_response(_request(messages=_history(tool_call)))
@@ -148,16 +160,16 @@ async def test_mimo_reasoning_conflict_is_exposed_before_request(
 async def test_mimo_reasoning_is_isolated_by_credentials(tmp_path: Path) -> None:
     store = PluginStateStore(tmp_path / "state.sqlite3")
     first_provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        options=_reasoning_enabled_options(),
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=_tool_response())),
         state_store=store,
     )
     first = await first_provider.get_response(_request(api_key="account-a"))
-    tool_call = deepcopy(first["tool_calls"][0])
-    del tool_call["extra_content"]["xiaomi_mimo"]["reasoning_content"]
+    tool_call = deepcopy(json_object_at(first, "tool_calls", 0))
+    del json_object_at(tool_call, "extra_content", "xiaomi_mimo")["reasoning_content"]
 
     second_provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        options=_reasoning_enabled_options(),
         transport=httpx.MockTransport(lambda _: httpx.Response(500)),
         state_store=store,
     )
@@ -171,7 +183,7 @@ async def test_mimo_enabled_thinking_rejects_tool_call_without_reasoning(
     tmp_path: Path,
 ) -> None:
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        options=_reasoning_enabled_options(),
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=_tool_response(reasoning=""))),
         state_store=PluginStateStore(tmp_path / "state.sqlite3"),
     )
@@ -196,14 +208,14 @@ async def test_mimo_stream_preserves_reasoning_on_tool_call(tmp_path: Path) -> N
 
     store = PluginStateStore(tmp_path / "state.sqlite3")
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_force_disable_thinking=False),
+        options=_reasoning_enabled_options(),
         transport=httpx.MockTransport(handler),
         state_store=store,
     )
     result = await provider.get_response(_request(stream=True))
 
     assert result["reasoning_content"] == "先思考"
-    extra = result["tool_calls"][0]["extra_content"]["xiaomi_mimo"]
+    extra = json_object_at(result, "tool_calls", 0, "extra_content", "xiaomi_mimo")
     assert extra["reasoning_content"] == "先思考"
     assert extra["raw_arguments"] == "{}"
     await store.close()
@@ -215,10 +227,7 @@ async def test_mimo_reasoning_persistence_is_independent_from_hidden_host_reason
 ) -> None:
     store = PluginStateStore(tmp_path / "state.sqlite3")
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(
-            mimo_force_disable_thinking=False,
-            reasoning_parse_mode="none",
-        ),
+        options=replace(_reasoning_enabled_options(), reasoning_parse_mode="none"),
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=_tool_response())),
         state_store=store,
     )
@@ -226,7 +235,7 @@ async def test_mimo_reasoning_persistence_is_independent_from_hidden_host_reason
     result = await provider.get_response(_request())
 
     assert "reasoning_content" not in result
-    extra = result["tool_calls"][0]["extra_content"]["xiaomi_mimo"]
+    extra = json_object_at(result, "tool_calls", 0, "extra_content", "xiaomi_mimo")
     assert extra["reasoning_content"] == "先查询天气"
     await store.close()
 
@@ -248,10 +257,7 @@ async def test_mimo_stream_reasoning_persistence_is_independent_from_hidden_host
 
     store = PluginStateStore(tmp_path / "state.sqlite3")
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(
-            mimo_force_disable_thinking=False,
-            reasoning_parse_mode="none",
-        ),
+        options=replace(_reasoning_enabled_options(), reasoning_parse_mode="none"),
         transport=httpx.MockTransport(handler),
         state_store=store,
     )
@@ -259,6 +265,6 @@ async def test_mimo_stream_reasoning_persistence_is_independent_from_hidden_host
     result = await provider.get_response(_request(stream=True))
 
     assert "reasoning_content" not in result
-    extra = result["tool_calls"][0]["extra_content"]["xiaomi_mimo"]
+    extra = json_object_at(result, "tool_calls", 0, "extra_content", "xiaomi_mimo")
     assert extra["reasoning_content"] == "先思考"
     await store.close()

@@ -49,12 +49,6 @@ class ModelInfoSnapshot(IgnoreExtraModel):
     max_tokens: int | None = None
     force_stream_mode: bool = False
     visual: bool = False
-    extra_params: ObjectFields = Field(default_factory=ObjectFields)
-
-    @field_validator("extra_params", mode="before")
-    @classmethod
-    def validate_extra_params(cls, value: object) -> ObjectFields:
-        return ObjectFields.from_unknown(value)
 
 
 class MessagePartText(IgnoreExtraModel):
@@ -224,12 +218,6 @@ class BaseProviderRequestSnapshot(IgnoreExtraModel):
 
     model_info: ModelInfoSnapshot = Field(default_factory=ModelInfoSnapshot)
     api_provider: ApiProviderSnapshot = Field(default_factory=ApiProviderSnapshot)
-    extra_params: ObjectFields = Field(default_factory=ObjectFields)
-
-    @field_validator("extra_params", mode="before")
-    @classmethod
-    def validate_extra_params(cls, value: object) -> ObjectFields:
-        return ObjectFields.from_unknown(value)
 
 
 def _empty_message_snapshot_list() -> list[MessageSnapshot]:

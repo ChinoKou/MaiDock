@@ -7,7 +7,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 from PIL import Image as PILImage
@@ -23,7 +23,6 @@ from ..i18n import (
 from ..schemas import (
     ApiProviderSnapshot,
     AudioTranscriptionRequestSnapshot,
-    BaseProviderRequestSnapshot,
     GenericUsageSnapshot,
     MessagePartImage,
     MessagePartText,
@@ -34,13 +33,16 @@ from ..schemas import (
 )
 from ..version import DEFAULT_USER_AGENT
 from .diagnostics import sanitize_for_log
-from .parameter_policy import ParameterPolicyRegistry
+from .json_types import JsonValue
+from .parameter_policy import ParameterOverrideRegistry
 from .parsing import ReasoningParseMode, ToolArgumentParseMode, arguments_to_json
 
 SUPPORTED_IMAGE_FORMATS = {"jpeg", "png", "webp"}
 InvalidImagePolicy = Literal["placeholder", "skip", "error"]
 type AuthType = Literal["none", "bearer", "header", "query"]
 SUPPORTED_AUTH_TYPES: tuple[AuthType, ...] = ("none", "bearer", "header", "query")
+type ArkBuiltinEndpointMode = Literal["standard", "agent_plan", "coding_plan"]
+SUPPORTED_ARK_BUILTIN_ENDPOINT_MODES: tuple[ArkBuiltinEndpointMode, ...] = ("standard", "agent_plan", "coding_plan")
 MAIDOCK_USER_AGENT = DEFAULT_USER_AGENT
 DEFAULT_MAX_IMAGE_BYTES = 30 * 1024 * 1024
 DEFAULT_MAX_IMAGE_PIXELS = 25_000_000
@@ -73,19 +75,19 @@ class ProviderRuntimeOptions:
     openai_user_agent: str = MAIDOCK_USER_AGENT
     anthropic_user_agent: str = MAIDOCK_USER_AGENT
     dashscope_user_agent: str = MAIDOCK_USER_AGENT
+    bailian_user_agent: str = MAIDOCK_USER_AGENT
     siliconflow_user_agent: str = MAIDOCK_USER_AGENT
     volcengine_user_agent: str = MAIDOCK_USER_AGENT
     dashscope_force_official_endpoint: bool = True
     dashscope_auto_detect_endpoint: bool = True
     siliconflow_force_official_endpoint: bool = True
     volcengine_force_official_endpoint: bool = True
+    volcengine_builtin_endpoint_mode: ArkBuiltinEndpointMode = "standard"
     volcengine_prefix_cache_enabled: bool = False
     volcengine_prefix_cache_ttl_seconds: int = 259200
-    volcengine_audio_transcription_prompt: str = "请识别音频中的内容，以文字形式返回识别结果。"
     mimo_user_agent: str = MAIDOCK_USER_AGENT
-    mimo_force_disable_thinking: bool = True
     mimo_reasoning_retention_days: int = 30
-    mimo_audio_transcription_language: str = "auto"
+    bailian_max_retries: int = 3
     openai_max_retries: int = 3
     anthropic_max_retries: int = 3
     dashscope_max_retries: int = 3
@@ -98,20 +100,63 @@ class ProviderRuntimeOptions:
     siliconflow_force_max_retries: bool = False
     volcengine_force_max_retries: bool = False
     mimo_force_max_retries: bool = False
+    bailian_force_max_retries: bool = False
     openai_retry_interval: float = 5.0
     anthropic_retry_interval: float = 5.0
     dashscope_retry_interval: float = 5.0
     siliconflow_retry_interval: float = 5.0
     volcengine_retry_interval: float = 5.0
     mimo_retry_interval: float = 5.0
+    bailian_retry_interval: float = 5.0
     openai_force_retry_interval: bool = False
     anthropic_force_retry_interval: bool = False
     dashscope_force_retry_interval: bool = False
     siliconflow_force_retry_interval: bool = False
     volcengine_force_retry_interval: bool = False
     mimo_force_retry_interval: bool = False
+    bailian_force_retry_interval: bool = False
     image_limits: ImageProcessingLimits = field(default_factory=ImageProcessingLimits)
-    parameter_policies: ParameterPolicyRegistry = field(default_factory=ParameterPolicyRegistry)
+    parameter_overrides: ParameterOverrideRegistry = field(default_factory=ParameterOverrideRegistry)
+
+
+class RuntimeOptionsView(Protocol):
+    """请求映射与结果转换真正会读到的那部分运行时选项。
+
+    完整的 ProviderRuntimeOptions 与 host_adapters 侧窄化出来的 HostCommonOptions
+    都满足这个协议，映射链路因此可以同时接受两者，不再需要把窄化结果
+    `cast` 成 ProviderRuntimeOptions——那个 cast 是假的：窄化结果是个 slots 数据类，
+    真去访问供应商专属字段会在运行时 AttributeError，而 cast 恰好让类型检查器闭嘴。
+
+    全部声明成只读 property：映射链路只读不写，frozen 的 HostCommonOptions
+    也才能匹配可变协议属性所不接受的形状。
+    """
+
+    @property
+    def locale(self) -> Locale: ...
+
+    @property
+    def include_raw_data(self) -> bool: ...
+
+    @property
+    def log_payload_summary(self) -> bool: ...
+
+    @property
+    def log_payload_debug(self) -> bool: ...
+
+    @property
+    def tool_argument_parse_mode(self) -> ToolArgumentParseMode: ...
+
+    @property
+    def reasoning_parse_mode(self) -> ReasoningParseMode: ...
+
+    @property
+    def invalid_image_policy(self) -> InvalidImagePolicy: ...
+
+    @property
+    def image_limits(self) -> ImageProcessingLimits: ...
+
+    @property
+    def parameter_overrides(self) -> ParameterOverrideRegistry: ...
 
 
 @dataclass(slots=True)
@@ -121,17 +166,7 @@ class OpenAICompatibleClientConfig:
     api_key: str
     base_url: str
     default_headers: dict[str, str] = field(default_factory=dict)
-    default_query: dict = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class RequestOverrides:
-    """单次上游 HTTP 请求覆盖参数。"""
-
-    extra_headers: dict[str, str] = field(default_factory=dict)
-    extra_query: dict = field(default_factory=dict)
-    extra_body: dict = field(default_factory=dict)
-    direct_params: dict = field(default_factory=dict)
+    default_query: dict[str, JsonValue] = field(default_factory=dict)
 
 
 def read_model_identifier(model_info: ModelInfoSnapshot) -> str:
@@ -212,24 +247,6 @@ def read_max_retries(api_provider: ApiProviderSnapshot, default: int) -> int:
     return resolve_max_retries(api_provider, config_value=default, force=False, default=default)
 
 
-def merge_extra_params(request: BaseProviderRequestSnapshot) -> dict:
-    """合并模型级和请求级 extra_params，请求级覆盖模型级。"""
-
-    merged: dict = {}
-    for source in (request.model_info.extra_params, request.extra_params):
-        for key, value in source.fields.items():
-            if value is not None:
-                merged[key] = value
-    return merged
-
-
-def pop_json_object(payload: dict, key: str) -> dict:
-    """从 payload 取出 object 字段。"""
-
-    value = payload.pop(key, None)
-    return ObjectFields.from_unknown(value).to_plain_dict()
-
-
 def require_string_dict(value: Mapping[str, object], *, field_name: str) -> dict[str, str]:
     """校验字符串字典。"""
 
@@ -281,15 +298,38 @@ def normalize_auth_type(raw_auth_type: str | None) -> AuthType:
     """严格规范化 Host 的鉴权类型。"""
 
     auth_type = (raw_auth_type or "bearer").strip().lower()
-    if auth_type not in SUPPORTED_AUTH_TYPES:
-        raise ValueError(
-            translate(
-                "runtime.error.unsupported_value",
-                subject="auth_type",
-                allowed="/".join(SUPPORTED_AUTH_TYPES),
-            )
+    # 逐个比对而不是 `in SUPPORTED_AUTH_TYPES`：`in` 不会把 str 窄化成 AuthType，
+    # 返回匹配到的那个元素本身则天然带上 Literal 类型，不需要 cast。
+    for candidate in SUPPORTED_AUTH_TYPES:
+        if auth_type == candidate:
+            return candidate
+    raise ValueError(
+        translate(
+            "runtime.error.unsupported_value",
+            subject="auth_type",
+            allowed="/".join(SUPPORTED_AUTH_TYPES),
         )
-    return cast(AuthType, auth_type)
+    )
+
+
+def normalize_ark_builtin_endpoint_mode(raw_mode: object) -> ArkBuiltinEndpointMode:
+    """严格规范化 ARK 内置端点类型。"""
+
+    if raw_mode is None:
+        return "standard"
+    if isinstance(raw_mode, str):
+        mode = raw_mode.strip().lower() or "standard"
+        # 与 normalize_auth_type 同理：返回匹配到的元素本身以带上 Literal 类型。
+        for candidate in SUPPORTED_ARK_BUILTIN_ENDPOINT_MODES:
+            if mode == candidate:
+                return candidate
+    raise ValueError(
+        translate(
+            "runtime.error.unsupported_value",
+            subject="builtin_endpoint_mode",
+            allowed="/".join(SUPPORTED_ARK_BUILTIN_ENDPOINT_MODES),
+        )
+    )
 
 
 def with_default_user_agent(headers: Mapping[str, str], user_agent: str | None = MAIDOCK_USER_AGENT) -> dict[str, str]:
@@ -338,38 +378,6 @@ def build_openai_compatible_client_config(
         base_url=normalize_base_url(api_provider.base_url),
         default_headers=with_default_user_agent(default_headers, user_agent),
         default_query=default_query,
-    )
-
-
-def split_request_overrides(
-    extra_params: Mapping[str, object] | None,
-    *,
-    direct_body_keys: set[str] | None = None,
-    reserved_body_keys: set[str] | None = None,
-) -> RequestOverrides:
-    """拆分 headers/query/body/direct params。"""
-
-    raw_params = dict(extra_params or {})
-    extra_headers = require_string_dict(pop_json_object(raw_params, "headers"), field_name="extra_params.headers")
-    extra_query = pop_json_object(raw_params, "query")
-    extra_body = pop_json_object(raw_params, "body")
-    direct_params: dict = {}
-    direct_keys = direct_body_keys or set()
-    blocked_keys = reserved_body_keys or set()
-
-    for key, value in raw_params.items():
-        if key in direct_keys:
-            direct_params[key] = value
-            continue
-        if key in blocked_keys:
-            continue
-        extra_body[key] = value
-
-    return RequestOverrides(
-        extra_headers=extra_headers,
-        extra_query=extra_query,
-        extra_body=extra_body,
-        direct_params=direct_params,
     )
 
 
@@ -638,7 +646,7 @@ def log_request_summary(
     messages: int | None = None,
     tools: int | None = None,
     extra: Mapping[str, object] | None = None,
-    options: ProviderRuntimeOptions,
+    options: RuntimeOptionsView,
 ) -> None:
     """按配置记录请求摘要。"""
 
@@ -670,7 +678,7 @@ def log_response_summary(
     content: str | None,
     tool_calls: Sequence[object],
     usage: ProviderUsage,
-    options: ProviderRuntimeOptions,
+    options: RuntimeOptionsView,
 ) -> None:
     """按配置记录响应摘要。"""
 

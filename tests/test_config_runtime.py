@@ -3,17 +3,13 @@ from pydantic import ValidationError
 
 from src.config import (
     MaiDockConfig,
+    build_parameter_overrides,
     build_runtime_options,
     normalize_maidock_config_data,
     normalize_user_agent,
 )
 from src.config_schema import build_maidock_config_schema
-from src.core.parameter_catalog import (
-    field_enabled_key,
-    field_override_enabled_key,
-    field_override_value_key,
-    get_parameter_catalog,
-)
+from src.core.parameter_catalog import get_parameter_catalog
 from src.version import DEFAULT_USER_AGENT, __version__
 
 
@@ -31,20 +27,11 @@ def test_default_config_contains_provider_sections() -> None:
     assert config.siliconflow.force_official_endpoint is True
     assert config.xiaomi_mimo.user_agent == ""
 
-    assert config.xiaomi_mimo.force_disable_thinking is True
     assert config.xiaomi_mimo.reasoning_retention_days == 30
-    assert config.xiaomi_mimo.audio_transcription_language == "auto"
-    assert config.volcengine_ark.audio_transcription_prompt.startswith("请识别")
-    assert config.volcengine_ark.audio_transcription.default_params == {}
-    assert config.xiaomi_mimo.audio_transcription.default_params == {}
-    assert config.openai_responses.response.unknown_extra_params == "forward"
-    assert config.openai_responses.audio_transcription.disabled_paths == []
-    assert config.anthropic_messages.chat_completion.override_params == {}
-    assert config.volcengine_ark.embeddings.accept_model_extra_params is True
-    assert config.dashscope.chat_completion.accept_request_extra_params is True
-    assert config.siliconflow.embeddings.default_params == {}
-    assert config.dashscope.audio_transcription.accept_model_extra_params is True
-    assert config.siliconflow.audio_transcription.disabled_paths == []
+    assert config.openai_responses.response.overrides == {}
+    assert config.volcengine_ark.embeddings.overrides == {}
+    assert config.dashscope.chat_completion.overrides == {}
+    assert config.siliconflow.embeddings.overrides == {}
 
 
 def test_old_config_data_gets_provider_section_defaults() -> None:
@@ -65,11 +52,9 @@ def test_old_config_data_gets_provider_section_defaults() -> None:
     assert config.siliconflow.force_official_endpoint is True
     assert config.xiaomi_mimo.user_agent == ""
 
-    assert config.xiaomi_mimo.force_disable_thinking is True
     assert config.xiaomi_mimo.reasoning_retention_days == 30
-    assert config.xiaomi_mimo.audio_transcription.default_params == {}
-    assert config.openai_responses.response.accept_model_extra_params is True
-    assert config.dashscope.chat_completion.disabled_paths == []
+    assert config.openai_responses.response.overrides == {}
+    assert config.dashscope.chat_completion.overrides == {}
     assert config.diagnostics.include_raw_data is True
 
 
@@ -139,6 +124,27 @@ def test_runtime_options_default_to_force_official_endpoints() -> None:
     assert options.volcengine_force_official_endpoint is True
     assert options.dashscope_force_official_endpoint is True
     assert options.siliconflow_force_official_endpoint is True
+    assert options.volcengine_builtin_endpoint_mode == "standard"
+
+
+def test_ark_builtin_endpoint_mode_defaults_and_maps_to_runtime_options() -> None:
+    assert MaiDockConfig().volcengine_ark.builtin_endpoint_mode == "standard"
+
+    config = MaiDockConfig.model_validate({"volcengine_ark": {"builtin_endpoint_mode": " Agent_Plan "}})
+    assert config.volcengine_ark.builtin_endpoint_mode == "agent_plan"
+
+    options = build_runtime_options(config)
+    assert options.volcengine_builtin_endpoint_mode == "agent_plan"
+
+    coding = build_runtime_options(
+        MaiDockConfig.model_validate({"volcengine_ark": {"builtin_endpoint_mode": "coding_plan"}})
+    )
+    assert coding.volcengine_builtin_endpoint_mode == "coding_plan"
+
+
+def test_ark_builtin_endpoint_mode_rejects_unknown_value() -> None:
+    with pytest.raises(ValidationError):
+        MaiDockConfig.model_validate({"volcengine_ark": {"builtin_endpoint_mode": "premium"}})
 
 
 def test_normalize_user_agent_uses_default_for_empty_values() -> None:
@@ -148,59 +154,36 @@ def test_normalize_user_agent_uses_default_for_empty_values() -> None:
     assert normalize_user_agent("  Custom-UA  ") == "Custom-UA"
 
 
-def test_parameter_policy_config_maps_to_runtime_options() -> None:
+def test_parameter_overrides_config_maps_to_runtime_options() -> None:
     config = MaiDockConfig.model_validate(
         {
             "dashscope": {
                 "chat_completion": {
-                    "accept_model_extra_params": False,
-                    "disabled_paths": [
-                        " unknown_field ",
-                        "body.parameters.enable_thinking",
-                    ],
-                    "rejected_paths": ["headers.Authorization"],
-                    "default_params": {"top_p": 0.8},
-                    "override_params": {"body": {"parameters": {"enable_thinking": False}}},
-                    "unknown_extra_params": "drop",
-                }
-            }
-        }
-    )
-
-    policy = build_runtime_options(config).parameter_policies.get("dashscope", "chat_completion")
-
-    assert policy.accept_model_extra_params is False
-    assert policy.disabled_paths == ("unknown_field", "body.parameters.enable_thinking")
-    assert policy.rejected_paths == ("headers.Authorization",)
-    assert policy.default_params == {"top_p": 0.8}
-    assert policy.override_params == {"body": {"parameters": {"enable_thinking": False}}}
-    assert policy.unknown_extra_params == "drop"
-
-
-def test_generated_field_controls_map_to_runtime_policy() -> None:
-    catalog = get_parameter_catalog("dashscope", "chat_completion")
-    top_p = catalog.field_by_safe_key("top_p")
-    enable_thinking = catalog.field_by_safe_key("enable_thinking")
-    assert top_p is not None
-    assert enable_thinking is not None
-    config = MaiDockConfig.model_validate(
-        {
-            "dashscope": {
-                "chat_completion": {
-                    "fields": {
-                        field_enabled_key(enable_thinking): False,
-                        field_override_enabled_key(top_p): True,
-                        field_override_value_key(top_p): "0.6",
+                    "overrides": {
+                        "top_p": "0.4",
+                        "enable_search": "true",
+                        "result_format": "message",
                     }
                 }
             }
         }
     )
 
-    policy = build_runtime_options(config).parameter_policies.get("dashscope", "chat_completion")
+    overrides = build_runtime_options(config).parameter_overrides.get("dashscope", "chat_completion")
 
-    assert policy.disabled_paths == ("body.parameters.enable_thinking",)
-    assert policy.override_params == {"body": {"parameters": {"top_p": 0.6}}}
+    assert overrides.values == {
+        "top_p": 0.4,
+        "enable_search": True,
+        "result_format": "message",
+    }
+
+
+def test_generated_override_defaults_map_to_runtime_options() -> None:
+    config = MaiDockConfig.model_validate({"dashscope": {"chat_completion": {"overrides": {"top_p": "0.6"}}}})
+
+    overrides = build_runtime_options(config).parameter_overrides.get("dashscope", "chat_completion")
+
+    assert overrides.values == {"top_p": 0.6}
 
 
 def test_embedding_catalogs_expose_provider_target_paths() -> None:
@@ -210,114 +193,114 @@ def test_embedding_catalogs_expose_provider_target_paths() -> None:
     ark_embeddings = get_parameter_catalog("volcengine_ark", "embeddings")
 
     response_format = chat_catalog.field_by_safe_key("response_format")
-    dashscope_dimensions = dashscope_embeddings.field_by_safe_key("dimension")
+    dashscope_dimensions = dashscope_embeddings.field_by_safe_key("dimensions")
     siliconflow_dimensions = siliconflow_embeddings.field_by_safe_key("dimensions")
     ark_dimensions = ark_embeddings.field_by_safe_key("dimensions")
 
     assert response_format is not None
     assert response_format.target_path == ("body", "parameters", "response_format")
-    assert response_format.config_key == "body_parameters_response_format"
     assert dashscope_dimensions is not None
     assert dashscope_dimensions.target_path == ("body", "parameters", "dimension")
-    assert dashscope_dimensions.source_aliases == ("dimension",)
+    assert dashscope_dimensions.config_key == "dimensions"
     assert siliconflow_dimensions is not None
     assert siliconflow_dimensions.target_path == ("body", "dimensions")
     assert ark_dimensions is not None
     assert ark_dimensions.target_path == ("body", "dimensions")
 
 
-def test_maidock_config_normalization_fills_generated_controls() -> None:
+def test_maidock_config_normalization_fills_override_defaults() -> None:
     normalized, changed = normalize_maidock_config_data(MaiDockConfig().model_dump(mode="python"))
 
-    fields = normalized["openai_responses"]["response"]["fields"]
+    dashscope_chat = normalized["dashscope"]["chat_completion"]
 
     assert changed is True
-    assert fields["body_top_p_enabled"] is True
-    assert fields["body_top_p_override_enabled"] is False
-    assert fields["body_top_p_override_value"] == ""
+    assert dashscope_chat["overrides"]["result_format"] == "message"
+    assert "fields" not in dashscope_chat
+    assert "temperature" not in dashscope_chat["overrides"]
 
 
-def test_maidock_config_normalization_preserves_legacy_policy_paths_without_migration() -> None:
+def test_maidock_config_normalization_migrates_legacy_field_controls() -> None:
     normalized, changed = normalize_maidock_config_data(
         {
             "plugin": {"enabled": True, "config_version": __version__},
             "dashscope": {
                 "chat_completion": {
-                    "disabled_paths": [
-                        "body.parameters.enable_thinking",
-                        "headers.X-Trace",
-                    ],
-                    "override_params": {
-                        "top_p": 0.4,
-                        "body": {"parameters": {"top_k": 20}, "custom": True},
-                    },
+                    "fields": {
+                        "body_parameters_enable_thinking_enabled": False,
+                        "body_parameters_top_p_override_enabled": True,
+                        "body_parameters_top_p_override_value": "0.6",
+                        "body_parameters_top_k_override_enabled": False,
+                        "body_parameters_top_k_override_value": "10",
+                    }
                 }
             },
         }
     )
 
     chat_completion = normalized["dashscope"]["chat_completion"]
-    fields = chat_completion["fields"]
 
     assert changed is True
-    assert fields["body_parameters_enable_thinking_enabled"] is True
-    assert fields["body_parameters_top_p_override_enabled"] is False
-    assert fields["body_parameters_top_k_override_enabled"] is False
-    assert chat_completion["disabled_paths"] == [
-        "body.parameters.enable_thinking",
-        "headers.X-Trace",
-    ]
-    assert chat_completion["override_params"] == {
-        "top_p": 0.4,
-        "body": {"parameters": {"top_k": 20}, "custom": True},
-    }
+    # 只迁移启用状态的覆写；关闭状态遗留值不得生效。
+    assert chat_completion["overrides"]["top_p"] == "0.6"
+    assert "top_k" not in chat_completion["overrides"]
+    assert "fields" not in chat_completion
+
+
+def test_maidock_config_normalization_is_idempotent() -> None:
+    normalized, _ = normalize_maidock_config_data(MaiDockConfig().model_dump(mode="python"))
+    second, changed = normalize_maidock_config_data(normalized)
+    assert changed is False
+    assert second == normalized
 
 
 def test_maidock_webui_schema_uses_dotted_scalar_sections() -> None:
     schema = build_maidock_config_schema(plugin_id="maidock")
     sections = schema["sections"]
-    response_fields = sections["openai_responses_response_fields"]
-    dashscope_fields = sections["dashscope_chat_completion_fields"]
+    response_overrides = sections["openai_responses_response_overrides"]
+    dashscope_overrides = sections["dashscope_chat_completion_overrides"]
 
-    assert response_fields["name"] == "openai_responses.response.fields"
-    assert dashscope_fields["name"] == "dashscope.chat_completion.fields"
-    dashscope_embedding_fields = sections["dashscope_embeddings_fields"]["fields"]
-    siliconflow_embedding_fields = sections["siliconflow_embeddings_fields"]["fields"]
-    ark_embedding_fields = sections["volcengine_ark_embeddings_fields"]["fields"]
+    assert response_overrides["name"] == "openai_responses.response.overrides"
+    assert dashscope_overrides["name"] == "dashscope.chat_completion.overrides"
+    dashscope_embedding_overrides = sections["dashscope_embeddings_overrides"]["fields"]
+    siliconflow_embedding_overrides = sections["siliconflow_embeddings_overrides"]["fields"]
+    ark_embedding_overrides = sections["volcengine_ark_embeddings_overrides"]["fields"]
 
-    assert response_fields["fields"]["body_top_p_enabled"]["ui_type"] == "switch"
-    assert response_fields["fields"]["body_top_p_override_value"]["ui_type"] == "textarea"
-    assert "body_parameters_dimension_enabled" in dashscope_embedding_fields
-    assert "body_dimensions_enabled" not in dashscope_embedding_fields
-    assert "body_dimensions_enabled" in siliconflow_embedding_fields
-    assert "body_parameters_dimension_enabled" not in siliconflow_embedding_fields
-    assert "body_dimensions_enabled" in ark_embedding_fields
-    assert "body_parameters_dimension_enabled" not in ark_embedding_fields
+    # 每个参数只有一个全宽 textarea 覆写框。
+    assert response_overrides["fields"]["top_p"]["ui_type"] == "textarea"
+    assert response_overrides["fields"]["store"]["ui_type"] == "textarea"
+    top_p = response_overrides["fields"]["top_p"]
+    store = response_overrides["fields"]["store"]
+    assert top_p["label"] == "top_p · number"
+    assert "body.top_p" in top_p["hint"]
+    assert "0..1" in top_p["hint"]
+    assert "https://platform.openai.com/docs/api-reference/responses/create" in top_p["hint"]
+    assert store["label"] == "store · boolean"
+    assert "false" in store["hint"]
+    assert "dimensions" in dashscope_embedding_overrides
+    assert "dimensions" in siliconflow_embedding_overrides
+    assert "dimensions" in ark_embedding_overrides
+    assert "_enabled" not in response_overrides["fields"]
     for section in sections.values():
         for field in section["fields"].values():
             assert field["ui_type"] != "json"
             assert field["type"] != "object"
 
 
-def test_parameter_policy_config_rejects_invalid_unknown_policy() -> None:
-    with pytest.raises(ValidationError):
-        MaiDockConfig.model_validate({"openai_responses": {"response": {"unknown_extra_params": "invalid"}}})
+def test_parameter_overrides_config_normalizes_scalar_values() -> None:
+    """配置中的布尔/数字覆写值会被字符串化后进入统一字符串目录。"""
 
-
-def test_parameter_policy_config_normalizes_nested_param_objects() -> None:
     config = MaiDockConfig.model_validate(
-        {
-            "openai_responses": {
-                "response": {
-                    "default_params": {"body": {"temperature": 0.2}},
-                    "override_params": {"headers": {"X-Test": "1"}},
-                }
-            }
-        }
+        {"openai_responses": {"response": {"overrides": {"top_p": 0.5, "store": True}}}}
     )
+    assert config.openai_responses.response.overrides == {"top_p": "0.5", "store": "true"}
 
-    assert config.openai_responses.response.default_params == {"body": {"temperature": 0.2}}
-    assert config.openai_responses.response.override_params == {"headers": {"X-Test": "1"}}
+    with pytest.raises(TypeError):
+        MaiDockConfig.model_validate({"openai_responses": {"response": {"overrides": {"top_p": ["0.5"]}}}})
+
+
+def test_config_normalization_rejects_unknown_override_key() -> None:
+    with pytest.raises(ValueError, match=r"openai_responses.*response.*temprature"):
+        normalize_maidock_config_data({"openai_responses": {"response": {"overrides": {"temprature": "0.5"}}}})
 
 
 def test_audio_transcription_catalogs_expose_provider_target_paths() -> None:
@@ -361,7 +344,7 @@ def test_audio_transcription_catalogs_expose_provider_target_paths() -> None:
     assert sf_stream is not None
     assert sf_stream.value_kind == "boolean"
     assert sf_stream.label == "流式输出"
-    ark_max_output_tokens = ark_audio.field_by_safe_key("max_output_tokens")
+    ark_max_output_tokens = ark_audio.field_by_safe_key("max_tokens")
     assert ark_max_output_tokens is not None
     assert ark_max_output_tokens.target_path == (
         "body",
@@ -385,9 +368,31 @@ def test_mimo_reasoning_retention_validation(retention_days: int) -> None:
         MaiDockConfig.model_validate({"xiaomi_mimo": {"reasoning_retention_days": retention_days}})
 
 
-def test_mimo_audio_language_validation() -> None:
-    with pytest.raises(ValidationError):
-        MaiDockConfig.model_validate({"xiaomi_mimo": {"audio_transcription_language": "ja"}})
+def test_mimo_audio_language_override_validation() -> None:
+    from src.host_adapters.common.parameter_translation import (
+        TranslationEnvelope,
+        build_translation_context,
+    )
+    from src.host_adapters.xiaomi_mimo_provider.parameter_translation import _translate_mimo_audio_language
+    from src.schemas import AudioTranscriptionRequestSnapshot
+
+    catalog = get_parameter_catalog("xiaomi_mimo", "audio_transcription")
+    config = MaiDockConfig.model_validate({"xiaomi_mimo": {"audio_transcription": {"overrides": {"language": "ja"}}}})
+    overrides = build_parameter_overrides(config.xiaomi_mimo.audio_transcription, catalog)
+    request = AudioTranscriptionRequestSnapshot.model_validate(
+        {"model_info": {"model_identifier": "mimo-v2.5-asr"}, "api_provider": {"api_key": "k"}}
+    )
+    context = build_translation_context(
+        request,
+        overrides=overrides,
+        catalog=catalog,
+        provider_label="Xiaomi Mimo",
+        provider="xiaomi_mimo",
+        capability="audio_transcription",
+        model="mimo-v2.5-asr",
+    )
+    with pytest.raises(ValueError, match="auto/zh/en"):
+        _translate_mimo_audio_language(context, TranslationEnvelope(), "ja")
 
 
 def test_audio_transcription_catalogs_appear_in_provider_catalogs() -> None:

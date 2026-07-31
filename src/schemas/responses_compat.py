@@ -67,13 +67,21 @@ class OpenAIInputMessage(HostDumpModel):
 
 
 class OpenAIEasyInputMessage(HostDumpModel):
-    """OpenAI Responses EasyInputMessage，用于普通 assistant 文本历史。"""
+    """OpenAI Responses EasyInputMessage，用于普通 assistant 文本历史。
+
+    `partial` 是 ARK Responses 的续写标记，OpenAI 协议里没有这个字段；
+    只在显式置 True 时序列化，保证非 ARK 链路的线上请求体逐字节不变。
+    """
 
     role: Literal["assistant"] = "assistant"
     content: str
+    partial: bool | None = None
 
     def to_sdk_param(self) -> dict:
-        return {"role": self.role, "content": self.content}
+        payload: dict = {"role": self.role, "content": self.content}
+        if self.partial is True:
+            payload["partial"] = True
+        return payload
 
 
 class OpenAIResponseOutputMessageItem(HostDumpModel):
@@ -143,16 +151,18 @@ class OpenAIResponsesTool(HostDumpModel):
     name: str
     description: str = ""
     parameters: ObjectFields = Field(default_factory=default_openai_tool_parameters)
-    strict: bool = False
+    strict: bool | None = False
 
     def to_sdk_param(self) -> dict:
-        return {
+        result: dict = {
             "type": self.type,
             "name": self.name,
             "description": self.description,
             "parameters": self.parameters.to_plain_dict(),
-            "strict": self.strict,
         }
+        if self.strict is not None:
+            result["strict"] = self.strict
+        return result
 
 
 class OpenAITextFormatConfig(HostDumpModel):

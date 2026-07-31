@@ -6,13 +6,14 @@ from uuid import uuid4
 from json_repair import repair_json
 from pydantic import TypeAdapter
 
+from .json_types import JsonValue, normalize_json_value
 from ..i18n import runtime_expected, runtime_subject, translate
 from ..schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
 
 ToolArgumentParseMode = Literal["auto", "strict", "repair", "double_decode"]
 ReasoningParseMode = Literal["auto", "native", "think_tag", "none"]
 
-_DICT_ADAPTER: TypeAdapter[dict] = TypeAdapter(dict)
+_DICT_ADAPTER: TypeAdapter[dict[str, JsonValue]] = TypeAdapter(dict)
 
 THINK_CONTENT_PATTERN = re.compile(
     r"<think>(?P<think>.*?)</think>(?P<content>.*)|<think>(?P<think_unclosed>.*)|(?P<content_only>.+)",
@@ -53,7 +54,9 @@ def normalize_reasoning_parse_mode(parse_mode: str | None) -> ReasoningParseMode
     return "auto"
 
 
-def normalize_arguments(value: ObjectFields | str | None, parse_mode: ToolArgumentParseMode = "auto") -> dict:
+def normalize_arguments(
+    value: ObjectFields | str | None, parse_mode: ToolArgumentParseMode = "auto"
+) -> dict[str, JsonValue]:
     """解析 Host 快照或上游响应中的工具参数。"""
 
     if isinstance(value, ObjectFields):
@@ -77,7 +80,7 @@ def _tool_argument_error(raw_arguments: str, reason: str) -> ValueError:
     )
 
 
-def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> dict:
+def parse_tool_arguments(raw_arguments: str, parse_mode: ToolArgumentParseMode = "auto") -> dict[str, JsonValue]:
     """解析工具调用参数字符串，空字符串按无参函数处理。"""
 
     if not raw_arguments.strip():
@@ -164,7 +167,7 @@ def merge_native_or_text_reasoning(
     return None, content
 
 
-def _coerce_xml_parameter_value(raw_value: str) -> object:
+def _coerce_xml_parameter_value(raw_value: str) -> JsonValue:
     normalized_value = raw_value.strip()
     if not normalized_value:
         return ""
@@ -177,14 +180,15 @@ def _coerce_xml_parameter_value(raw_value: str) -> object:
         return None
     if normalized_value.startswith(("{", "[")):
         try:
-            return repair_json(normalized_value, return_objects=True, logging=False)
+            # repair_json 是第三方无类型返回，在这里收口成 JSON 值。
+            return normalize_json_value(repair_json(normalized_value, return_objects=True, logging=False))
         except Exception:
             return normalized_value
     return normalized_value
 
 
-def _parse_xml_parameters(raw_arguments: str) -> dict | None:
-    parameters: dict = {}
+def _parse_xml_parameters(raw_arguments: str) -> dict[str, JsonValue] | None:
+    parameters: dict[str, JsonValue] = {}
     for match in XML_PARAMETER_PATTERN.finditer(raw_arguments):
         parameters[match.group("name").strip()] = _coerce_xml_parameter_value(match.group("value"))
     return parameters or None

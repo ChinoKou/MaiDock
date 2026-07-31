@@ -29,10 +29,7 @@ def test_response_fixture_preserves_complete_core_request_contract() -> None:
     assert request.model_info.max_tokens == 512
     assert request.model_info.force_stream_mode is True
     assert request.model_info.visual is True
-    assert request.model_info.extra_params.to_plain_dict() == {
-        "top_p": 0.9,
-        "provider_extension": {"enabled": True},
-    }
+    assert "extra_params" not in request.model_info.model_dump(mode="python")
 
     api_provider = request.api_provider
     assert api_provider.name == "contract-provider"
@@ -56,7 +53,7 @@ def test_response_fixture_preserves_complete_core_request_contract() -> None:
 
     assert request.temperature == 0.4
     assert request.max_tokens == 1024
-    assert request.extra_params.to_plain_dict() == {"seed": 7, "metadata": {"request": "contract"}}
+    assert "extra_params" not in request.model_dump(mode="python")
     assert "future_request_field" not in request.model_fields_set
 
 
@@ -98,7 +95,7 @@ def test_response_fixture_preserves_messages_tools_and_response_format() -> None
     assert request.response_format.schema_.schema_.to_plain_dict()["required"] == ["summary"]
 
 
-def test_embedding_fixture_uses_extra_params_for_dimensions() -> None:
+def test_embedding_fixture_ignores_extra_params() -> None:
     payload = build_embedding_payload()
     request = EmbeddingRequestSnapshot.model_validate(payload)
 
@@ -106,11 +103,8 @@ def test_embedding_fixture_uses_extra_params_for_dimensions() -> None:
     assert request.embedding_input == "脱敏向量文本"
     assert request.dimensions is None
     assert "dimensions" not in payload
-    assert request.model_info.extra_params.to_plain_dict() == {
-        "dimensions": 256,
-        "encoding_format": "float",
-    }
-    assert request.extra_params.to_plain_dict() == {"dimensions": 384, "user": "contract-user"}
+    assert "extra_params" not in request.model_info.model_dump(mode="python")
+    assert "extra_params" not in request.model_dump(mode="python")
     assert request.api_provider.auth_type == "bearer"
     assert request.api_provider.retry_interval == 0
 
@@ -122,11 +116,11 @@ def test_audio_fixture_preserves_audio_and_provider_contract() -> None:
     assert request.audio_base64 == "UklGRgAAAABXQVZF"
     assert request.max_tokens == 96
     assert request.model_info.model_identifier == "contract-audio-model"
-    assert request.model_info.extra_params.to_plain_dict() == {"language": "zh", "response_format": "json"}
+    assert "extra_params" not in request.model_info.model_dump(mode="python")
     assert request.api_provider.auth_type == "query"
     assert request.api_provider.auth_query_name == "token"
     assert request.api_provider.default_query.to_plain_dict() == {"locale": "zh-CN"}
-    assert request.extra_params.to_plain_dict() == {"prompt": "脱敏词汇", "temperature": 0.1}
+    assert "extra_params" not in request.model_dump(mode="python")
 
 
 def test_contract_metadata_records_sources_version_and_sanitization() -> None:

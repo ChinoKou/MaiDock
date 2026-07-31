@@ -1,14 +1,15 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Protocol, cast
 
-from maibot_sdk import LLMProvider, LLMProviderBase, MaiBotPlugin
+from maibot_sdk import LLMProvider, MaiBotPlugin
 from pydantic import ValidationError
 
 from .config import MaiDockConfig, build_runtime_options, normalize_maidock_config_data
+from .config_migration import inject_legacy_migration_bridge
 from .config_schema import build_maidock_config_schema
 from .core.common import ProviderRuntimeOptions
-from .core.json_types import value_to_json_object
+from .core.json_types import JsonValue, value_to_json_object
 from .core.state_store import PluginStateStore
 from .i18n import (
     DEFAULT_LOCALE,
@@ -19,11 +20,17 @@ from .i18n import (
     use_locale,
     validate_catalogs,
 )
+from .public_api import PublicApiConfig, PublicApiRuntime
+from .public_api.api.definitions import PublicApiHandler
+from .public_api.domain import PublicRpcObject
+from .runtime import (
+    RuntimeKey,
+    RuntimeContainer,
+    VendorClientContainer,
+    create_vendor_client,
+    create_vendor_runtime,
+)
 from .version import __version__
-
-type _ProviderKey = Literal["openai", "anthropic", "volcengine", "dashscope", "siliconflow", "xiaomi_mimo"]
-type _ProviderFactory = Callable[[ProviderRuntimeOptions], LLMProviderBase]
-type _ProviderGetter = Callable[[], LLMProviderBase]
 
 
 class _PluginPaths(Protocol):
@@ -35,52 +42,6 @@ class _PluginContextWithPaths(Protocol):
     paths: _PluginPaths
 
 
-def _create_openai_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
-    from .providers.openai_responses_provider.provider import OpenAIResponsesProvider
-
-    return OpenAIResponsesProvider(options=options)
-
-
-def _create_anthropic_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
-    from .providers.anthropic_messages_provider.provider import (
-        AnthropicMessagesProvider,
-    )
-
-    return AnthropicMessagesProvider(options=options)
-
-
-def _create_volcengine_provider(
-    options: ProviderRuntimeOptions,
-    state_store: PluginStateStore | None = None,
-) -> LLMProviderBase:
-    from .providers.volcengine_ark_provider.provider import (
-        VolcengineArkResponsesProvider,
-    )
-
-    return VolcengineArkResponsesProvider(options=options, state_store=state_store)
-
-
-def _create_dashscope_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
-    from .providers.dashscope_provider.provider import DashScopeProvider
-
-    return DashScopeProvider(options=options)
-
-
-def _create_siliconflow_provider(options: ProviderRuntimeOptions) -> LLMProviderBase:
-    from .providers.siliconflow_provider.provider import SiliconFlowProvider
-
-    return SiliconFlowProvider(options=options)
-
-
-def _create_mimo_provider(
-    options: ProviderRuntimeOptions,
-    state_store: PluginStateStore | None = None,
-) -> LLMProviderBase:
-    from .providers.xiaomi_mimo_provider.provider import XiaomiMimoProvider
-
-    return XiaomiMimoProvider(options=options, state_store=state_store)
-
-
 class MaiDockPlugin(MaiBotPlugin):
     """提供额外端点支持的插件。"""
 
@@ -89,29 +50,65 @@ class MaiDockPlugin(MaiBotPlugin):
     def __init__(self) -> None:
         super().__init__()
         self._runtime_options: ProviderRuntimeOptions | None = None
-        self._openai_provider: LLMProviderBase | None = None
+        self._runtime_container: RuntimeContainer | None = None
+        self._client_container: VendorClientContainer | None = None
+        self._public_api_runtime: PublicApiRuntime | None = None
+        self._public_apis_online = False
         self._state_store: PluginStateStore | None = None
-        self._anthropic_provider: LLMProviderBase | None = None
-        self._volcengine_provider: LLMProviderBase | None = None
-        self._dashscope_provider: LLMProviderBase | None = None
-        self._siliconflow_provider: LLMProviderBase | None = None
-        self._mimo_provider: LLMProviderBase | None = None
 
     async def on_load(self) -> None:
         validate_catalogs()
-        self._invalidate_runtime_state()
-        with use_locale(self._get_runtime_options().locale):
+        await self._close_all_runtimes()
+        self._runtime_options = None
+        config = self._read_config() or MaiDockConfig()
+        with use_locale(config.plugin.locale):
             self._initialize_state_store()
+            self._client_container = VendorClientContainer(factory=create_vendor_client)
+            paths = cast(_PluginContextWithPaths, self.ctx).paths
+            public_runtime = PublicApiRuntime(
+                data_dir=paths.data_dir,
+                config=self._effective_public_config(config),
+                clients=self._client_container,
+            )
+            await public_runtime.start()
+            self._public_api_runtime = public_runtime
+            await self._sync_public_api_registration(config)
 
     async def on_unload(self) -> None:
-        self._invalidate_runtime_state()
+        await self._sync_public_api_registration(None)
+        await self._close_all_runtimes()
+        self._runtime_options = None
         if self._state_store is not None:
             await self._state_store.close()
             self._state_store = None
 
     async def on_config_update(self, scope: str, config_data: dict, version: str) -> None:
         del scope, config_data, version
-        self._invalidate_runtime_state()
+        await self._close_runtime_container()
+        self._runtime_options = None
+        config = self._read_config() or MaiDockConfig()
+        with use_locale(config.plugin.locale):
+            public_runtime = self._public_api_runtime
+            if public_runtime is not None:
+                await public_runtime.update_config(self._effective_public_config(config))
+            await self._sync_public_api_registration(config)
+
+    async def _close_all_runtimes(self) -> None:
+        public_runtime = self._public_api_runtime
+        self._public_api_runtime = None
+        if public_runtime is not None:
+            await public_runtime.stop()
+        await self._close_runtime_container()
+        clients = self._client_container
+        self._client_container = None
+        if clients is not None:
+            await clients.aclose()
+
+    async def _close_runtime_container(self) -> None:
+        container = self._runtime_container
+        self._runtime_container = None
+        if container is not None:
+            await container.aclose()
 
     def _initialize_state_store(self) -> None:
         if self._state_store is not None:
@@ -122,12 +119,59 @@ class MaiDockPlugin(MaiBotPlugin):
             raise RuntimeError(translate("runtime.plugin.paths_missing")) from exc
         self._state_store = PluginStateStore(paths.data_dir / "maidock_state.sqlite3")
 
+    @staticmethod
+    def _effective_public_config(config: MaiDockConfig) -> PublicApiConfig:
+        enabled = config.plugin.enabled and config.public_api.enabled
+        return config.public_api.model_copy(update={"enabled": enabled})
+
+    async def _sync_public_api_registration(self, config: MaiDockConfig | None) -> None:
+        should_enable = bool(config and config.plugin.enabled and config.public_api.enabled)
+        runtime = self._public_api_runtime
+        if runtime is not None:
+            runtime.require_engine().set_accepting(should_enable)
+        if should_enable:
+            if runtime is None:
+                raise RuntimeError("Public API Runtime 尚未初始化")
+            self.clear_dynamic_apis()
+            for definition in runtime.require_facade().definitions():
+                self.register_dynamic_api(
+                    definition.name,
+                    self._dynamic_api_handler(definition.handler),
+                    description=translate(definition.description_key),
+                    version="1",
+                    public=True,
+                    timeout_ms=25_000,
+                )
+            await self.sync_dynamic_apis(offline_reason=translate("public_api.offline"))
+            self._public_apis_online = True
+            return
+        if not self._public_apis_online:
+            return
+        self.clear_dynamic_apis()
+        await self.sync_dynamic_apis(offline_reason=translate("public_api.offline"))
+        self._public_apis_online = False
+
+    @staticmethod
+    def _dynamic_api_handler(
+        handler: PublicApiHandler,
+    ) -> Callable[..., Awaitable[PublicRpcObject]]:
+        async def invoke(request: object, **_metadata: object) -> PublicRpcObject:
+            return await handler(request)
+
+        return invoke
+
     def normalize_plugin_config(self, config_data: Mapping[str, object] | None) -> tuple[dict[str, object], bool]:
         locale = self._locale_from_config_data(config_data)
         with use_locale(locale):
-            normalized_config, changed = super().normalize_plugin_config(config_data)
-            maidock_config, maidock_changed = normalize_maidock_config_data(normalized_config)
-            return maidock_config, changed or maidock_changed
+            raw_config = value_to_json_object(dict(config_data or {}))
+            normalized_config, changed = normalize_maidock_config_data(raw_config)
+            return normalized_config, changed
+
+    def get_default_config(self) -> dict[str, JsonValue]:
+        """返回含 1.1.3 迁移桥接键的 Runner 默认配置骨架。"""
+
+        default_config = value_to_json_object(super().get_default_config())
+        return inject_legacy_migration_bridge(default_config)
 
     def get_webui_config_schema(
         self,
@@ -177,119 +221,41 @@ class MaiDockPlugin(MaiBotPlugin):
             self._runtime_options = build_runtime_options(self._read_config())
         return self._runtime_options
 
-    def _clear_provider_instances(self) -> None:
-        self._openai_provider = None
-        self._anthropic_provider = None
-        self._volcengine_provider = None
-        self._dashscope_provider = None
-        self._siliconflow_provider = None
-        self._mimo_provider = None
-
-    def _invalidate_runtime_state(self) -> None:
-        self._runtime_options = None
-        self._clear_provider_instances()
-
-    def _get_provider_slot(self, key: _ProviderKey) -> LLMProviderBase | None:
-        match key:
-            case "openai":
-                return self._openai_provider
-            case "anthropic":
-                return self._anthropic_provider
-            case "volcengine":
-                return self._volcengine_provider
-            case "dashscope":
-                return self._dashscope_provider
-            case "siliconflow":
-                return self._siliconflow_provider
-            case "xiaomi_mimo":
-                return self._mimo_provider
-
-    def _set_provider_slot(self, key: _ProviderKey, provider: LLMProviderBase) -> None:
-        match key:
-            case "openai":
-                self._openai_provider = provider
-            case "anthropic":
-                self._anthropic_provider = provider
-            case "volcengine":
-                self._volcengine_provider = provider
-            case "dashscope":
-                self._dashscope_provider = provider
-            case "siliconflow":
-                self._siliconflow_provider = provider
-            case "xiaomi_mimo":
-                self._mimo_provider = provider
-
-    def _get_or_create_provider(self, key: _ProviderKey, factory: _ProviderFactory) -> LLMProviderBase:
-        provider = self._get_provider_slot(key)
-        if provider is not None:
-            return provider
-        provider = factory(self._get_runtime_options())
-        self._set_provider_slot(key, provider)
-        return provider
-
-    def _require_openai_provider(self) -> LLMProviderBase:
-        return self._get_or_create_provider("openai", _create_openai_provider)
-
-    def _require_anthropic_provider(self) -> LLMProviderBase:
-        return self._get_or_create_provider("anthropic", _create_anthropic_provider)
-
-    def _require_volcengine_provider(self) -> LLMProviderBase:
-        provider = self._get_provider_slot("volcengine")
-        if provider is not None:
-            return provider
-        options = self._get_runtime_options()
-        state_store = self._state_store
-        if options.volcengine_prefix_cache_enabled and state_store is None:
-            raise RuntimeError(translate("runtime.plugin.cache_store_missing"))
-        provider = _create_volcengine_provider(options, state_store)
-        self._set_provider_slot("volcengine", provider)
-        return provider
-
-    def _require_dashscope_provider(self) -> LLMProviderBase:
-        return self._get_or_create_provider("dashscope", _create_dashscope_provider)
-
-    def _require_siliconflow_provider(self) -> LLMProviderBase:
-        return self._get_or_create_provider("siliconflow", _create_siliconflow_provider)
-
-    def _require_mimo_provider(self) -> LLMProviderBase:
-        provider = self._get_provider_slot("xiaomi_mimo")
-        if provider is not None:
-            return provider
-        if self._state_store is None:
-            raise RuntimeError(translate("runtime.plugin.store_missing"))
-        provider = _create_mimo_provider(self._get_runtime_options(), self._state_store)
-        self._set_provider_slot("xiaomi_mimo", provider)
-        return provider
+    def _get_runtime_container(self) -> RuntimeContainer:
+        if self._runtime_container is None:
+            clients = self._client_container
+            if clients is None:
+                clients = VendorClientContainer(factory=create_vendor_client)
+                self._client_container = clients
+            self._runtime_container = RuntimeContainer(
+                options=self._get_runtime_options(),
+                state_store=self._state_store,
+                factory=create_vendor_runtime,
+                clients=clients,
+            )
+        return self._runtime_container
 
     def _ensure_enabled(self) -> None:
         config = self._read_config()
         if config is not None and not config.plugin.enabled:
             raise RuntimeError(translate("runtime.plugin.disabled"))
 
+    # 这一层是 SDK 直接调用的入口：SDK 基类 dispatch 的形参是 dict[str, Any]，
+    # 所以请求只能收窄成 dict[str, JsonValue] 而不能像 host_adapters 那样用 Mapping，
+    # 否则原样转发就不再类型兼容。
     async def _dispatch_provider(
-        self,
-        getter: _ProviderGetter,
-        operation: str,
-        request: dict,
-    ) -> dict:
+        self, key: RuntimeKey, operation: str, request: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
         options = self._get_runtime_options()
         with use_locale(options.locale):
             self._ensure_enabled()
             if operation not in {"response", "embedding", "audio_transcription"}:
                 raise ValueError(translate("runtime.error.operation_unsupported", operation=operation))
-            provider = getter()
+            runtime = await self._get_runtime_container().get(key)
             try:
-                result = await provider.dispatch(operation=operation, request=request)
+                result = await runtime.ingress.dispatch(operation=operation, request=request)
             except ValidationError as exc:
                 raise ValueError(format_validation_error(exc)) from exc
-            except NotImplementedError as exc:
-                raise NotImplementedError(
-                    translate(
-                        "runtime.error.capability_unsupported",
-                        provider=type(provider).__name__,
-                        capability=operation,
-                    )
-                ) from exc
             return value_to_json_object(result)
 
     @LLMProvider(
@@ -298,8 +264,8 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于 OpenAI Responses API 的 LLM Provider。",
         version=__version__,
     )
-    async def openai_responses_provider(self, operation: str, request: dict) -> dict:
-        return await self._dispatch_provider(self._require_openai_provider, operation, request)
+    async def openai_responses_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("openai", operation, request)
 
     @LLMProvider(
         client_type="maidock-anthropic-messages",
@@ -307,8 +273,8 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于 Anthropic Messages API 的 LLM Provider。",
         version=__version__,
     )
-    async def anthropic_provider(self, operation: str, request: dict) -> dict:
-        return await self._dispatch_provider(self._require_anthropic_provider, operation, request)
+    async def anthropic_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("anthropic", operation, request)
 
     @LLMProvider(
         client_type="maidock-dashscope",
@@ -316,8 +282,17 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于阿里云百炼 DashScope 原生 HTTP API 的 LLM Provider。",
         version=__version__,
     )
-    async def dashscope_provider(self, operation: str, request: dict) -> dict:
-        return await self._dispatch_provider(self._require_dashscope_provider, operation, request)
+    async def dashscope_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("dashscope", operation, request)
+
+    @LLMProvider(
+        client_type="maidock-bailian-responses",
+        name="MaiDock 阿里云百炼 Responses",
+        description="基于阿里云百炼 OpenAI Responses API 的 LLM Provider。",
+        version=__version__,
+    )
+    async def bailian_responses_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("bailian_responses", operation, request)
 
     @LLMProvider(
         client_type="maidock-siliconflow",
@@ -325,8 +300,8 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于 SiliconFlow 原生 HTTP API 的 LLM Provider。",
         version=__version__,
     )
-    async def siliconflow_provider(self, operation: str, request: dict) -> dict:
-        return await self._dispatch_provider(self._require_siliconflow_provider, operation, request)
+    async def siliconflow_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("siliconflow", operation, request)
 
     @LLMProvider(
         client_type="maidock-volcengine-ark-responses",
@@ -334,8 +309,8 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于火山方舟 Responses API 的 LLM Provider。",
         version=__version__,
     )
-    async def volcengine_provider(self, operation: str, request: dict) -> dict:
-        return await self._dispatch_provider(self._require_volcengine_provider, operation, request)
+    async def volcengine_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("volcengine", operation, request)
 
     @LLMProvider(
         client_type="maidock-xiaomi-mimo",
@@ -343,8 +318,8 @@ class MaiDockPlugin(MaiBotPlugin):
         description="基于小米 Mimo Chat Completions API 的 LLM Provider。",
         version=__version__,
     )
-    async def xiaomi_mimo_provider(self, operation: str, request: dict) -> dict:
-        return await self._dispatch_provider(self._require_mimo_provider, operation, request)
+    async def xiaomi_mimo_provider(self, operation: str, request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return await self._dispatch_provider("xiaomi_mimo", operation, request)
 
 
 def create_plugin() -> MaiDockPlugin:

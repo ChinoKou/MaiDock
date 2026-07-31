@@ -54,4 +54,4 @@ def test_version_and_config_template_metadata_are_synchronized() -> None:
     assert pyproject["project"]["version"] == __version__
     assert manifest["version"] == __version__
     assert manifest["host_application"]["min_version"] == "1.0.9"
-    assert manifest["sdk"]["min_version"] == "2.6.0"
+    assert manifest["sdk"]["min_version"] == "2.7.0"

@@ -3,10 +3,10 @@ from src.core.common import (
     build_openai_compatible_client_config,
     with_default_user_agent,
 )
-from src.providers.anthropic_messages_provider.messages import (
+from src.host_adapters.anthropic_messages_provider.messages import (
     build_client_config as build_anthropic_http_config,
 )
-from src.providers.common.httpx import build_httpx_client_config
+from src.host_adapters.common.httpx import build_httpx_client_config
 from src.schemas import ApiProviderSnapshot
 
 

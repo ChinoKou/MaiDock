@@ -39,8 +39,12 @@ def _sanitize_text(value: str, *, max_text_length: int, detect_base64: bool = Tr
     return redacted
 
 
-def sanitize_for_log(value: object, *, max_text_length: int = 300):
-    """递归脱敏用于日志或 raw_data 的对象。"""
+def sanitize_for_log(value: object, *, max_text_length: int = 300) -> JsonValue:
+    """递归脱敏用于日志或 raw_data 的对象。
+
+    入参是任意对象（异常、bytes、memoryview 都可能进来），出参一定是纯 JSON 值：
+    非 JSON 形状在这里就被换成字符串占位，调用方拿到的结果可以直接进 raw_data。
+    """
 
     if isinstance(value, (bytes, bytearray)):
         return _sanitize_bytes(value, max_text_length=max_text_length)
@@ -52,7 +56,7 @@ def sanitize_for_log(value: object, *, max_text_length: int = 300):
             "message": _sanitize_text(str(value), max_text_length=max_text_length, detect_base64=False),
         }
     if is_json_mapping(value):
-        sanitized: dict[str, object] = {}
+        sanitized: dict[str, JsonValue] = {}
         for key, item in value.items():
             normalized_key = str(key)
             lowered_key = normalized_key.lower()
@@ -74,7 +78,7 @@ def sanitize_for_log(value: object, *, max_text_length: int = 300):
         return [sanitize_for_log(item, max_text_length=max_text_length) for item in value]
     if isinstance(value, str):
         return _sanitize_text(value, max_text_length=max_text_length)
-    return value
+    return normalize_json_value(value)
 
 
 def sanitize_upstream_detail(value: object, *, max_text_length: int = 300) -> str:
@@ -83,11 +87,11 @@ def sanitize_upstream_detail(value: object, *, max_text_length: int = 300) -> st
     return str(sanitize_for_log(value, max_text_length=max_text_length))
 
 
-def sanitize_json_value(value: object, *, max_text_length: int = 300) -> object:
+def sanitize_json_value(value: object, *, max_text_length: int = 300) -> JsonValue:
     return normalize_json_value(sanitize_for_log(value, max_text_length=max_text_length))
 
 
-def sanitize_json_object(value: Mapping[str, JsonValue] | dict, *, max_text_length: int = 300) -> dict:
+def sanitize_json_object(value: Mapping[str, JsonValue], *, max_text_length: int = 300) -> dict[str, JsonValue]:
     sanitized = sanitize_for_log(value, max_text_length=max_text_length)
     sanitized_mapping = json_mapping_or_none(sanitized)
     if sanitized_mapping is None:

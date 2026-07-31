@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from src.core.common import ProviderRuntimeOptions
 from src.core.parsing import (
     ReasoningParseMode,
     ToolArgumentParseMode,
@@ -16,12 +17,64 @@ from src.core.parsing import (
     normalize_tool_argument_parse_mode,
     parse_tool_arguments,
 )
-from src.schemas import ObjectFields
+from src.host_adapters.common.reasoning import merge_reasoning_and_xml_tool_fallback
+from src.schemas import ObjectFields, ProviderFunctionCall, ProviderToolCall
 
 
 @dataclass(frozen=True)
 class _FixedUuid:
     hex: str = "0123456789abcdef0123456789abcdef"
+
+
+@pytest.mark.parametrize(
+    ("native_reasoning", "expected_source"),
+    [("先思考", "reasoning"), (None, "response"), ("   ", "response")],
+)
+def test_reasoning_merge_marks_native_tool_call_source(
+    native_reasoning: str | None,
+    expected_source: str,
+) -> None:
+    tool_calls = [
+        ProviderToolCall(
+            id="call-1",
+            function=ProviderFunctionCall(name="lookup", arguments={}),
+            extra_content={"provider": "test"},
+        )
+    ]
+
+    merge_reasoning_and_xml_tool_fallback(
+        content="回答",
+        native_reasoning=native_reasoning,
+        tool_calls=tool_calls,
+        options=ProviderRuntimeOptions(),
+    )
+
+    assert tool_calls[0].extra_content == {
+        "provider": "test",
+        "tool_call_source": expected_source,
+    }
+
+
+def test_reasoning_merge_marks_xml_tools_by_their_actual_region() -> None:
+    tool_calls: list[ProviderToolCall] = []
+
+    reasoning, content = merge_reasoning_and_xml_tool_fallback(
+        content=(
+            "<think><tool_call><function=analyze>{}</function></tool_call></think>"
+            "正文<tool_call><function=answer>{}</function></tool_call>"
+        ),
+        native_reasoning=None,
+        tool_calls=tool_calls,
+        options=ProviderRuntimeOptions(),
+    )
+
+    assert reasoning is None
+    assert content == "正文"
+    assert [tool_call.function.name for tool_call in tool_calls] == ["analyze", "answer"]
+    assert [tool_call.extra_content["tool_call_source"] for tool_call in tool_calls] == [
+        "reasoning",
+        "response",
+    ]
 
 
 @pytest.mark.parametrize(

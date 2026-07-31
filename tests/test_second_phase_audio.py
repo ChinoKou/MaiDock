@@ -5,13 +5,20 @@ from typing import cast
 import httpx
 import pytest
 
+from src.config import MaiDockConfig, build_runtime_options, normalize_maidock_config_data
 from src.core.common import ProviderRuntimeOptions
-from src.providers.common import audio as audio_module
-from src.providers.common.audio import detect_audio_format, prepare_base64_audio
-from src.providers.volcengine_ark_provider.provider import (
-    VolcengineArkResponsesProvider,
-)
-from src.providers.xiaomi_mimo_provider.provider import XiaomiMimoProvider
+from src.host_adapters.common import audio as audio_module
+from src.host_adapters.common.audio import detect_audio_format, prepare_base64_audio
+from tests.support.host_adapters import VolcengineArkResponsesProvider, XiaomiMimoProvider
+
+
+def _mimo_audio_options(overrides: dict | None = None) -> ProviderRuntimeOptions:
+    """构造 Mimo ASR 运行时选项；normalize 填充默认 language=auto 后再构建。"""
+
+    raw, _ = normalize_maidock_config_data({})
+    if overrides:
+        raw["xiaomi_mimo"]["audio_transcription"]["overrides"].update(overrides)
+    return build_runtime_options(MaiDockConfig.model_validate(raw))
 
 
 def _api_provider(api_key: str) -> dict:
@@ -150,7 +157,7 @@ async def test_mimo_dedicated_asr_has_single_audio_and_language() -> None:
         return httpx.Response(200, json={"choices": [{"message": {"content": "专用转录"}}], "usage": {}})
 
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(mimo_audio_transcription_language="zh"),
+        options=_mimo_audio_options({"language": "zh"}),
         transport=httpx.MockTransport(handler),
     )
     result = await provider.get_audio_transcriptions(_audio_request("mimo-v2.5-asr", max_tokens=128))
@@ -167,7 +174,7 @@ async def test_mimo_dedicated_asr_has_single_audio_and_language() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mimo_dedicated_asr_preserves_forwarded_future_options() -> None:
+async def test_mimo_dedicated_asr_extra_params_are_ignored() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -175,7 +182,7 @@ async def test_mimo_dedicated_asr_preserves_forwarded_future_options() -> None:
         return httpx.Response(200, json={"choices": [{"message": {"content": "专用转录"}}], "usage": {}})
 
     provider = XiaomiMimoProvider(
-        options=ProviderRuntimeOptions(),
+        options=_mimo_audio_options(),
         transport=httpx.MockTransport(handler),
     )
     await provider.get_audio_transcriptions(
@@ -193,23 +200,11 @@ async def test_mimo_dedicated_asr_preserves_forwarded_future_options() -> None:
     )
 
     body = captured_body[0]
-    assert body["asr_options"] == {"language": "zh", "future_option": True}
-    assert body["future_top_level"] == "keep"
+    # extra_params 完全无效：仅默认覆写 language=auto 生效。
+    assert body["asr_options"] == {"language": "auto"}
+    assert "future_top_level" not in body
     assert "temperature" not in body
     assert "tools" not in body
-
-
-@pytest.mark.asyncio
-async def test_mimo_asr_rejects_invalid_asr_options_schema_for_model_alias() -> None:
-    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
-
-    with pytest.raises(TypeError, match="asr_options.*list"):
-        await provider.get_audio_transcriptions(
-            _audio_request(
-                "relay-mimo-audio",
-                extra_params={"body": {"asr_options": []}},
-            )
-        )
 
 
 @pytest.mark.asyncio
@@ -276,8 +271,11 @@ async def test_mimo_asr_rejects_oversized_base64_for_model_alias() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mimo_asr_rejects_invalid_language_for_model_alias() -> None:
-    provider = XiaomiMimoProvider(options=ProviderRuntimeOptions())
+async def test_mimo_asr_rejects_invalid_language_override_for_model_alias() -> None:
+    from src.config import MaiDockConfig, build_runtime_options
+
+    config = MaiDockConfig.model_validate({"xiaomi_mimo": {"audio_transcription": {"overrides": {"language": "ja"}}}})
+    provider = XiaomiMimoProvider(options=build_runtime_options(config))
 
     with pytest.raises(ValueError, match="auto/zh/en"):
-        await provider.get_audio_transcriptions(_audio_request("relay-mimo-audio", extra_params={"language": "ja"}))
+        await provider.get_audio_transcriptions(_audio_request("relay-mimo-audio"))

@@ -5,7 +5,8 @@ import httpx
 import pytest
 
 from src.core.common import ProviderRuntimeOptions
-from src.providers.anthropic_messages_provider.provider import AnthropicMessagesProvider
+from tests.support.assertions import json_int_at, json_object_at, json_str_at
+from tests.support.host_adapters import AnthropicMessagesProvider
 
 
 def _api_provider(default_headers: dict | None = None) -> dict:
@@ -119,7 +120,8 @@ async def test_anthropic_non_stream_response_posts_messages_body_and_parses_reas
     assert body["system"] == "你是助手"
     assert body["temperature"] == 0.2
     assert body["max_tokens"] == 128
-    assert body["top_p"] == 0.8
+    # extra_params 完全无效：top_p 不会进入请求体。
+    assert "top_p" not in body
     assert body["tool_choice"] == {"type": "any", "disable_parallel_tool_use": True}
     assert body["messages"] == [{"role": "user", "content": [{"type": "text", "text": "你好"}]}]
     assert body["tools"] == [
@@ -134,12 +136,12 @@ async def test_anthropic_non_stream_response_posts_messages_body_and_parses_reas
     ]
     assert result["content"] == "回答"
     assert result["reasoning_content"] == "先想"
-    assert result["tool_calls"][0]["id"] == "toolu_1"
-    assert result["tool_calls"][0]["function"]["name"] == "lookup"
-    assert result["tool_calls"][0]["function"]["arguments"] == {"q": "x"}
-    assert result["usage"]["prompt_tokens"] == 3
-    assert result["usage"]["completion_tokens"] == 4
-    assert result["usage"]["total_tokens"] == 7
+    assert json_str_at(result, "tool_calls", 0, "id") == "toolu_1"
+    assert json_str_at(result, "tool_calls", 0, "function", "name") == "lookup"
+    assert json_object_at(result, "tool_calls", 0, "function", "arguments") == {"q": "x"}
+    assert json_int_at(result, "usage", "prompt_tokens") == 3
+    assert json_int_at(result, "usage", "completion_tokens") == 4
+    assert json_int_at(result, "usage", "total_tokens") == 7
 
 
 @pytest.mark.asyncio
@@ -176,7 +178,7 @@ async def test_anthropic_response_ignores_stale_model_sampling_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_response_falls_back_to_model_max_tokens() -> None:
+async def test_anthropic_response_does_not_fall_back_to_model_max_tokens() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -204,8 +206,9 @@ async def test_anthropic_response_falls_back_to_model_max_tokens() -> None:
         )
     )
 
-    assert captured_body[0]["max_tokens"] == 256
-    assert captured_body[0]["temperature"] == 0.3
+    # 请求字段为 None 时不再读取 model_info 补值。
+    assert "max_tokens" not in captured_body[0]
+    assert "temperature" not in captured_body[0]
 
 
 @pytest.mark.asyncio
@@ -256,9 +259,9 @@ async def test_anthropic_stream_response_accumulates_text_reasoning_tool_and_usa
 
     assert result["content"] == "你好"
     assert result["reasoning_content"] == "想"
-    assert result["tool_calls"][0]["id"] == "toolu_1"
-    assert result["tool_calls"][0]["function"]["name"] == "lookup"
-    assert result["tool_calls"][0]["function"]["arguments"] == {"q": "x"}
-    assert result["usage"]["prompt_tokens"] == 2
-    assert result["usage"]["completion_tokens"] == 3
-    assert result["usage"]["total_tokens"] == 5
+    assert json_str_at(result, "tool_calls", 0, "id") == "toolu_1"
+    assert json_str_at(result, "tool_calls", 0, "function", "name") == "lookup"
+    assert json_object_at(result, "tool_calls", 0, "function", "arguments") == {"q": "x"}
+    assert json_int_at(result, "usage", "prompt_tokens") == 2
+    assert json_int_at(result, "usage", "completion_tokens") == 3
+    assert json_int_at(result, "usage", "total_tokens") == 5

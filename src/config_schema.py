@@ -5,20 +5,21 @@ from .core.parameter_catalog import (
     PROVIDER_TITLES,
     CapabilityParameterCatalog,
     ParameterFieldDefinition,
-    field_enabled_key,
-    field_override_enabled_key,
-    field_override_value_key,
+    dotted_path,
     get_parameter_catalog,
     provider_catalogs,
 )
 from .core.parameter_policy import CapabilityKey, ProviderPolicyKey
 from .i18n import DEFAULT_LOCALE, Locale, translate, use_locale
+from .public_api.catalog import PublicApiWebUiField
+from .public_api.providers import PUBLIC_API_CONFIG_CATALOG
 from .version import __version__
 
 _PROVIDER_ICONS: dict[ProviderPolicyKey, str] = {
     "openai_responses": "bot",
     "anthropic_messages": "bot-message-square",
     "dashscope": "bot",
+    "bailian_responses": "bot",
     "siliconflow": "bot",
     "volcengine_ark": "bot",
     "xiaomi_mimo": "bot",
@@ -59,9 +60,9 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     "volcengine_ark": (
         "user_agent",
         "force_official_endpoint",
+        "builtin_endpoint_mode",
         "prefix_cache_enabled",
         "prefix_cache_ttl_seconds",
-        "audio_transcription_prompt",
         "max_retries",
         "force_max_retries",
         "retry_interval",
@@ -69,9 +70,14 @@ _PROVIDER_BASE_FIELDS: dict[ProviderPolicyKey, tuple[str, ...]] = {
     ),
     "xiaomi_mimo": (
         "user_agent",
-        "force_disable_thinking",
         "reasoning_retention_days",
-        "audio_transcription_language",
+        "max_retries",
+        "force_max_retries",
+        "retry_interval",
+        "force_retry_interval",
+    ),
+    "bailian_responses": (
+        "user_agent",
         "max_retries",
         "force_max_retries",
         "retry_interval",
@@ -119,15 +125,13 @@ _STATIC_FIELD_KEYS: dict[str, tuple[str, str | None]] = {
     "reasoning_retention_days": ("ui.field.reasoning_retention.label", "ui.field.reasoning_retention.hint"),
     "audio_transcription_language": ("ui.field.asr_language.label", "ui.field.asr_language.hint"),
     "auto_detect_endpoint": ("ui.field.auto_endpoint.label", "ui.field.auto_endpoint.hint"),
+    "builtin_endpoint_mode": ("ui.field.ark_endpoint_mode.label", "ui.field.ark_endpoint_mode.hint"),
     "prefix_cache_enabled": ("ui.field.prefix_cache.label", "ui.field.prefix_cache.hint"),
     "prefix_cache_ttl_seconds": ("ui.field.prefix_cache_ttl.label", "ui.field.prefix_cache_ttl.hint"),
     "max_retries": ("ui.field.max_retries.label", "ui.field.max_retries.hint"),
     "force_max_retries": ("ui.field.force_max_retries.label", "ui.field.force_value.hint"),
     "retry_interval": ("ui.field.retry_interval.label", "ui.field.retry_interval.hint"),
     "force_retry_interval": ("ui.field.force_retry_interval.label", "ui.field.force_value.hint"),
-    "accept_model_extra_params": ("ui.field.accept_model_extra.label", None),
-    "accept_request_extra_params": ("ui.field.accept_request_extra.label", None),
-    "unknown_extra_params": ("ui.field.unknown_extra.label", "ui.field.unknown_extra.hint"),
 }
 
 
@@ -279,6 +283,16 @@ def _build_maidock_config_schema(
             order=0,
         )
     ]
+    public_api_sections = _add_public_api_sections(sections)
+    tabs.append(
+        _tab(
+            "public_api",
+            "跨插件 API",
+            public_api_sections,
+            icon="share-2",
+            order=5,
+        )
+    )
     provider_order = 10
     for provider in PROVIDER_TITLES:
         provider_sections = _add_provider_sections(sections, provider, order=provider_order)
@@ -315,6 +329,9 @@ def _localize_schema(schema: dict) -> None:
         if tab_id == "general":
             tab["title"] = translate("ui.tab.general")
             continue
+        if tab_id == "public_api":
+            tab["title"] = translate("ui.public_api.tab.title")
+            continue
         provider = cast(ProviderPolicyKey, tab_id)
         provider_title = _localized_provider_title(provider)
         tab["title"] = (
@@ -330,6 +347,8 @@ def _localize_schema(schema: dict) -> None:
 
 
 def _localize_section(section_key: str, section_name: str, section: dict) -> None:
+    if section_name.startswith("public_api"):
+        return
     if section_key == "plugin":
         section["title"] = translate("ui.section.plugin.title")
         section["description"] = translate("ui.section.plugin.description")
@@ -357,17 +376,17 @@ def _localize_section(section_key: str, section_name: str, section: dict) -> Non
     provider = cast(ProviderPolicyKey, parts[0])
     capability = cast(CapabilityKey, parts[1])
     capability_title = _localized_capability_title(capability)
-    if section_name.endswith(".fields"):
-        title_key = "ui.section.fields.title_spaced" if capability == "embeddings" else "ui.section.fields.title"
+    if section_name.endswith(".overrides"):
+        title_key = "ui.section.overrides.title_spaced" if capability == "embeddings" else "ui.section.overrides.title"
         section["title"] = translate(title_key, capability=capability_title)
-        section["description"] = _localized_fields_description(provider, capability)
+        section["description"] = _localized_overrides_description(provider, capability)
         return
-    title_key = "ui.section.policy.title_spaced" if capability == "embeddings" else "ui.section.policy.title"
-    section["title"] = translate(title_key, capability=capability_title)
-    section["description"] = _localized_policy_description(provider, capability)
+    section["title"] = translate("ui.section.overrides.title", capability=capability_title)
 
 
 def _localize_section_fields(section_name: str, fields: dict[str, dict]) -> None:
+    if section_name.startswith("public_api"):
+        return
     for field_name, field_schema in fields.items():
         static_keys = _STATIC_FIELD_KEYS.get(field_name)
         if static_keys is not None:
@@ -377,7 +396,7 @@ def _localize_section_fields(section_name: str, fields: dict[str, dict]) -> None
     if section_name in _PROVIDER_BASE_FIELDS:
         _localize_provider_base_fields(cast(ProviderPolicyKey, section_name), fields)
         return
-    if not section_name.endswith(".fields"):
+    if not section_name.endswith(".overrides"):
         return
 
     provider_name, capability_name, _ = section_name.split(".")
@@ -386,22 +405,20 @@ def _localize_section_fields(section_name: str, fields: dict[str, dict]) -> None
         cast(CapabilityKey, capability_name),
     )
     for parameter in catalog.fields:
-        label = _localized_parameter_label(parameter)
-        description = _localized_parameter_description(parameter, label)
-        enabled = fields[field_enabled_key(parameter)]
-        enabled["label"] = translate("ui.field.parameter.send.label", field=label)
-        enabled["description"] = enabled["label"]
-        enabled["hint"] = translate("ui.field.parameter.send.hint", description=description)
-
-        override_enabled = fields[field_override_enabled_key(parameter)]
-        override_enabled["label"] = translate("ui.field.parameter.override.label", field=label)
-        override_enabled["description"] = override_enabled["label"]
-        override_enabled["hint"] = translate("ui.field.parameter.override.hint")
-
-        override_value = fields[field_override_value_key(parameter)]
-        override_value["label"] = translate("ui.field.parameter.override_value.label", field=label)
+        localized_label = _localized_parameter_label(parameter)
+        description = _localized_parameter_description(parameter, localized_label)
+        override_value = fields[parameter.config_key]
+        override_value["label"] = f"{parameter.key} · {_parameter_type_label(parameter)}"
         override_value["description"] = override_value["label"]
-        override_value["hint"] = description if parameter.value_kind == "boolean" else _localized_value_hint(parameter)
+        override_value["hint"] = translate(
+            "ui.field.parameter.help",
+            description=description,
+            target=dotted_path(parameter.target_path),
+            format=translate(f"ui.hint.{parameter.value_kind}"),
+            default_behavior=_parameter_default_behavior(parameter),
+            constraints=parameter.constraints or translate("ui.field.parameter.constraints.provider"),
+            documentation_url=catalog.documentation_url,
+        )
         if parameter.value_kind != "boolean":
             override_value["placeholder"] = _localized_value_placeholder(parameter)
 
@@ -427,10 +444,7 @@ def _localize_provider_base_fields(provider: ProviderPolicyKey, fields: dict[str
         endpoint["description"] = endpoint["label"]
         endpoint["hint"] = translate(f"ui.endpoint.hint.{endpoint_key}")
     if "audio_transcription_prompt" in fields:
-        prompt = fields["audio_transcription_prompt"]
-        prompt["label"] = translate("ui.field.transcription_prompt.label")
-        prompt["description"] = prompt["label"]
-        prompt["hint"] = translate("ui.field.transcription_prompt.hint.ark")
+        del fields["audio_transcription_prompt"]
 
 
 def _localized_provider_title(provider: ProviderPolicyKey) -> str:
@@ -441,20 +455,12 @@ def _localized_capability_title(capability: CapabilityKey) -> str:
     return translate(f"ui.capability.{capability}")
 
 
-def _localized_policy_description(provider: ProviderPolicyKey, capability: CapabilityKey) -> str:
+def _localized_overrides_description(provider: ProviderPolicyKey, capability: CapabilityKey) -> str:
     if provider == "xiaomi_mimo" and capability == "audio_transcription":
-        return translate("ui.section.policy.description.mimo_audio")
+        return translate("ui.section.overrides.description.mimo_audio")
     if provider == "volcengine_ark" and capability == "audio_transcription":
-        return translate("ui.section.policy.description.ark_audio")
-    return translate("ui.section.policy.description")
-
-
-def _localized_fields_description(provider: ProviderPolicyKey, capability: CapabilityKey) -> str:
-    if provider == "xiaomi_mimo" and capability == "audio_transcription":
-        return translate("ui.section.fields.description.mimo_audio")
-    if provider == "volcengine_ark" and capability == "audio_transcription":
-        return translate("ui.section.fields.description.ark_audio")
-    return translate("ui.section.fields.description")
+        return translate("ui.section.overrides.description.ark_audio")
+    return translate("ui.section.overrides.description")
 
 
 def _localized_parameter_label(field: ParameterFieldDefinition) -> str:
@@ -478,8 +484,21 @@ def _localized_value_placeholder(field: ParameterFieldDefinition) -> str:
     return translate(f"ui.placeholder.{field.value_kind}")
 
 
-def _localized_value_hint(field: ParameterFieldDefinition) -> str:
-    return translate(f"ui.hint.{field.value_kind}")
+def _parameter_type_label(field: ParameterFieldDefinition) -> str:
+    return {
+        "string": "string",
+        "integer": "integer",
+        "number": "number",
+        "boolean": "boolean",
+        "json": "JSON",
+        "string_list": "string[]",
+    }[field.value_kind]
+
+
+def _parameter_default_behavior(field: ParameterFieldDefinition) -> str:
+    if field.default_text.strip():
+        return translate("ui.field.parameter.default.configured", value=field.default_text)
+    return translate("ui.field.parameter.default.blank")
 
 
 def _add_provider_sections(sections: dict[str, dict], provider: ProviderPolicyKey, *, order: int) -> tuple[str, ...]:
@@ -489,13 +508,123 @@ def _add_provider_sections(sections: dict[str, dict], provider: ProviderPolicyKe
     section_names.append(base_section_name)
     capability_order = order + 1
     for catalog in provider_catalogs(provider):
-        policy_name = f"{provider}_{catalog.capability}_policy"
-        fields_name = f"{provider}_{catalog.capability}_fields"
-        sections[policy_name] = _capability_policy_section(catalog, order=capability_order)
-        sections[fields_name] = _capability_fields_section(catalog, order=capability_order + 1)
-        section_names.extend((policy_name, fields_name))
-        capability_order += 2
+        overrides_name = f"{provider}_{catalog.capability}_overrides"
+        sections[overrides_name] = _capability_overrides_section(catalog, order=capability_order)
+        section_names.append(overrides_name)
+        capability_order += 1
     return tuple(section_names)
+
+
+def _add_public_api_sections(sections: dict[str, dict]) -> tuple[str, ...]:
+    section_names = ["public_api", "public_api_resources"]
+    sections["public_api"] = _section(
+        name="public_api",
+        title=translate("ui.public_api.section.settings.title"),
+        description=translate("ui.public_api.section.settings.description"),
+        icon="share-2",
+        order=5,
+        fields={
+            "enabled": _field(
+                name="enabled",
+                field_type="boolean",
+                label=translate("ui.public_api.field.enabled"),
+                default=False,
+                ui_type="switch",
+                order=0,
+            ),
+            "default_image_profile": _field(
+                name="default_image_profile",
+                field_type="string",
+                label=translate("ui.public_api.field.default_image_profile"),
+                default="",
+                ui_type="text",
+                order=1,
+            ),
+            "default_video_profile": _field(
+                name="default_video_profile",
+                field_type="string",
+                label=translate("ui.public_api.field.default_video_profile"),
+                default="",
+                ui_type="text",
+                order=2,
+            ),
+        },
+    )
+    resource_fields = (
+        ("max_concurrent_jobs", 2, 1, 32),
+        ("max_queued_jobs", 32, 1, 1024),
+        ("max_upload_mb", 512, 1, 4096),
+        ("max_artifact_mb", 512, 1, 4096),
+        ("storage_quota_gb", 10, 1, 1024),
+        ("incomplete_upload_ttl_hours", 24, 1, 168),
+        ("completed_upload_ttl_days", 7, 1, 90),
+        ("artifact_ttl_days", 7, 1, 90),
+        ("job_metadata_ttl_days", 30, 1, 365),
+        ("max_tracking_hours", 23, 1, 72),
+    )
+    sections["public_api_resources"] = _section(
+        name="public_api.resources",
+        title=translate("ui.public_api.section.resources.title"),
+        description=translate("ui.public_api.section.resources.description"),
+        icon="database",
+        order=6,
+        fields={
+            name: _field(
+                name=name,
+                field_type="integer",
+                label=translate(f"ui.public_api.field.{name}"),
+                default=default,
+                ui_type="number",
+                order=order,
+                min_value=minimum,
+                max_value=maximum,
+            )
+            for order, (name, default, minimum, maximum) in enumerate(resource_fields)
+        },
+    )
+    for entry in PUBLIC_API_CONFIG_CATALOG:
+        section_key = f"public_api_{entry.provider_key}"
+        profiles = _field(
+            name="profiles",
+            field_type="array",
+            label=translate("ui.public_api.field.profiles"),
+            default=[],
+            ui_type="list",
+            order=0,
+        )
+        profiles["item_type"] = "object"
+        profiles["item_fields"] = {field.name: _public_catalog_field(field) for field in entry.build_webui_fields()}
+        sections[section_key] = _section(
+            name=entry.config_path,
+            title=translate(entry.title_key),
+            description=translate("ui.public_api.section.profiles.description"),
+            icon=entry.icon,
+            order=entry.order,
+            fields={"profiles": profiles},
+        )
+        section_names.append(section_key)
+    return tuple(section_names)
+
+
+def _public_catalog_field(definition: PublicApiWebUiField) -> dict:
+    field = _field(
+        name=definition.name,
+        field_type=definition.field_type,
+        label=translate(definition.label_key),
+        default=definition.default,
+        ui_type=definition.ui_type,
+        order=definition.order,
+        hint=translate(definition.hint_key) if definition.hint_key else "",
+        choices=definition.choices,
+        rows=definition.rows,
+        step=definition.step,
+    )
+    field["min"] = definition.minimum
+    field["max"] = definition.maximum
+    field["item_type"] = definition.item_type
+    if definition.item_fields:
+        field["item_fields"] = {item.name: _public_catalog_field(item) for item in definition.item_fields}
+    return field
 
 
 def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
@@ -523,15 +652,22 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
             order=current_order,
         )
         current_order += 1
-    if "force_disable_thinking" in _PROVIDER_BASE_FIELDS[provider]:
-        fields["force_disable_thinking"] = _field(
-            name="force_disable_thinking",
-            field_type="boolean",
-            label="强制关闭 Mimo 深度思考",
-            default=True,
-            ui_type="switch",
-            hint='开启后强制写入 thinking={"type":"disabled"}。关闭后 MaiDock 会通过工具调用 extra_content 和 SQLite 完整回传历史 reasoning_content。',
+    if "builtin_endpoint_mode" in _PROVIDER_BASE_FIELDS[provider]:
+        # depends_on 是 Host ConfigField 定义的条件显示槽位；当前 dashboard 尚未消费，
+        # 先按契约填上做前向兼容，hint 里同时写清生效条件。
+        fields["builtin_endpoint_mode"] = _select_field(
+            name="builtin_endpoint_mode",
+            label="内置端点类型",
+            default="standard",
+            choices=("standard", "agent_plan", "coding_plan"),
+            hint=(
+                "standard=按量付费 /api/v3；agent_plan=Agent Plan 订阅 /api/plan/v3（需其专属 API Key）；"
+                "coding_plan=Coding Plan 订阅 /api/coding/v3。仅在开启原生 endpoint 时生效；"
+                "选择订阅端点时前缀缓存自动停用。"
+            ),
             order=current_order,
+            depends_on=f"{provider}.force_official_endpoint",
+            depends_value=True,
         )
         current_order += 1
     if "reasoning_retention_days" in _PROVIDER_BASE_FIELDS[provider]:
@@ -545,27 +681,6 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
             max_value=365,
             step=1,
             hint="完整 reasoning_content 会以明文保存在插件数据目录的 SQLite 中；成功使用时刷新过期时间。",
-            order=current_order,
-        )
-        current_order += 1
-    if "audio_transcription_prompt" in _PROVIDER_BASE_FIELDS[provider]:
-        fields["audio_transcription_prompt"] = _field(
-            name="audio_transcription_prompt",
-            field_type="string",
-            label="转录提示词",
-            default="请识别音频中的内容，以文字形式返回识别结果。",
-            ui_type="text",
-            hint="ARK 使用 Responses input_audio + input_text 完成语音转录。",
-            order=current_order,
-        )
-        current_order += 1
-    if "audio_transcription_language" in _PROVIDER_BASE_FIELDS[provider]:
-        fields["audio_transcription_language"] = _select_field(
-            name="audio_transcription_language",
-            label="ASR 识别语言",
-            default="auto",
-            choices=("auto", "zh", "en"),
-            hint="mimo-v2.5-asr 使用；auto=自动检测，zh=中文，en=英文。",
             order=current_order,
         )
         current_order += 1
@@ -662,131 +777,46 @@ def _provider_base_section(provider: ProviderPolicyKey, *, order: int) -> dict:
     )
 
 
-def _capability_policy_section(catalog: CapabilityParameterCatalog, *, order: int) -> dict:
-    path = f"{catalog.provider}.{catalog.capability}"
-    return _section(
-        name=path,
-        title=_capability_policy_title(catalog.capability),
-        description=_capability_policy_description(catalog),
-        icon="sliders-horizontal",
-        order=order,
-        fields={
-            "accept_model_extra_params": _field(
-                name="accept_model_extra_params",
-                field_type="boolean",
-                label="接收模型配置 extra_params",
-                default=True,
-                ui_type="switch",
-                order=0,
-            ),
-            "accept_request_extra_params": _field(
-                name="accept_request_extra_params",
-                field_type="boolean",
-                label="接收单次请求 extra_params",
-                default=True,
-                ui_type="switch",
-                order=1,
-            ),
-            "unknown_extra_params": _select_field(
-                name="unknown_extra_params",
-                label="未知 extra_params 策略",
-                default="forward",
-                choices=("forward", "drop", "reject"),
-                hint="forward：发送未知字段到 Provider API；drop：静默丢弃未知字段；reject：遇到未知字段时报错。",
-                order=2,
-            ),
-        },
-    )
+def _capability_overrides_section(catalog: CapabilityParameterCatalog, *, order: int) -> dict:
+    """渲染参数覆写目录：每个参数一个跨双列全宽 textarea。"""
 
-
-def _capability_policy_description(catalog: CapabilityParameterCatalog) -> str:
-    """生成能力参数策略说明。"""
-    if catalog.provider == "xiaomi_mimo" and catalog.capability == "audio_transcription":
-        return "控制 Mimo ASR 请求的 extra_params。"
-    if catalog.provider == "volcengine_ark" and catalog.capability == "audio_transcription":
-        return "控制 ARK Responses input_audio 转录请求的 extra_params。"
-    return "控制模型配置与单次请求传入的 extra_params 是否被 MaiDock 接收，以及未知字段如何处理。"
-
-
-def _capability_fields_section(catalog: CapabilityParameterCatalog, *, order: int) -> dict:
     fields: dict[str, dict] = {}
     for field in catalog.fields:
-        field_order = field.order * 10
-        enabled_key = field_enabled_key(field)
-        override_enabled_key = field_override_enabled_key(field)
-        override_value_key = field_override_value_key(field)
-        fields[enabled_key] = _field(
-            name=enabled_key,
-            field_type="boolean",
-            label=f"发送「{field.label}」到 Provider API",
-            default=True,
-            ui_type="switch",
-            hint=f"{field.description}。关闭后会丢弃 Host 传入的该字段，并从发送给 Provider API 的请求中移除对应参数。",
-            order=field_order,
+        fields[field.config_key] = _field(
+            name=field.config_key,
+            field_type="string",
+            label=f"{field.label} · {field.value_kind}",
+            default=field.default_text,
+            ui_type="textarea",
+            hint=field.description,
+            order=field.order * 10,
+            rows=3,
         )
-        fields[override_enabled_key] = _field(
-            name=override_enabled_key,
-            field_type="boolean",
-            label=f"覆写「{field.label}」",
-            default=False,
-            ui_type="switch",
-            hint="开启后使用下方值强制覆写发送给 Provider API 的参数值。",
-            order=field_order + 1,
-        )
-        if field.value_kind == "boolean":
-            fields[override_value_key] = _field(
-                name=override_value_key,
-                field_type="boolean",
-                label=f"「{field.label}」覆写值",
-                default=False,
-                ui_type="switch",
-                hint=field.description,
-                order=field_order + 2,
-            )
-        else:
-            fields[override_value_key] = _field(
-                name=override_value_key,
-                field_type="string",
-                label=f"「{field.label}」覆写值",
-                default="",
-                ui_type="textarea",
-                placeholder=_placeholder_for_value_kind(field),
-                hint=_hint_for_value_kind(field),
-                order=field_order + 2,
-                rows=3,
-            )
     return _section(
-        name=f"{catalog.provider}.{catalog.capability}.fields",
-        title=_capability_fields_title(catalog.capability),
-        description=_capability_fields_description(catalog),
-        icon="list-checks",
+        name=f"{catalog.provider}.{catalog.capability}.overrides",
+        title=_capability_overrides_title(catalog.capability),
+        description=_capability_overrides_description(catalog),
+        icon="sliders-horizontal",
         order=order,
         fields=fields,
         collapsed=True,
     )
 
 
-def _capability_fields_description(catalog: CapabilityParameterCatalog) -> str:
-    """生成能力字段开关说明。"""
+def _capability_overrides_description(catalog: CapabilityParameterCatalog) -> str:
+    """生成能力参数覆写说明。"""
     if catalog.provider == "xiaomi_mimo" and catalog.capability == "audio_transcription":
         return "Mimo ASR 使用 input_audio 与 asr_options；格式字段用于校验并构造 data URL，同时作为 input_audio.format 发送。"
     if catalog.provider == "volcengine_ark" and catalog.capability == "audio_transcription":
         return "使用 Responses input_audio + input_text；格式字段只用于内部构造 data URL。"
-    return "每个文档字段默认发送到 Provider API；关闭开关会丢弃 Host 传入值，开启覆写会强制替换发送给 Provider API 的参数。"
+    return "覆写值拥有最高优先级：空白表示不覆写，布尔使用 true/false，数字使用 JSON 数字，数组和对象使用合法 JSON。"
 
 
-def _capability_policy_title(capability: CapabilityKey) -> str:
+def _capability_overrides_title(capability: CapabilityKey) -> str:
     title = CAPABILITY_TITLES[capability]
     if capability == "embeddings":
-        return f"{title} 参数策略"
-    return f"{title}参数策略"
-
-
-def _capability_fields_title(capability: CapabilityKey) -> str:
-    title = CAPABILITY_TITLES[capability]
-    if capability == "embeddings":
-        return f"{title} 字段开关与覆写"
-    return f"{title}字段开关与覆写"
+        return f"{title} 参数覆写"
+    return f"{title}参数覆写"
 
 
 def _provider_tab_title(provider: ProviderPolicyKey) -> str:
@@ -819,38 +849,6 @@ def _force_endpoint_hint(provider: ProviderPolicyKey) -> str:
             return "开启后忽略 Host 提供的 base_url，改用 Provider 原生 API endpoint。"
 
 
-def _placeholder_for_value_kind(field: ParameterFieldDefinition) -> str:
-    match field.value_kind:
-        case "string":
-            return "例如：auto"
-        case "integer":
-            return "例如：1024"
-        case "number":
-            return "例如：0.8"
-        case "boolean":
-            return "true 或 false"
-        case "string_list":
-            return '["item1","item2"]'
-        case "json":
-            return '{"key":"value"}'
-
-
-def _hint_for_value_kind(field: ParameterFieldDefinition) -> str:
-    match field.value_kind:
-        case "string":
-            return "字符串字段直接输入文本，不需要 JSON 引号。"
-        case "integer":
-            return "整数覆写值，例如 1024。"
-        case "number":
-            return "数字覆写值，例如 0.8。"
-        case "boolean":
-            return "布尔覆写值：true 或 false。"
-        case "string_list":
-            return '字符串数组 JSON，例如 ["a","b"]。'
-        case "json":
-            return "输入合法 JSON 值；对象、数组、字符串、数字、布尔值均可。"
-
-
 def _number_field(name: str, label: str, default: int, order: int) -> dict:
     return _field(
         name=name,
@@ -871,6 +869,8 @@ def _select_field(
     choices: tuple[str, ...],
     order: int,
     hint: str = "",
+    depends_on: str | None = None,
+    depends_value: object = None,
 ) -> dict:
     return _field(
         name=name,
@@ -881,6 +881,8 @@ def _select_field(
         choices=choices,
         hint=hint,
         order=order,
+        depends_on=depends_on,
+        depends_value=depends_value,
     )
 
 
@@ -901,6 +903,8 @@ def _field(
     rows: int = 3,
     disabled: bool = False,
     step: float = 1.0,
+    depends_on: str | None = None,
+    depends_value: object = None,
 ) -> dict:
     field: dict = {
         "name": name,
@@ -924,8 +928,8 @@ def _field(
         "ui_type": ui_type,
         "rows": rows,
         "group": None,
-        "depends_on": None,
-        "depends_value": None,
+        "depends_on": depends_on,
+        "depends_value": depends_value,
         "item_type": None,
         "item_fields": None,
         "min_items": None,

@@ -2,7 +2,7 @@ import base64
 import math
 import struct
 
-from src.providers.common.embeddings import (
+from src.host_adapters.common.embeddings import (
     coerce_embedding_vector,
     decode_base64_embedding,
 )
@@ -72,7 +72,7 @@ def test_coerce_embedding_vector_rejects_non_finite_in_base64():
 
     import pytest
 
-    from src.providers.common.httpx import HttpxProviderParseError
+    from src.host_adapters.common.httpx import HttpxProviderParseError
 
     with pytest.raises(HttpxProviderParseError, match=r"embedding\[0\].*nan"):
         coerce_embedding_vector(encoded, provider_label="test", encoding_format="base64")

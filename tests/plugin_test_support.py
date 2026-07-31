@@ -4,12 +4,15 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import pytest
-from maibot_sdk import LLMProviderBase, PluginContext
+from maibot_sdk import PluginContext
 
 from src import plugin as plugin_module
 from src.core.common import ProviderRuntimeOptions
 from src.core.state_store import PluginStateStore
+from src.host_adapters.common.rpc import HostRpcRequest, HostRpcResponse
+from src.i18n import translate
 from src.plugin import MaiDockPlugin
+from src.runtime import LLMProviderIngress, VendorClient, VendorRuntime
 
 type ProviderName = Literal[
     "openai",
@@ -20,7 +23,6 @@ type ProviderName = Literal[
     "xiaomi_mimo",
 ]
 type ProviderEntry = Callable[[MaiDockPlugin, str, dict[str, Any]], Awaitable[dict[str, Any]]]
-type ProviderFactory = Callable[[ProviderRuntimeOptions, PluginStateStore | None], LLMProviderBase]
 
 PROVIDER_NAMES: tuple[ProviderName, ...] = (
     "openai",
@@ -38,14 +40,6 @@ PROVIDER_ENTRIES: dict[ProviderName, ProviderEntry] = {
     "siliconflow": MaiDockPlugin.siliconflow_provider,
     "xiaomi_mimo": MaiDockPlugin.xiaomi_mimo_provider,
 }
-FACTORY_NAMES: dict[ProviderName, str] = {
-    "openai": "_create_openai_provider",
-    "anthropic": "_create_anthropic_provider",
-    "volcengine": "_create_volcengine_provider",
-    "dashscope": "_create_dashscope_provider",
-    "siliconflow": "_create_siliconflow_provider",
-    "xiaomi_mimo": "_create_mimo_provider",
-}
 
 
 class FakePluginPaths:
@@ -62,7 +56,17 @@ class ContextWithoutPaths:
     pass
 
 
-class FakeProvider(LLMProviderBase):
+class FakeClient:
+    def __init__(self) -> None:
+        self.closed = False
+        self.close_count = 0
+
+    async def aclose(self) -> None:
+        self.closed = True
+        self.close_count += 1
+
+
+class FakeProvider:
     def __init__(
         self,
         provider_name: ProviderName,
@@ -75,9 +79,9 @@ class FakeProvider(LLMProviderBase):
         self.options = options
         self.state_store = state_store
         self.operations: list[str] = []
-        self.requests: list[dict[str, Any]] = []
+        self.requests: list[HostRpcRequest] = []
 
-    async def dispatch(self, operation: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def _record(self, operation: str, request: HostRpcRequest) -> HostRpcResponse:
         self.operations.append(operation)
         self.requests.append(request)
         await asyncio.sleep(0)
@@ -87,40 +91,65 @@ class FakeProvider(LLMProviderBase):
             "generation": self.generation,
         }
 
-    async def get_response(self, request: dict[str, Any]) -> dict[str, Any]:
-        return await self.dispatch("response", request)
+    async def get_response(self, request: HostRpcRequest) -> HostRpcResponse:
+        return await self._record("response", request)
+
+    async def get_embedding(self, request: HostRpcRequest) -> HostRpcResponse:
+        return await self._record("embedding", request)
+
+    async def get_audio_transcriptions(self, request: HostRpcRequest) -> HostRpcResponse:
+        return await self._record("audio_transcription", request)
 
 
 class FactoryRecorder:
     def __init__(self) -> None:
         self.providers: dict[ProviderName, list[FakeProvider]] = {name: [] for name in PROVIDER_NAMES}
         self.state_stores: dict[ProviderName, list[PluginStateStore | None]] = {name: [] for name in PROVIDER_NAMES}
+        self.clients: dict[ProviderName, list[FakeClient]] = {name: [] for name in PROVIDER_NAMES}
 
-    def factory_for(self, provider_name: ProviderName) -> ProviderFactory:
-        def factory(
-            options: ProviderRuntimeOptions,
-            state_store: PluginStateStore | None = None,
-        ) -> LLMProviderBase:
-            providers = self.providers[provider_name]
-            provider = FakeProvider(
-                provider_name,
-                len(providers) + 1,
-                options,
-                state_store,
-            )
-            providers.append(provider)
-            self.state_stores[provider_name].append(state_store)
-            return provider
-
-        return factory
+    def factory(
+        self,
+        raw_provider_name: str,
+        options: ProviderRuntimeOptions,
+        state_store: PluginStateStore | None,
+        raw_client: VendorClient,
+    ) -> VendorRuntime:
+        provider_name = cast(ProviderName, raw_provider_name)
+        if provider_name == "volcengine" and options.volcengine_prefix_cache_enabled and state_store is None:
+            raise RuntimeError(translate("runtime.plugin.cache_store_missing"))
+        if provider_name == "xiaomi_mimo" and state_store is None:
+            raise RuntimeError(translate("runtime.plugin.store_missing"))
+        providers = self.providers[provider_name]
+        provider = FakeProvider(
+            provider_name,
+            len(providers) + 1,
+            options,
+            state_store,
+        )
+        client = cast(FakeClient, raw_client)
+        providers.append(provider)
+        if client not in self.clients[provider_name]:
+            self.clients[provider_name].append(client)
+        self.state_stores[provider_name].append(state_store)
+        ingress = LLMProviderIngress(
+            adapter=provider,
+            capabilities=frozenset({"response", "embedding", "audio_transcription"}),
+            provider_name=provider_name,
+        )
+        return VendorRuntime(client=client, host_adapter=provider, ingress=ingress)
 
 
 def install_factories(
     monkeypatch: pytest.MonkeyPatch,
     recorder: FactoryRecorder,
 ) -> None:
-    for provider_name, factory_name in FACTORY_NAMES.items():
-        monkeypatch.setattr(plugin_module, factory_name, recorder.factory_for(provider_name))
+    monkeypatch.setattr(plugin_module, "create_vendor_runtime", recorder.factory)
+
+    def create_client(raw_provider_name: str) -> FakeClient:
+        del raw_provider_name
+        return FakeClient()
+
+    monkeypatch.setattr(plugin_module, "create_vendor_client", create_client)
 
 
 def create_plugin(

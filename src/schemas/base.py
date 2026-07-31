@@ -2,7 +2,7 @@ from typing import Literal, Protocol, Self, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from ..core.json_types import is_json_mapping, mapping_to_json_object
+from ..core.json_types import JsonValue, is_json_mapping, mapping_to_json_object, value_to_json_object
 from ..i18n import runtime_expected, runtime_subject, translate
 
 type OpenAITextVerbosity = Literal["low", "medium", "high"]
@@ -24,8 +24,11 @@ class HostDumpModel(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
-    def to_host_dict(self) -> dict:
-        return _DICT_ADAPTER.validate_python(self.model_dump(mode="json", exclude_none=True, by_alias=True))
+    def to_host_dict(self) -> dict[str, JsonValue]:
+        # mode="json" 保证 dump 出来只有 JSON 值，value_to_json_object 因此是恒等变换，
+        # 但它给出的是 dict[str, JsonValue] 而不是 TypeAdapter(dict) 的 dict[Unknown, Unknown]，
+        # 这样 RPC 边界的返回类型才能真正落地。
+        return value_to_json_object(self.model_dump(mode="json", exclude_none=True, by_alias=True))
 
 
 class IgnoreExtraModel(BaseModel):
@@ -37,7 +40,7 @@ class IgnoreExtraModel(BaseModel):
 class ObjectFields(IgnoreExtraModel):
     """显式 object 包装，避免宽泛类型在 Pydantic 边界散落。"""
 
-    fields: dict = Field(default_factory=dict)
+    fields: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
 
     @classmethod
     def from_unknown(cls, value: object) -> Self:
@@ -62,14 +65,16 @@ class ObjectFields(IgnoreExtraModel):
             )
         )
 
-    def to_plain_dict(self) -> dict:
+    def to_plain_dict(self) -> dict[str, JsonValue]:
         return dict(self.fields)
 
     @field_validator("fields", mode="before")
     @classmethod
-    def validate_fields(cls, value: object) -> dict:
+    def validate_fields(cls, value: object) -> dict[str, JsonValue]:
         if is_json_mapping(value):
-            return _DICT_ADAPTER.validate_python(mapping_to_json_object(value))
+            # mapping_to_json_object 已经返回全新的纯 JSON dict，再过一遍 TypeAdapter(dict)
+            # 只是又浅拷贝一次，却把静态类型退化成 dict[Unknown, Unknown]。
+            return mapping_to_json_object(value)
         if value is None:
             return {}
         raise TypeError(

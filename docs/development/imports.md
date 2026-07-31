@@ -32,26 +32,29 @@ from ..responses_family.responses import ResponsesMapper
 from src.schemas import ResponseRequestSnapshot
 ```
 
-## Provider 依赖边界
+## Client 与 Host Adapter 依赖边界
 
 导入路径必须体现架构依赖方向：
 
-- `openai_responses_provider`、`volcengine_ark_provider`、`siliconflow_provider` 和 `xiaomi_mimo_provider` 使用 Family 时，不得直接导入 `providers/common`。
-- Family 可以导入 `common`、`core`、`schemas` 和 `i18n`，不得导入具体 Provider。
-- `common` 不得导入 Family 或具体 Provider。
-- Anthropic Messages 与 DashScope 是独立协议实现，可以直接导入 `common`。
-- Family-backed Provider 的 HTTP 能力应从对应 Family 的 `transport.py` 导入。
+- `clients/common` 不得导入 `schemas`、`i18n`、`host_adapters`、`public_api` 或插件配置。
+- `clients/families` 只接收 wire DTO，不得导入具体供应商 Client 或 Host Adapter。
+- 具体供应商 Client 可以导入 `clients/common` 和 `clients/families`，不得导入 Host Schema。
+- Host Adapter 可以依赖 Client、Host Schema、Core 和 i18n；Client 不得反向依赖 Host Adapter。
+- `public_api` 的 Facade、Application、Store、Domain 和公共 API schema 不得导入具体供应商。
+- 具体 Public Driver 可以依赖供应商 Client，但不得导入 Host Schema、Host Adapter 或 Host 参数策略。
+- 供应商配置和 Driver 通过 Public API config catalog/registry 加入调用链，Facade、Job Engine 与 Store 不增加供应商分支。
+- 只有 `src/runtime/ingress.py` 可以导入并继承 `LLMProviderBase`。
 
-例如，Chat Completions Provider 应使用：
+例如，Host Adapter 可以导入精确供应商 Client：
 
 ```python
-from ..chat_completions_family.transport import create_async_client, post_json
+from ...clients.mimo import MimoClient, MimoConnection
 ```
 
-而不是绕过 Family：
+Client 不得反向读取 Host 请求快照：
 
 ```python
-from ..common.httpx import create_async_client, post_json
+from ...schemas import ResponseRequestSnapshot
 ```
 
 这些边界由 `tests/test_provider_architecture.py` 的 AST 测试持续检查。
@@ -62,7 +65,7 @@ from ..common.httpx import create_async_client, post_json
 
 ```python
 from src.core.common import ProviderRuntimeOptions
-from src.providers.openai_responses_provider.provider import OpenAIResponsesProvider
+from src.host_adapters.openai_responses_provider.adapter import OpenAIHostAdapter
 ```
 
 `tests/` 是显式包。`tests/support/` 中跨多个测试文件使用的 helper 优先采用包绝对导入：

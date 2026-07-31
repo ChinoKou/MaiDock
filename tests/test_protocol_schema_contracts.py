@@ -32,6 +32,7 @@ from src.schemas import (
     OpenAITextConfig,
     OpenAITextFormatConfig,
 )
+from tests.support.assertions import json_int_at
 
 
 def test_openai_input_items_and_tools_match_responses_wire_shapes() -> None:
@@ -254,10 +255,13 @@ def test_openai_raw_data_serializes_generic_usage() -> None:
 def test_openai_request_and_tool_default_factories_match_protocol_defaults() -> None:
     request = OpenAIResponsesRequest(model="contract-model", input=[])
     tool = OpenAIResponsesTool(name="lookup")
+    tool_without_strict = OpenAIResponsesTool(name="lookup", strict=None)
     response = OpenAIResponseSnapshot()
 
     assert request.tools == []
     assert tool.parameters.to_plain_dict() == {"type": "object", "properties": {}}
+    assert tool.to_sdk_param()["strict"] is False
+    assert "strict" not in tool_without_strict.to_sdk_param()
     assert response.output == []
 
 
@@ -358,7 +362,7 @@ def test_anthropic_response_and_raw_data_preserve_usage_and_unknown_blocks() -> 
     assert [block.type for block in response.content] == ["text", "future_block"]
     assert response.usage.cache_read_input_tokens == 8
     assert response.usage.cache_creation_input_tokens == 4
-    assert raw_data.to_host_dict()["usage"]["cache_read_input_tokens"] == 8
+    assert json_int_at(raw_data.to_host_dict(), "usage", "cache_read_input_tokens") == 8
 
 
 def test_anthropic_response_treats_non_list_content_as_empty() -> None:

@@ -30,6 +30,20 @@ def json_list_or_none(value: object) -> list[JsonValue] | None:
     return None
 
 
+def json_array(items: Iterable[JsonValue]) -> list[JsonValue]:
+    """把一串 JSON 值收成 list[JsonValue]，用于把精确类型的列表放进 JSON 槽位。
+
+    list 在类型系统里是不变的：`list[dict[str, JsonValue]]` 并不是 `list[JsonValue]`，
+    所以一个"元素类型更精确"的列表反而不能直接赋给 JsonValue。形参用协变的 Iterable
+    接住这类列表，返回时收成不变的 list[JsonValue]。
+
+    这是纯类型层面的收拢，运行时只是浅拷贝一次；调用点因此都是可 grep 的显式动作，
+    而不是各处零散地重新标注中间变量。
+    """
+
+    return list(items)
+
+
 def mapping_field(value: Mapping[str, JsonValue], key: str) -> Mapping[str, JsonValue] | None:
     return json_mapping_or_none(value.get(key))
 

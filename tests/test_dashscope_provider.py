@@ -5,22 +5,27 @@ from typing import cast
 import httpx
 import pytest
 
+from src.config import MaiDockConfig, build_runtime_options
 from src.core.common import ProviderRuntimeOptions
-from src.core.parameter_policy import (
-    ParameterPolicy,
-    ParameterPolicyRegistry,
-    ProviderCapabilityPolicies,
-)
-from src.providers.dashscope_provider.chat import (
+from src.core.json_types import JsonValue
+from src.host_adapters.dashscope_provider.chat import (
     DASHSCOPE_GENERATION_ENDPOINT,
     DASHSCOPE_MULTIMODAL_GENERATION_ENDPOINT,
 )
-from src.providers.dashscope_provider.embeddings import (
+from src.host_adapters.dashscope_provider.embeddings import (
     DASHSCOPE_MULTIMODAL_EMBEDDING_ENDPOINT,
     DASHSCOPE_TEXT_EMBEDDING_ENDPOINT,
 )
-from src.providers.dashscope_provider.provider import DashScopeProvider
+from tests.support.assertions import json_list_at, json_object_at, json_str_at
+from tests.support.host_adapters import DashScopeProvider
 from src.schemas.host_snapshots import AudioTranscriptionRequestSnapshot
+
+
+def _overrides_options(provider: str, capability: str, overrides: dict) -> ProviderRuntimeOptions:
+    """构造带指定覆写目录的运行时选项。"""
+
+    config = MaiDockConfig.model_validate({provider: {capability: {"overrides": overrides}}})
+    return build_runtime_options(config)
 
 
 def _response_request_with_image(
@@ -184,7 +189,8 @@ async def test_dashscope_generation_uses_api_v1_base_body_and_tool_calls() -> No
     assert parameters["result_format"] == "message"
     assert parameters["temperature"] == 0.2
     assert parameters["max_tokens"] == 64
-    assert parameters["top_p"] == 0.9
+    # extra_params 完全无效：top_p 不会进入请求体。
+    assert "top_p" not in parameters
     assert isinstance(parameters["tools"], list)
     assert result["content"] == "回答"
     assert result["reasoning_content"] == "思考"
@@ -192,10 +198,39 @@ async def test_dashscope_generation_uses_api_v1_base_body_and_tool_calls() -> No
     first_tool_call = _as_mapping(tool_calls[0])
     assert first_tool_call["id"] == "call_1"
     assert first_tool_call["function"] == {"name": "lookup", "arguments": {"q": "x"}}
+    assert _as_mapping(first_tool_call["extra_content"])["tool_call_source"] == "reasoning"
     usage = _as_mapping(result["usage"])
     assert usage["total_tokens"] == 5
     raw_data = _as_mapping(result["raw_data"])
     assert raw_data["request_id"] == "req_1"
+
+
+@pytest.mark.asyncio
+async def test_dashscope_tools_override_appends_after_host_function_tools() -> None:
+    captured_body: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_body.append(cast(dict, json.loads(request.content.decode("utf-8"))))
+        return httpx.Response(
+            200,
+            json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
+        )
+
+    provider = DashScopeProvider(
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {"tools": '[{"type":"vendor_native","name":"native"}]'},
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await provider.get_response(_response_request())
+
+    parameters = _as_mapping(captured_body[0]["parameters"])
+    tools = _as_list(parameters["tools"])
+    assert _as_mapping(_as_mapping(tools[0])["function"])["name"] == "lookup"
+    assert tools[1] == {"type": "vendor_native", "name": "native"}
 
 
 @pytest.mark.asyncio
@@ -314,20 +349,23 @@ async def test_dashscope_generation_places_sdk_specific_params() -> None:
             json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
         )
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
-
-    result = await provider.get_response(
-        _response_request(
-            extra_params={
+    provider = DashScopeProvider(
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {
                 "customized_model_id": "cm_1",
-                "plugins": {"name": "search"},
-                "repetition_penalty": 1.1,
-                "presence_penalty": 0.2,
-                "enable_thinking": False,
-                "n": 2,
-            }
-        )
+                "plugins": '{"name":"search"}',
+                "repetition_penalty": "1.1",
+                "presence_penalty": "0.2",
+                "enable_thinking": "false",
+                "n": "2",
+            },
+        ),
+        transport=httpx.MockTransport(handler),
     )
+
+    result = await provider.get_response(_response_request())
 
     assert result["content"] == "ok"
     assert captured_headers == [{"plugin": '{"name":"search"}'}]
@@ -394,19 +432,22 @@ async def test_dashscope_generation_rejects_unconfirmed_host_response_format_jso
 
 
 @pytest.mark.asyncio
-async def test_dashscope_generation_rejects_response_format_conflict() -> None:
+async def test_dashscope_generation_ignores_extra_params_response_format() -> None:
     provider = DashScopeProvider(
         options=ProviderRuntimeOptions(),
-        transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}})
+        ),
     )
 
-    with pytest.raises(ValueError, match="response_format"):
-        await provider.get_response(
-            _response_request(
-                extra_params={"response_format": {"type": "json_object"}},
-                response_format={"format_type": "json_object"},
-            )
+    # extra_params 中的 response_format 完全无效，不再与 Host 类型字段冲突。
+    result = await provider.get_response(
+        _response_request(
+            extra_params={"response_format": {"type": "json_object"}},
+            response_format={"format_type": "json_object"},
         )
+    )
+    assert result["content"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -422,11 +463,13 @@ async def test_dashscope_generation_keeps_result_format_separate_from_response_f
             json={"output": {"choices": [{"message": {"content": "{}"}}]}, "usage": {}},
         )
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    provider = DashScopeProvider(
+        options=_overrides_options("dashscope", "chat_completion", {"result_format": "text"}),
+        transport=httpx.MockTransport(handler),
+    )
 
     await provider.get_response(
         _response_request(
-            extra_params={"result_format": "text"},
             response_format={"format_type": "json_object"},
         )
     )
@@ -466,7 +509,7 @@ async def test_dashscope_generation_request_sampling_overrides_model_sampling() 
 
 
 @pytest.mark.asyncio
-async def test_dashscope_generation_falls_back_to_model_sampling_when_request_fields_absent() -> None:
+async def test_dashscope_generation_does_not_fall_back_to_model_sampling() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -490,12 +533,14 @@ async def test_dashscope_generation_falls_back_to_model_sampling_when_request_fi
     )
 
     parameters = _as_mapping(captured_body[0]["parameters"])
-    assert parameters["temperature"] == 0.8
-    assert parameters["max_tokens"] == 256
+    # 请求字段为 None 时不再读取 model_info 补值。
+    assert "temperature" not in parameters
+    assert "max_tokens" not in parameters
+    assert "max_completion_tokens" not in parameters
 
 
 @pytest.mark.asyncio
-async def test_dashscope_generation_policy_disabled_paths_and_override_parameters() -> None:
+async def test_dashscope_generation_overrides_replace_host_fields() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -507,23 +552,20 @@ async def test_dashscope_generation_policy_disabled_paths_and_override_parameter
             json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
         )
 
-    policies = ParameterPolicyRegistry(
-        dashscope=ProviderCapabilityPolicies(
-            chat_completion=ParameterPolicy(
-                disabled_paths=("unknown_field",),
-                override_params={"body": {"parameters": {"enable_thinking": False}}},
-            )
-        )
-    )
     provider = DashScopeProvider(
-        options=ProviderRuntimeOptions(parameter_policies=policies),
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {"enable_thinking": "false", "top_p": "0.6"},
+        ),
         transport=httpx.MockTransport(handler),
     )
 
-    result = await provider.get_response(_response_request(extra_params={"unknown_field": 1, "enable_thinking": True}))
+    result = await provider.get_response(_response_request())
 
     parameters = _as_mapping(captured_body[0]["parameters"])
     assert parameters["enable_thinking"] is False
+    assert parameters["top_p"] == 0.6
     assert result["content"] == "ok"
 
 
@@ -580,7 +622,7 @@ async def test_dashscope_stream_handles_cumulative_chunks() -> None:
 
     provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
 
-    result = await provider.get_response(_response_request(stream=True, extra_params={"incremental_output": False}))
+    result = await provider.get_response(_response_request(stream=True))
 
     assert result["content"] == "你好"
 
@@ -608,6 +650,7 @@ async def test_dashscope_xml_tool_fallback_when_no_native_tool_calls() -> None:
     tool_calls = _as_list(result["tool_calls"])
     first_tool_call = _as_mapping(tool_calls[0])
     assert first_tool_call["function"] == {"name": "lookup", "arguments": {"q": "x"}}
+    assert _as_mapping(first_tool_call["extra_content"])["tool_call_source"] == "response"
 
 
 @pytest.mark.asyncio
@@ -713,7 +756,7 @@ async def test_dashscope_embedding_rejects_tongyi_vison_typo() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dashscope_embedding_accepts_native_dimension() -> None:
+async def test_dashscope_embedding_accepts_dimension_override() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -722,9 +765,12 @@ async def test_dashscope_embedding_accepts_native_dimension() -> None:
         captured_body.append(cast(dict, body))
         return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1]}]}, "usage": {}})
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    provider = DashScopeProvider(
+        options=_overrides_options("dashscope", "embeddings", {"dimensions": "256"}),
+        transport=httpx.MockTransport(handler),
+    )
 
-    await provider.get_embedding(_embedding_request("text-embedding-v4", extra_params={"dimension": 256}))
+    await provider.get_embedding(_embedding_request("text-embedding-v4"))
 
     parameters = _as_mapping(captured_body[0]["parameters"])
     assert parameters["dimension"] == 256
@@ -732,7 +778,7 @@ async def test_dashscope_embedding_accepts_native_dimension() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dashscope_embedding_translates_dimensions_to_body_parameters_dimension() -> None:
+async def test_dashscope_embedding_host_dimensions_map_to_body_parameters_dimension() -> None:
     captured_body: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -743,8 +789,9 @@ async def test_dashscope_embedding_translates_dimensions_to_body_parameters_dime
 
     provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
 
-    # extra_params.dimensions is mapped to body.parameters.dimension (DashScope native)
-    await provider.get_embedding(_embedding_request("text-embedding-v4", extra_params={"dimensions": 256}))
+    request = _embedding_request("text-embedding-v4")
+    request["dimensions"] = 256
+    await provider.get_embedding(request)
 
     parameters = _as_mapping(captured_body[0]["parameters"])
     assert parameters["dimension"] == 256
@@ -761,21 +808,23 @@ async def test_dashscope_embedding_accepts_sdk_params() -> None:
         captured_body.append(cast(dict, body))
         return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1]}]}, "usage": {}})
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
-
-    await provider.get_embedding(
-        _embedding_request(
-            "qwen2-vl-embedding",
-            extra_params={
+    provider = DashScopeProvider(
+        options=_overrides_options(
+            "dashscope",
+            "embeddings",
+            {
                 "output_type": "dense",
                 "instruct": "query",
-                "fps": 0.5,
-                "res_level": 2,
-                "max_video_frames": 8,
-                "auto_truncation": True,
+                "fps": "0.5",
+                "res_level": "2",
+                "max_video_frames": "8",
+                "auto_truncation": "true",
             },
-        )
+        ),
+        transport=httpx.MockTransport(handler),
     )
+
+    await provider.get_embedding(_embedding_request("qwen2-vl-embedding"))
 
     body = captured_body[0]
     assert body["input"] == {"contents": [{"text": "文本向量"}]}
@@ -798,10 +847,14 @@ async def test_dashscope_embedding_qwen3_defaults_enable_fusion_unless_overridde
         captured_body.append(cast(dict, body))
         return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1]}]}, "usage": {}})
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    default_provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    override_provider = DashScopeProvider(
+        options=_overrides_options("dashscope", "embeddings", {"enable_fusion": "false"}),
+        transport=httpx.MockTransport(handler),
+    )
 
-    await provider.get_embedding(_embedding_request("qwen3-vl-embedding"))
-    await provider.get_embedding(_embedding_request("qwen3-vl-embedding", extra_params={"enable_fusion": False}))
+    await default_provider.get_embedding(_embedding_request("qwen3-vl-embedding"))
+    await override_provider.get_embedding(_embedding_request("qwen3-vl-embedding"))
 
     first_parameters = _as_mapping(captured_body[0]["parameters"])
     second_parameters = _as_mapping(captured_body[1]["parameters"])
@@ -939,7 +992,7 @@ async def test_dashscope_multimodal_image_empty_skips_invalid_image() -> None:
 
 def test_dashscope_audio_transcription_build_request_format() -> None:
     """验证 build_audio_transcription_request 构建正确的 multimodal-generation 请求体"""
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         build_audio_transcription_request,
     )
 
@@ -959,23 +1012,23 @@ def test_dashscope_audio_transcription_build_request_format() -> None:
     body, headers, query = build_audio_transcription_request(request, options=ProviderRuntimeOptions())
 
     assert body["model"] == "qwen3-asr-flash"
-    assert body["parameters"]["result_format"] == "message"
+    assert json_str_at(body, "parameters", "result_format") == "message"
     assert headers == {}
     assert query == {}
-    content = body["input"]["messages"][0]["content"]
+    content = json_list_at(body, "input", "messages", 0, "content")
     assert len(content) == 1
-    audio_block = content[0]
+    audio_block = json_object_at(content, 0)
     assert "audio" in audio_block
-    assert audio_block["audio"].startswith("data:audio/wav;base64,")
+    assert json_str_at(audio_block, "audio").startswith("data:audio/wav;base64,")
 
 
 def test_dashscope_audio_transcription_parse_response() -> None:
     """从 multimodal-generation 响应中提取转录文本"""
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         parse_audio_transcription_response,
     )
 
-    payload = {"output": {"choices": [{"message": {"content": "你好世界"}}]}}
+    payload: dict[str, JsonValue] = {"output": {"choices": [{"message": {"content": "你好世界"}}]}}
     text, raw_data = parse_audio_transcription_response(payload, options=ProviderRuntimeOptions())
     assert text == "你好世界"
     assert raw_data is None
@@ -983,7 +1036,7 @@ def test_dashscope_audio_transcription_parse_response() -> None:
 
 def test_dashscope_audio_transcription_parse_missing_content_raises() -> None:
     """缺少 choices[0].message.content 时应报错"""
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         parse_audio_transcription_response,
     )
 
@@ -993,7 +1046,7 @@ def test_dashscope_audio_transcription_parse_missing_content_raises() -> None:
 
 def test_dashscope_audio_transcription_parse_include_raw_data() -> None:
     """include_raw_data=True 时应返回 raw_data"""
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         parse_audio_transcription_response,
     )
 
@@ -1001,13 +1054,12 @@ def test_dashscope_audio_transcription_parse_include_raw_data() -> None:
     text, raw_data = parse_audio_transcription_response(payload, options=ProviderRuntimeOptions(include_raw_data=True))
     assert text == "test"
     assert raw_data is not None
-    assert raw_data["output"]["choices"][0]["message"]["content"] == "test"
+    assert json_str_at(raw_data, "output", "choices", 0, "message", "content") == "test"
 
 
-def test_dashscope_audio_transcription_builder_pipeline_injects_extra_params() -> None:
-    """extra_params 通过 pipeline 注入 body（asr_options 级别）"""
-    from src.config import MaiDockConfig, build_parameter_policies
-    from src.providers.dashscope_provider.audio_transcriptions import (
+def test_dashscope_audio_transcription_builder_pipeline_injects_overrides() -> None:
+    """覆写目录通过 pipeline 注入 body（asr_options 级别）"""
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         build_audio_transcription_request,
     )
 
@@ -1018,23 +1070,22 @@ def test_dashscope_audio_transcription_builder_pipeline_injects_extra_params() -
     )
     request = AudioTranscriptionRequestSnapshot.model_validate(
         {
-            "model_info": {
-                "model_identifier": "qwen3-asr-flash",
-                "extra_params": {"language": "en", "enable_itn": False},
-            },
+            "model_info": {"model_identifier": "qwen3-asr-flash"},
             "api_provider": _api_provider(),
             "audio_base64": base64.b64encode(wav_header).decode(),
         }
     )
-    config = MaiDockConfig()
-    policies = build_parameter_policies(config)
-    options = ProviderRuntimeOptions(parameter_policies=policies)
+    options = _overrides_options(
+        "dashscope",
+        "audio_transcription",
+        {"language": "en", "enable_itn": "false"},
+    )
     body, _headers, _query = build_audio_transcription_request(request, options=options)
 
     assert body["model"] == "qwen3-asr-flash"
-    assert body["parameters"]["result_format"] == "message"
-    assert body["parameters"]["asr_options"]["language"] == "en"
-    assert body["parameters"]["asr_options"]["enable_itn"] is False
+    assert json_str_at(body, "parameters", "result_format") == "message"
+    assert json_str_at(body, "parameters", "asr_options", "language") == "en"
+    assert json_object_at(body, "parameters", "asr_options")["enable_itn"] is False
 
 
 @pytest.mark.asyncio
@@ -1215,7 +1266,7 @@ async def test_dashscope_image_request_never_falls_back_to_text_endpoint() -> No
 async def test_dashscope_json_errors_preserve_structured_fields(
     http_status: int,
 ) -> None:
-    from src.providers.dashscope_provider.errors import DashScopeApiError
+    from src.host_adapters.dashscope_provider.errors import DashScopeApiError
 
     async def handler(request: httpx.Request) -> httpx.Response:
         del request
@@ -1241,7 +1292,7 @@ async def test_dashscope_json_errors_preserve_structured_fields(
 
 @pytest.mark.asyncio
 async def test_dashscope_sse_error_preserves_structured_fields() -> None:
-    from src.providers.dashscope_provider.errors import DashScopeApiError
+    from src.host_adapters.dashscope_provider.errors import DashScopeApiError
 
     async def handler(request: httpx.Request) -> httpx.Response:
         del request
@@ -1295,7 +1346,7 @@ def _tool_chunk(
 
 
 def test_dashscope_stream_accepts_official_no_index_tool_chunks() -> None:
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     accumulator.merge_payload(_stream_payload(tools=[_tool_chunk(call_id="call_1", name="lookup", arguments="{")]))
@@ -1308,7 +1359,7 @@ def test_dashscope_stream_accepts_official_no_index_tool_chunks() -> None:
 
 
 def test_dashscope_stream_merges_parallel_ordinal_chunks_and_split_ids() -> None:
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     accumulator.merge_payload(
@@ -1343,7 +1394,7 @@ def test_dashscope_stream_merges_parallel_ordinal_chunks_and_split_ids() -> None
 
 
 def test_dashscope_stream_binds_late_index_and_replays_merged_slots() -> None:
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     accumulator.merge_payload(_stream_payload(tools=[_tool_chunk(arguments='{"q":')]))
@@ -1368,8 +1419,8 @@ def test_dashscope_stream_binds_late_index_and_replays_merged_slots() -> None:
 
 
 def test_dashscope_stream_rejects_only_real_identity_conflict() -> None:
-    from src.providers.common.httpx import HttpxProviderParseError
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.common.httpx import HttpxProviderParseError
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     accumulator.merge_payload(
@@ -1386,7 +1437,7 @@ def test_dashscope_stream_rejects_only_real_identity_conflict() -> None:
 
 
 def test_dashscope_stream_orders_explicit_indexes_before_provisional_slots() -> None:
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     accumulator.merge_payload(
@@ -1408,8 +1459,8 @@ def test_dashscope_stream_orders_explicit_indexes_before_provisional_slots() -> 
 
 
 def test_dashscope_stream_rejects_unidentified_fragment_with_multiple_pending_slots() -> None:
-    from src.providers.common.httpx import HttpxProviderParseError
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.common.httpx import HttpxProviderParseError
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     accumulator.merge_payload(
@@ -1444,7 +1495,7 @@ def test_dashscope_stream_rejects_unidentified_fragment_with_multiple_pending_sl
 def test_dashscope_stream_merges_reasoning_without_extra_newline(
     reasoning_chunks: list[str],
 ) -> None:
-    from src.providers.dashscope_provider.streaming import DashScopeStreamAccumulator
+    from src.host_adapters.dashscope_provider.streaming import DashScopeStreamAccumulator
 
     accumulator = DashScopeStreamAccumulator(options=ProviderRuntimeOptions())
     for reasoning in reasoning_chunks:
@@ -1468,19 +1519,25 @@ async def test_dashscope_new_native_parameters_are_validated_and_forwarded() -> 
             headers={"Content-Type": "text/event-stream"},
         )
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    provider = DashScopeProvider(
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {
+                "max_completion_tokens": "128",
+                "thinking_budget": "64",
+                "reasoning_effort": "xhigh",
+                "tool_stream": "true",
+                "enable_code_interpreter": "false",
+                "search_options": '{"forced_search":true}',
+                "vl_high_resolution_images": "true",
+            },
+        ),
+        transport=httpx.MockTransport(handler),
+    )
     await provider.get_response(
         _response_request(
             stream=True,
-            extra_params={
-                "max_completion_tokens": 128,
-                "thinking_budget": 64,
-                "reasoning_effort": "xhigh",
-                "tool_stream": True,
-                "enable_code_interpreter": False,
-                "search_options": {"forced_search": True},
-                "vl_high_resolution_images": True,
-            },
         )
     )
 
@@ -1549,9 +1606,12 @@ async def test_dashscope_explicit_legacy_max_tokens_disables_automatic_translati
             json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
         )
 
-    request = _response_request(extra_params={"max_tokens": 96}, request_max_tokens=None)
+    request = _response_request(request_max_tokens=None)
     request["model_info"]["model_identifier"] = "qwen3.7-max"
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
+    provider = DashScopeProvider(
+        options=_overrides_options("dashscope", "chat_completion", {"max_tokens": "96"}),
+        transport=httpx.MockTransport(handler),
+    )
     await provider.get_response(request)
 
     parameters = _as_mapping(captured_body[0]["parameters"])
@@ -1561,11 +1621,14 @@ async def test_dashscope_explicit_legacy_max_tokens_disables_automatic_translati
 
 @pytest.mark.asyncio
 async def test_dashscope_rejects_two_explicit_native_token_limits() -> None:
-    provider = DashScopeProvider(options=ProviderRuntimeOptions())
-    request = _response_request(
-        extra_params={"max_tokens": 96, "max_completion_tokens": 128},
-        request_max_tokens=None,
+    provider = DashScopeProvider(
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {"max_tokens": "96", "max_completion_tokens": "128"},
+        )
     )
+    request = _response_request(request_max_tokens=None)
 
     with pytest.raises(ValueError, match="max_tokens.*max_completion_tokens"):
         await provider.get_response(request)
@@ -1573,30 +1636,18 @@ async def test_dashscope_rejects_two_explicit_native_token_limits() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("policy", "model", "expected_field", "expected_value"),
+    ("overrides", "model", "expected_field", "expected_value"),
     [
         (
-            ParameterPolicy(disabled_paths=("body.parameters.max_completion_tokens",)),
-            "qwen3.7-max",
-            "max_tokens",
-            64,
-        ),
-        (
-            ParameterPolicy(rejected_paths=("body.parameters.max_completion_tokens",)),
-            "qwen3.7-max",
-            "max_tokens",
-            64,
-        ),
-        (
-            ParameterPolicy(override_params={"body": {"parameters": {"max_completion_tokens": 192}}}),
+            {"max_completion_tokens": "192"},
             "qwen-plus",
             "max_completion_tokens",
             192,
         ),
     ],
 )
-async def test_dashscope_automatic_token_target_respects_parameter_policy(
-    policy: ParameterPolicy,
+async def test_dashscope_automatic_token_target_respects_overrides(
+    overrides: dict,
     model: str,
     expected_field: str,
     expected_value: int,
@@ -1610,11 +1661,10 @@ async def test_dashscope_automatic_token_target_respects_parameter_policy(
             json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
         )
 
-    policies = ParameterPolicyRegistry(dashscope=ProviderCapabilityPolicies(chat_completion=policy))
     request = _response_request()
     request["model_info"]["model_identifier"] = model
     provider = DashScopeProvider(
-        options=ProviderRuntimeOptions(parameter_policies=policies),
+        options=_overrides_options("dashscope", "chat_completion", overrides),
         transport=httpx.MockTransport(handler),
     )
     await provider.get_response(request)
@@ -1629,23 +1679,22 @@ async def test_dashscope_automatic_token_target_respects_parameter_policy(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("max_completion_tokens", 0),
-        ("thinking_budget", -1),
+        ("max_completion_tokens", "0"),
+        ("thinking_budget", "-1"),
         ("reasoning_effort", "minimal"),
-        ("tool_stream", "true"),
-        ("enable_code_interpreter", 1),
-        ("search_options", []),
-        ("vl_high_resolution_images", "false"),
+        ("enable_code_interpreter", "1"),
+        ("search_options", "[]"),
+        ("tool_stream", "not-a-bool"),
+        ("vl_high_resolution_images", "1"),
     ],
 )
 async def test_dashscope_new_native_parameters_reject_invalid_values(field: str, value: object) -> None:
-    provider = DashScopeProvider(
-        options=ProviderRuntimeOptions(),
-        transport=httpx.MockTransport(lambda request: httpx.Response(200)),
-    )
-
     with pytest.raises((TypeError, ValueError), match=field):
-        await provider.get_response(_response_request(extra_params={field: value}))
+        provider = DashScopeProvider(
+            options=_overrides_options("dashscope", "chat_completion", {field: str(value)}),
+            transport=httpx.MockTransport(lambda request: httpx.Response(200)),
+        )
+        await provider.get_response(_response_request())
 
 
 @pytest.mark.asyncio
@@ -1659,18 +1708,16 @@ async def test_dashscope_tool_choice_required_uses_final_single_tool() -> None:
             json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
         )
 
-    final_tool = {
-        "type": "function",
-        "function": {"name": "final_lookup", "parameters": {"type": "object"}},
-    }
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
-    await provider.get_response(_response_request(extra_params={"tools": [final_tool], "tool_choice": "required"}))
+    provider = DashScopeProvider(
+        options=_overrides_options("dashscope", "chat_completion", {"tool_choice": '"required"'}),
+        transport=httpx.MockTransport(handler),
+    )
+    await provider.get_response(_response_request())
 
     parameters = _as_mapping(captured_body[0]["parameters"])
-    assert parameters["tools"] == [final_tool]
     assert parameters["tool_choice"] == {
         "type": "function",
-        "function": {"name": "final_lookup"},
+        "function": {"name": "lookup"},
     }
 
 
@@ -1679,7 +1726,7 @@ async def test_dashscope_tool_choice_required_uses_final_single_tool() -> None:
 async def test_dashscope_tool_choice_required_rejects_non_single_final_tools(
     tool_count: int,
 ) -> None:
-    request = _response_request(extra_params={"tool_choice": "required"})
+    request = _response_request()
     if tool_count == 0:
         request["tool_options"] = []
     else:
@@ -1693,7 +1740,7 @@ async def test_dashscope_tool_choice_required_rejects_non_single_final_tools(
             }
         )
     provider = DashScopeProvider(
-        options=ProviderRuntimeOptions(),
+        options=_overrides_options("dashscope", "chat_completion", {"tool_choice": '"required"'}),
         transport=httpx.MockTransport(lambda request: httpx.Response(200)),
     )
 
@@ -1703,24 +1750,26 @@ async def test_dashscope_tool_choice_required_rejects_non_single_final_tools(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "tool_choice",
+    "tool_choice_text",
     [
-        "required",
-        {"type": "function", "function": {"name": "lookup"}},
+        '"required"',
+        '{"type":"function","function":{"name":"lookup"}}',
     ],
 )
 async def test_dashscope_thinking_mode_rejects_forced_tool_choice(
-    tool_choice: object,
+    tool_choice_text: str,
 ) -> None:
     provider = DashScopeProvider(
-        options=ProviderRuntimeOptions(),
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {"enable_thinking": "true", "tool_choice": tool_choice_text},
+        ),
         transport=httpx.MockTransport(lambda request: httpx.Response(200)),
     )
 
     with pytest.raises(ValueError, match="auto/none"):
-        await provider.get_response(
-            _response_request(extra_params={"enable_thinking": True, "tool_choice": tool_choice})
-        )
+        await provider.get_response(_response_request())
 
 
 @pytest.mark.asyncio
@@ -1737,8 +1786,15 @@ async def test_dashscope_thinking_mode_accepts_unforced_tool_choice(
             json={"output": {"choices": [{"message": {"content": "ok"}}]}, "usage": {}},
         )
 
-    provider = DashScopeProvider(options=ProviderRuntimeOptions(), transport=httpx.MockTransport(handler))
-    await provider.get_response(_response_request(extra_params={"enable_thinking": True, "tool_choice": tool_choice}))
+    provider = DashScopeProvider(
+        options=_overrides_options(
+            "dashscope",
+            "chat_completion",
+            {"enable_thinking": "true", "tool_choice": f'"{tool_choice}"'},
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    await provider.get_response(_response_request())
 
     assert captured_body[0]["parameters"]["tool_choice"] == tool_choice
 
@@ -1748,7 +1804,7 @@ async def test_dashscope_thinking_mode_accepts_unforced_tool_choice(
 async def test_dashscope_auxiliary_capabilities_use_structured_errors(
     capability: str,
 ) -> None:
-    from src.providers.dashscope_provider.errors import DashScopeApiError
+    from src.host_adapters.dashscope_provider.errors import DashScopeApiError
 
     async def handler(request: httpx.Request) -> httpx.Response:
         del request
@@ -1806,7 +1862,7 @@ def _audio_request(audio: bytes, *, extra_params: dict | None = None) -> AudioTr
     ],
 )
 def test_dashscope_asr_accepts_documented_audio_formats(signature: bytes, mime: str) -> None:
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         build_audio_transcription_request,
     )
 
@@ -1815,12 +1871,12 @@ def test_dashscope_asr_accepts_documented_audio_formats(signature: bytes, mime: 
         options=ProviderRuntimeOptions(),
     )
 
-    audio_url = body["input"]["messages"][0]["content"][0]["audio"]
+    audio_url = json_str_at(body, "input", "messages", 0, "content", 0, "audio")
     assert audio_url.startswith(f"data:{mime};base64,")
 
 
 @pytest.mark.parametrize(
-    ("audio_base64", "extra_params", "error_match"),
+    ("audio_base64", "overrides", "error_match"),
     [
         ("not-base64!", {}, "Base64"),
         (base64.b64encode(b"unknown").decode(), {}, "格式|format"),
@@ -1834,10 +1890,10 @@ def test_dashscope_asr_accepts_documented_audio_formats(signature: bytes, mime: 
 )
 def test_dashscope_asr_rejects_invalid_audio(
     audio_base64: str,
-    extra_params: dict,
+    overrides: dict,
     error_match: str,
 ) -> None:
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         build_audio_transcription_request,
     )
 
@@ -1845,19 +1901,21 @@ def test_dashscope_asr_rejects_invalid_audio(
         {
             "model_info": {
                 "model_identifier": "qwen3-asr-flash",
-                "extra_params": extra_params,
             },
             "api_provider": _api_provider(),
             "audio_base64": audio_base64,
         }
     )
+    options = (
+        _overrides_options("dashscope", "audio_transcription", overrides) if overrides else ProviderRuntimeOptions()
+    )
 
     with pytest.raises((TypeError, ValueError), match=error_match):
-        build_audio_transcription_request(request, options=ProviderRuntimeOptions())
+        build_audio_transcription_request(request, options=options)
 
 
 def test_dashscope_asr_rejects_base64_larger_than_ten_mib() -> None:
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         build_audio_transcription_request,
     )
 
@@ -1874,7 +1932,7 @@ def test_dashscope_asr_rejects_base64_larger_than_ten_mib() -> None:
 
 
 def test_dashscope_asr_consumes_format_hints_locally() -> None:
-    from src.providers.dashscope_provider.audio_transcriptions import (
+    from src.host_adapters.dashscope_provider.audio_transcriptions import (
         build_audio_transcription_request,
     )
 
@@ -1888,5 +1946,5 @@ def test_dashscope_asr_consumes_format_hints_locally() -> None:
 
     assert "format" not in body
     assert "audio_format" not in body
-    assert "format" not in body["parameters"]
-    assert "audio_format" not in body["parameters"]
+    assert "format" not in json_object_at(body, "parameters")
+    assert "audio_format" not in json_object_at(body, "parameters")
